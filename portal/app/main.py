@@ -1,4 +1,12 @@
 """OMC Portal - Main FastAPI application."""
+import sys
+from pathlib import Path as _Path
+
+# Add project root to path so 'ai' package is importable
+_project_root = str(_Path(__file__).parent.parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 from fastapi import FastAPI, Request, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
