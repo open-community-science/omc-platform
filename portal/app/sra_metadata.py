@@ -9,6 +9,80 @@ from typing import Optional
 Entrez.email = "omc@opencommunity.science"
 
 
+async def resolve_to_bioproject(accession: str) -> dict:
+    """
+    Resolve any INSDC accession to its parent BioProject.
+
+    Accepts SRR/ERR/DRR, SRX, SRP, SAMN/SAME/SAMD, or PRJNA.
+    Always returns BioProject-level metadata with the resolved accession.
+    Includes 'resolved_from' if the input was not already a BioProject.
+    """
+    accession = accession.strip().upper()
+
+    if accession.startswith("PRJNA"):
+        return await _fetch_bioproject(accession)
+
+    # For SRA accessions, fetch the record and extract the BioProject link
+    if accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP")):
+        sra_meta = await _fetch_sra(accession)
+        if "error" in sra_meta:
+            return sra_meta
+
+        bioproject_id = sra_meta.get("bioproject_accession")
+        if bioproject_id:
+            bp_meta = await _fetch_bioproject(bioproject_id)
+            bp_meta["resolved_from"] = accession
+            return bp_meta
+        else:
+            # Fallback: try elink
+            bioproject_id = await _resolve_bioproject_via_elink("sra", accession)
+            if bioproject_id:
+                bp_meta = await _fetch_bioproject(bioproject_id)
+                bp_meta["resolved_from"] = accession
+                return bp_meta
+            return {"error": f"Could not resolve {accession} to a BioProject", "accession": accession}
+
+    # For BioSample accessions, fetch XML and parse the BioProject link
+    if accession.startswith(("SAMN", "SAME", "SAMD")):
+        bioproject_id = await _resolve_bioproject_from_biosample(accession)
+        if bioproject_id:
+            bp_meta = await _fetch_bioproject(bioproject_id)
+            bp_meta["resolved_from"] = accession
+            return bp_meta
+        return {"error": f"Could not resolve {accession} to a BioProject", "accession": accession}
+
+    return {"error": f"Unrecognized accession format: {accession}", "accession": accession}
+
+
+async def _resolve_bioproject_from_biosample(accession: str) -> Optional[str]:
+    """Parse the BioProject accession from BioSample XML Link elements."""
+    try:
+        search_handle = Entrez.esearch(db="biosample", term=accession)
+        search_results = Entrez.read(search_handle)
+        search_handle.close()
+
+        if not search_results["IdList"]:
+            return None
+
+        bs_id = search_results["IdList"][0]
+        fetch_handle = Entrez.efetch(db="biosample", id=bs_id, rettype="full", retmode="xml")
+        xml_data = fetch_handle.read()
+        fetch_handle.close()
+
+        if isinstance(xml_data, str):
+            xml_data = xml_data.encode()
+
+        root = ElementTree.fromstring(xml_data)
+        for link in root.iter("Link"):
+            if link.get("target") == "bioproject":
+                label = link.get("label", "")
+                if label.startswith("PRJNA"):
+                    return label
+        return None
+    except Exception:
+        return None
+
+
 async def fetch_sra_metadata(accession: str) -> dict:
     """
     Fetch full metadata for an SRA/BioSample/BioProject accession from NCBI.
@@ -73,8 +147,8 @@ async def _fetch_bioproject(accession: str) -> dict:
 
         project_data = summary.get("DocumentSummarySet", {}).get("DocumentSummary", [{}])[0]
 
-        # Find linked SRA runs via esearch (more reliable than elink)
-        sra_search = Entrez.esearch(db="sra", term=accession, retmax=200)
+        # Find all linked SRA runs via esearch
+        sra_search = Entrez.esearch(db="sra", term=accession, retmax=500)
         sra_results = Entrez.read(sra_search)
         sra_search.close()
 
@@ -93,30 +167,10 @@ async def _fetch_bioproject(accession: str) -> dict:
             "num_sra_runs": total_runs,
         }
 
-        # Fetch metadata for the first SRA run as a representative sample
+        # Summarize ALL runs via esummary (lightweight, ~200 bytes per run)
         if sra_ids:
-            first_run_handle = Entrez.efetch(
-                db="sra", id=sra_ids[0], rettype="full", retmode="xml"
-            )
-            first_xml = first_run_handle.read()
-            first_run_handle.close()
-            sample_metadata = _parse_sra_xml(first_xml, accession)
-
-            # Merge useful fields from the sample run into the top-level
-            for field in ["platform", "instrument_model", "library_strategy",
-                          "library_source", "library_layout", "study_title"]:
-                if field in sample_metadata and field not in metadata:
-                    metadata[field] = sample_metadata[field]
-
-            # Use organism from SRA if BioProject didn't have it
-            if not metadata["organism"] and sample_metadata.get("organism"):
-                metadata["organism"] = sample_metadata["organism"]
-
-            # Include sample attributes from the representative run
-            if "sample_attributes" in sample_metadata:
-                metadata["sample_attributes"] = sample_metadata["sample_attributes"]
-
-            metadata["sample_run_metadata"] = sample_metadata
+            project_summary = _summarize_sra_esummary(sra_ids)
+            metadata.update(project_summary)
 
         return metadata
 
@@ -227,6 +281,242 @@ def _parse_biosample_xml(xml_data: str | bytes, accession: str) -> dict:
     return metadata
 
 
+def _summarize_sra_esummary(sra_ids: list[str]) -> dict:
+    """Summarize all SRA runs using esummary (lightweight per-run metadata).
+
+    Returns a breakdown table: each unique (platform, instrument, strategy,
+    source, layout) combination gets run and sample counts plus data totals.
+    Also returns aggregate organism list.
+    """
+    from collections import defaultdict
+
+    # Per-combination tracking
+    # Key: (platform, instrument, strategy, source, layout)
+    combo_runs = defaultdict(int)
+    combo_samples = defaultdict(set)
+    combo_bases = defaultdict(int)
+    combo_spots = defaultdict(int)
+
+    organisms = set()
+    all_samples = set()
+    total_bases = 0
+    total_spots = 0
+
+    # Process in batches of 200 (NCBI esummary limit)
+    for i in range(0, len(sra_ids), 200):
+        batch = sra_ids[i:i + 200]
+        try:
+            summary_handle = Entrez.esummary(db="sra", id=",".join(batch))
+            summaries = Entrez.read(summary_handle)
+            summary_handle.close()
+        except Exception:
+            continue
+
+        for record in summaries:
+            exp_xml = record.get("ExpXml", "")
+            runs_xml = record.get("Runs", "")
+
+            try:
+                frag = ElementTree.fromstring(f"<root>{exp_xml}{runs_xml}</root>")
+            except ElementTree.ParseError:
+                continue
+
+            # Extract fields for this run
+            platform = ""
+            instrument = ""
+            plat_el = frag.find(".//Platform")
+            if plat_el is not None:
+                platform = plat_el.text or ""
+                instrument = plat_el.get("instrument_model", "")
+
+            strategy = ""
+            strat_el = frag.find(".//LIBRARY_STRATEGY")
+            if strat_el is not None and strat_el.text:
+                strategy = strat_el.text
+
+            source = ""
+            src_el = frag.find(".//LIBRARY_SOURCE")
+            if src_el is not None and src_el.text:
+                source = src_el.text
+
+            layout = ""
+            layout_el = frag.find(".//LIBRARY_LAYOUT")
+            if layout_el is not None and len(layout_el) > 0:
+                layout = list(layout_el)[0].tag
+
+            # Organism
+            org_el = frag.find(".//Organism")
+            if org_el is not None:
+                name = org_el.get("ScientificName", "")
+                if name:
+                    organisms.add(name)
+
+            # Sample accession
+            sample_acc = ""
+            bs_el = frag.find(".//Biosample")
+            if bs_el is not None and bs_el.text:
+                sample_acc = bs_el.text
+            else:
+                sample_el = frag.find(".//Sample")
+                if sample_el is not None:
+                    sample_acc = sample_el.get("acc", "")
+
+            if sample_acc:
+                all_samples.add(sample_acc)
+
+            # Run data
+            run_bases = 0
+            run_spots = 0
+            for run_el in frag.iter("Run"):
+                try:
+                    run_spots += int(run_el.get("total_spots", "0"))
+                    run_bases += int(run_el.get("total_bases", "0"))
+                except ValueError:
+                    pass
+
+            total_bases += run_bases
+            total_spots += run_spots
+
+            # Accumulate per combination
+            key = (platform, instrument, strategy, source, layout)
+            combo_runs[key] += 1
+            if sample_acc:
+                combo_samples[key].add(sample_acc)
+            combo_bases[key] += run_bases
+            combo_spots[key] += run_spots
+
+    # Build breakdown table (list of dicts, sorted by run count desc)
+    breakdown = []
+    for key in sorted(combo_runs, key=lambda k: combo_runs[k], reverse=True):
+        platform, instrument, strategy, source, layout = key
+        breakdown.append({
+            "platform": platform,
+            "instrument": instrument,
+            "strategy": strategy,
+            "source": source,
+            "layout": layout,
+            "runs": combo_runs[key],
+            "samples": len(combo_samples[key]),
+            "bases": combo_bases[key],
+            "spots": combo_spots[key],
+        })
+
+    summary = {
+        "breakdown": breakdown,
+        "num_samples": len(all_samples),
+    }
+
+    if organisms:
+        summary["organism"] = ", ".join(sorted(organisms)) if len(organisms) <= 3 else f"{sorted(organisms)[0]} + {len(organisms)-1} others"
+
+    # Convenience: flatten unique values for pipeline auto-selection
+    summary["library_strategy"] = ", ".join(sorted({b["strategy"] for b in breakdown if b["strategy"]}))
+    summary["platform"] = ", ".join(sorted({b["platform"] for b in breakdown if b["platform"]}))
+    summary["library_source"] = ", ".join(sorted({b["source"] for b in breakdown if b["source"]}))
+    summary["library_layout"] = ", ".join(sorted({b["layout"] for b in breakdown if b["layout"]}))
+    summary["instrument_model"] = ", ".join(sorted({b["instrument"] for b in breakdown if b["instrument"]}))
+
+    if total_bases > 0:
+        summary["total_bases"] = total_bases
+        summary["total_spots"] = total_spots
+
+    return summary
+
+
+def _summarize_sra_batch(xml_data: str | bytes, accession: str) -> dict:
+    """Parse multiple SRA experiment packages and return a project-level summary."""
+    if isinstance(xml_data, str):
+        xml_data = xml_data.encode()
+
+    root = ElementTree.fromstring(xml_data)
+
+    platforms = set()
+    instruments = set()
+    strategies = set()
+    sources = set()
+    layouts = set()
+    organisms = set()
+    experiments = set()
+    samples = set()
+    total_bases = 0
+    total_spots = 0
+
+    for exp_pkg in root.iter("EXPERIMENT_PACKAGE"):
+        # Experiment accession
+        exp = exp_pkg.find(".//EXPERIMENT")
+        if exp is not None:
+            experiments.add(exp.get("accession", ""))
+
+            platform = exp.find(".//PLATFORM")
+            if platform is not None:
+                for child in platform:
+                    platforms.add(child.tag)
+                    model_el = child.find("INSTRUMENT_MODEL")
+                    if model_el is not None and model_el.text:
+                        instruments.add(model_el.text)
+
+            lib = exp.find(".//LIBRARY_DESCRIPTOR")
+            if lib is not None:
+                for field, target in [("LIBRARY_STRATEGY", strategies),
+                                      ("LIBRARY_SOURCE", sources),
+                                      ("LIBRARY_LAYOUT", layouts)]:
+                    el = lib.find(f".//{field}")
+                    if el is not None:
+                        if len(el) > 0:
+                            target.add(list(el)[0].tag)
+                        elif el.text:
+                            target.add(el.text)
+
+        # Sample
+        sample = exp_pkg.find(".//SAMPLE")
+        if sample is not None:
+            samples.add(sample.get("accession", ""))
+            sci_name = sample.find(".//SCIENTIFIC_NAME")
+            if sci_name is not None and sci_name.text:
+                organisms.add(sci_name.text)
+
+        # Run totals
+        run = exp_pkg.find(".//RUN")
+        if run is not None:
+            spots = run.get("total_spots", "0")
+            bases = run.get("total_bases", "0")
+            try:
+                total_spots += int(spots)
+                total_bases += int(bases)
+            except ValueError:
+                pass
+
+    # Use first values for single-value fields, list for multi
+    summary = {}
+
+    if organisms:
+        summary["organism"] = ", ".join(sorted(organisms)) if len(organisms) <= 3 else f"{sorted(organisms)[0]} + {len(organisms)-1} others"
+    if platforms:
+        summary["platform"] = ", ".join(sorted(platforms))
+    if instruments:
+        summary["instrument_model"] = ", ".join(sorted(instruments))
+    if strategies:
+        summary["library_strategy"] = ", ".join(sorted(strategies))
+    if sources:
+        summary["library_source"] = ", ".join(sorted(sources))
+    if layouts:
+        summary["library_layout"] = ", ".join(sorted(layouts))
+
+    summary["num_experiments"] = len(experiments)
+    summary["num_samples_seen"] = len(samples)
+
+    if total_bases > 0:
+        summary["total_bases_sampled"] = total_bases
+        summary["total_spots_sampled"] = total_spots
+
+    # Get study title from first experiment package
+    first_study = root.find(".//STUDY/DESCRIPTOR/STUDY_TITLE")
+    if first_study is not None and first_study.text:
+        summary["study_title"] = first_study.text
+
+    return summary
+
+
 def _parse_sra_xml(xml_data: str | bytes, accession: str) -> dict:
     """Parse SRA XML response into a clean metadata dict."""
     if isinstance(xml_data, str):
@@ -281,6 +571,12 @@ def _parse_sra_xml(xml_data: str | bytes, accession: str) -> dict:
             title = study.find(".//STUDY_TITLE")
             if title is not None:
                 metadata["study_title"] = title.text
+
+            # Extract BioProject accession from EXTERNAL_ID
+            for ext_id in study.iter("EXTERNAL_ID"):
+                if ext_id.get("namespace") == "BioProject" and ext_id.text:
+                    metadata["bioproject_accession"] = ext_id.text
+                    break
 
         # Sample info
         sample = exp_pkg.find(".//SAMPLE")

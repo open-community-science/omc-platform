@@ -127,6 +127,23 @@ body {
     background: var(--color-bg);
 }
 
+.btn-delete {
+    background: none;
+    color: var(--color-secondary);
+    border: none;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    cursor: pointer;
+}
+
+.btn-delete:hover {
+    color: var(--color-error);
+}
+
+.delete-form {
+    display: inline;
+}
+
 .btn-large {
     padding: 0.875rem 2rem;
     font-size: 1.125rem;
@@ -536,6 +553,87 @@ body {
 
 .error-text {
     color: var(--color-error);
+}
+
+/* Breakdown table (platform/strategy/source/layout per combo) */
+.breakdown-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+    margin-top: 0.75rem;
+}
+
+.breakdown-table th,
+.breakdown-table td {
+    padding: 0.375rem 0.5rem;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border, #e2e8f0);
+}
+
+.breakdown-table th {
+    font-weight: 600;
+    background: var(--color-bg, #f8fafc);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-secondary, #64748b);
+}
+
+.breakdown-table td small {
+    color: var(--color-secondary, #64748b);
+    font-size: 0.6875rem;
+}
+
+.breakdown-table.transposed th {
+    text-align: right;
+    padding-right: 1rem;
+    white-space: nowrap;
+    background: none;
+}
+
+.breakdown-table.transposed td {
+    text-align: left;
+}
+
+/* Selectable breakdown columns */
+.breakdown-table.selectable td.selected {
+    background: color-mix(in srgb, var(--color-primary, #2563eb) 8%, transparent);
+}
+
+.breakdown-table.selectable td.disabled {
+    opacity: 0.35;
+}
+
+.breakdown-table.selectable input[type="checkbox"] {
+    cursor: pointer;
+    width: 1rem;
+    height: 1rem;
+}
+
+.selection-summary {
+    font-size: 0.8125rem;
+    margin-top: 0.5rem;
+    color: var(--color-secondary, #64748b);
+}
+
+/* Multi-step submit form */
+.submit-form .step {
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--color-border, #e2e8f0);
+}
+
+.step-heading {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--color-text, #1e293b);
+}
+
+.step-desc {
+    font-size: 0.8125rem;
+    color: var(--color-secondary, #64748b);
+    margin-bottom: 0.5rem;
 }
 
 /* SRA metadata on detail page */

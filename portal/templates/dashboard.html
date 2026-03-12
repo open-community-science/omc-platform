@@ -15,7 +15,7 @@
         <div class="submission-card">
             <div class="submission-info">
                 <h3><a href="/submissions/{{ sub.id }}">{{ sub.title or 'Untitled' }}</a></h3>
-                <p class="accession">{{ sub.sra_accession }} &middot; {{ sub.pipeline.value }}</p>
+                <p class="accession">{{ sub.bioproject_accession }} &middot; {{ sub.pipeline.value }}</p>
                 <p class="date">Created {{ sub.created_at.strftime('%Y-%m-%d') }}</p>
             </div>
             <div class="submission-status">
@@ -23,6 +23,10 @@
                 {% if sub.github_repo %}
                 <a href="{{ sub.github_repo }}" target="_blank" class="github-link">View on GitHub</a>
                 {% endif %}
+                <form action="/submissions/{{ sub.id }}/delete" method="POST" class="delete-form"
+                      onsubmit="return confirm('Delete this submission?')">
+                    <button type="submit" class="btn btn-delete">Delete</button>
+                </form>
             </div>
         </div>
         {% endfor %}

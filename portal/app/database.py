@@ -26,7 +26,10 @@ class SubmissionStatus(str, enum.Enum):
 
 class PipelineType(str, enum.Enum):
     NANOPORE_MAG = "nanopore_mag"
+    ILLUMINA_MAG = "illumina_mag"
     MICROSCAPE = "microscape"
+    RNASEQ = "rnaseq"
+    ISOLATE_GENOME = "isolate_genome"
 
 
 class User(Base):
@@ -52,8 +55,10 @@ class Submission(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    # SRA/data info
-    sra_accession = Column(String(50), nullable=False)
+    # Project & data info
+    bioproject_accession = Column(String(50), nullable=False)
+    sra_accession = Column(String(50))  # original accession entered by user
+    selected_runs = Column(JSON)  # list of SRA run accessions chosen during interview
     pipeline = Column(Enum(PipelineType), nullable=False)
 
     # Status tracking

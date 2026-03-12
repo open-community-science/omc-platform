@@ -11,8 +11,13 @@
 
     <div class="submission-meta">
         <dl>
-            <dt>SRA Accession</dt>
-            <dd><a href="https://www.ncbi.nlm.nih.gov/sra/{{ submission.sra_accession }}" target="_blank">{{ submission.sra_accession }}</a></dd>
+            <dt>BioProject</dt>
+            <dd><a href="https://www.ncbi.nlm.nih.gov/bioproject/{{ submission.bioproject_accession }}" target="_blank">{{ submission.bioproject_accession }}</a></dd>
+
+            {% if submission.sra_accession %}
+            <dt>Entered as</dt>
+            <dd>{{ submission.sra_accession }}</dd>
+            {% endif %}
 
             <dt>Pipeline</dt>
             <dd>{{ submission.pipeline.value }}</dd>
@@ -37,9 +42,75 @@
         </dl>
     </div>
 
-    {% if submission.sample_metadata and submission.sample_metadata.get('organism') %}
+    {% if submission.sample_metadata and (submission.sample_metadata.get('organism') or submission.sample_metadata.get('type')) %}
     <div class="sra-metadata">
         <h2>SRA Metadata</h2>
+
+        {% if submission.sample_metadata.get('type') == 'BioProject' %}
+        {# ── Project-level summary ── #}
+        <dl>
+            {% if submission.sample_metadata.get('title') %}
+            <dt>Project Title</dt>
+            <dd>{{ submission.sample_metadata.title }}</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('description') %}
+            <dt>Description</dt>
+            <dd>{{ submission.sample_metadata.description }}</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('organism') %}
+            <dt>Organism</dt>
+            <dd>{{ submission.sample_metadata.organism | replace(', ', '<br>') | safe }}</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('organization') %}
+            <dt>Organization</dt>
+            <dd>{{ submission.sample_metadata.organization }}</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('registration_date') %}
+            <dt>Registered</dt>
+            <dd>{{ submission.sample_metadata.registration_date }}</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('num_sra_runs') %}
+            <dt>SRA Runs</dt>
+            <dd>{{ submission.sample_metadata.num_sra_runs }}</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('num_samples') %}
+            <dt>Samples</dt>
+            <dd>{{ submission.sample_metadata.num_samples }}</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('total_bases') %}
+            <dt>Data</dt>
+            <dd>{{ "{:,}".format(submission.sample_metadata.total_spots) }} reads, {{ (submission.sample_metadata.total_bases / 1e9) | round(2) }} Gbp</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('study_title') %}
+            <dt>Study</dt>
+            <dd>{{ submission.sample_metadata.study_title }}</dd>
+            {% endif %}
+        </dl>
+
+        {% if submission.sample_metadata.get('breakdown') %}
+        {% set rows = submission.sample_metadata.breakdown %}
+        <table class="breakdown-table transposed">
+            <tr><th>Platform</th>{% for r in rows %}<td>{{ r.platform }}</td>{% endfor %}</tr>
+            <tr><th>Instrument</th>{% for r in rows %}<td>{{ r.instrument }}</td>{% endfor %}</tr>
+            <tr><th>Strategy</th>{% for r in rows %}<td>{{ r.strategy }}</td>{% endfor %}</tr>
+            <tr><th>Source</th>{% for r in rows %}<td>{{ r.source }}</td>{% endfor %}</tr>
+            <tr><th>Layout</th>{% for r in rows %}<td>{{ r.layout }}</td>{% endfor %}</tr>
+            <tr><th>Runs</th>{% for r in rows %}<td>{{ r.runs }}</td>{% endfor %}</tr>
+            <tr><th>Samples</th>{% for r in rows %}<td>{{ r.samples }}</td>{% endfor %}</tr>
+            <tr><th>Data</th>{% for r in rows %}<td>{% if r.bases %}{{ (r.bases / 1e9) | round(2) }} Gbp{% endif %}</td>{% endfor %}</tr>
+        </table>
+        {% endif %}
+
+        {% else %}
+        {# ── Single run / BioSample view ── #}
         <dl>
             {% if submission.sample_metadata.get('organism') %}
             <dt>Organism</dt>
@@ -82,6 +153,7 @@
                 {% endfor %}
             </dl>
         </details>
+        {% endif %}
         {% endif %}
     </div>
     {% endif %}

@@ -10,7 +10,7 @@ from .config import get_settings
 from .database import get_db, Submission, User, SubmissionStatus, PipelineType
 from .auth import require_user
 from .slurm import submit_pipeline_job
-from .sra_metadata import fetch_sra_metadata
+from .sra_metadata import fetch_sra_metadata, resolve_to_bioproject
 
 router = APIRouter(prefix="/submissions", tags=["submissions"])
 settings = get_settings()
@@ -22,10 +22,13 @@ async def create_submission(
     sra_accession: str = Form(...),
     pipeline: str = Form(...),
     title: Optional[str] = Form(None),
+    selected_breakdown: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
     """Create a new submission."""
+    import json as _json
+
     # Validate SRA accession format (basic check)
     sra_accession = sra_accession.strip().upper()
     if not (sra_accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA", "SAMN", "SAME", "SAMD"))):
@@ -37,23 +40,37 @@ async def create_submission(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid pipeline selection")
 
-    # Fetch SRA metadata from NCBI
-    sra_metadata = await fetch_sra_metadata(sra_accession)
+    # Resolve to BioProject (any accession → PRJNA)
+    project_metadata = await resolve_to_bioproject(sra_accession)
+
+    bioproject_acc = project_metadata.get("accession", sra_accession)
+
+    # Parse selected breakdown indices and store the selected subset metadata
+    selected_data = None
+    if selected_breakdown and project_metadata.get("breakdown"):
+        try:
+            indices = _json.loads(selected_breakdown)
+            breakdown = project_metadata["breakdown"]
+            selected_data = [breakdown[i] for i in indices if i < len(breakdown)]
+        except (ValueError, IndexError):
+            pass
 
     # Use study title as default paper title if available
     default_title = (
-        sra_metadata.get("study_title")
-        or sra_metadata.get("title")
-        or f"Analysis of {sra_accession}"
+        project_metadata.get("study_title")
+        or project_metadata.get("title")
+        or f"Analysis of {bioproject_acc}"
     )
 
     # Create submission
     submission = Submission(
         user_id=user.id,
-        sra_accession=sra_accession,
+        bioproject_accession=bioproject_acc,
+        sra_accession=sra_accession if sra_accession != bioproject_acc else None,
+        selected_runs=selected_data,
         pipeline=pipeline_type,
         title=title or default_title,
-        sample_metadata=sra_metadata,
+        sample_metadata=project_metadata,
         status=SubmissionStatus.DRAFT,
     )
     db.add(submission)
@@ -65,12 +82,12 @@ async def create_submission(
 
 @router.get("/lookup/{accession}")
 async def lookup_accession(accession: str):
-    """Live lookup of SRA metadata for the submission form."""
+    """Live lookup — resolves any accession to its parent BioProject."""
     accession = accession.strip().upper()
     if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA", "SAMN", "SAME", "SAMD")):
         return {"error": "Invalid accession format"}
 
-    metadata = await fetch_sra_metadata(accession)
+    metadata = await resolve_to_bioproject(accession)
     return metadata
 
 
@@ -141,6 +158,29 @@ async def get_status(
     }
 
 
+@router.post("/{submission_id}/delete")
+async def delete_submission(
+    submission_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Delete a submission."""
+    stmt = select(Submission).where(
+        Submission.id == submission_id,
+        Submission.user_id == user.id,
+    )
+    result = await db.execute(stmt)
+    submission = result.scalar_one_or_none()
+
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    await db.delete(submission)
+    await db.commit()
+
+    return RedirectResponse(url="/dashboard", status_code=302)
+
+
 @router.get("")
 async def list_submissions(
     db: AsyncSession = Depends(get_db),
@@ -154,6 +194,7 @@ async def list_submissions(
     return [
         {
             "id": s.id,
+            "bioproject_accession": s.bioproject_accession,
             "sra_accession": s.sra_accession,
             "pipeline": s.pipeline.value,
             "title": s.title,
