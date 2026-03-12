@@ -130,16 +130,36 @@ def format_bibtex_entry(article: dict, key: str) -> str:
 
 
 def format_inline_citation(article: dict, key: str) -> str:
-    """Format an inline citation like (Author et al., Year)."""
+    """Format an inline citation like (Author et al., Year).
+
+    Handles PubMed-style names ("Smith J") and standard ("J Smith").
+    """
     authors = article.get("authors", [])
     year = article.get("year", "")
     if not authors:
         return f"[@{key}]"
-    first = authors[0].split()[-1] if authors[0] else "Unknown"
+    first = _surname(authors[0])
     if len(authors) == 1:
         return f"({first}, {year})"
     elif len(authors) == 2:
-        second = authors[1].split()[-1] if authors[1] else ""
+        second = _surname(authors[1])
         return f"({first} & {second}, {year})"
     else:
         return f"({first} et al., {year})"
+
+
+def _surname(name: str) -> str:
+    """Extract surname from author name in any common format.
+
+    PubMed: "Smith J" → "Smith", standard: "J Smith" → "Smith".
+    """
+    if not name:
+        return "Unknown"
+    parts = name.split()
+    if len(parts) == 1:
+        return parts[0]
+    # If last part is a single letter/initial, surname is first part (PubMed style)
+    if len(parts[-1]) <= 2:
+        return parts[0]
+    # Otherwise surname is last part
+    return parts[-1]

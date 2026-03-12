@@ -1,4 +1,6 @@
 """AI-powered manuscript generation from pipeline outputs and author interview."""
+import asyncio
+import inspect
 import json
 import logging
 from .llm_client import get_client, chat
@@ -144,11 +146,13 @@ Write a single paragraph (200-300 words) covering:
 4. Conclusions""",
         model=model, max_tokens=500)
 
-    # Resolve [CITE] placeholders across all sections (non-blocking)
+    # Resolve [CITE] placeholders via PubMed search (non-blocking)
     try:
+        from .pubmed_search import search_pubmed
         sections, bibliography = await resolve_citations(
             sections,
             pipeline_type=pipeline_type,
+            search_fn=search_pubmed,
             base_url=base_url,
             api_key=api_key,
             model=model,
@@ -232,16 +236,22 @@ async def resolve_citations(
         article = None
         if search_fn:
             try:
-                results = search_fn(query)
+                result = search_fn(query)
+                if inspect.isawaitable(result):
+                    result = await result
+                results = result
                 if results:
                     article = results[0]
             except Exception as e:
                 log.warning(f"Search failed for query '{query}': {e}")
+            # Rate limit between searches
+            await asyncio.sleep(0.5)
 
         if article:
             # Generate citation key: firstauthor2023keyword
             authors = article.get("authors", [])
-            first_author = authors[0].split()[-1].lower() if authors else "unknown"
+            from .citation_resolver import _surname
+            first_author = _surname(authors[0]).lower() if authors else "unknown"
             year = article.get("year", "")
             title_word = article.get("title", "").split()[0].lower() if article.get("title") else "ref"
             cite_key = f"{first_author}{year}{title_word}"
