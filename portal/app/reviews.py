@@ -1,7 +1,13 @@
-"""Review endpoints - trigger AI reviews on manuscripts."""
-from fastapi import APIRouter, Request, Depends, HTTPException
-from fastapi.responses import JSONResponse
+"""Review endpoints - trigger AI reviews on manuscripts.
+
+Reviews always produce GitHub PRs on the paper's repository.
+Each review type (statistical, methodological, clarity) gets its own PR
+with structured comments, matching OMC's git-native review model.
+"""
+import logging
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import attributes
 from sqlalchemy import select
 
 from .config import get_settings
@@ -10,6 +16,28 @@ from .auth import require_user
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 settings = get_settings()
+logger = logging.getLogger(__name__)
+
+
+def _format_review_as_markdown(review: dict) -> str:
+    """Convert a structured review dict into a readable markdown comment."""
+    review_type = review.get("review_type", "general")
+    lines = [f"## AI Review: {review_type.title()}\n"]
+
+    if review.get("summary"):
+        lines.append(f"**Summary:** {review['summary']}\n")
+
+    for comment in review.get("comments", []):
+        severity = comment.get("severity", "suggestion")
+        confidence = comment.get("confidence", 0.5)
+        badge = {"critical": "🔴", "major": "🟠", "minor": "🟡", "suggestion": "💡"}.get(severity, "💡")
+
+        lines.append(f"### {badge} [{severity.upper()}] {comment.get('issue', '')}")
+        lines.append(f"**Section:** {comment.get('section', 'general')} · **Confidence:** {confidence:.0%}\n")
+        lines.append(comment.get("detail", ""))
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 @router.post("/{submission_id}/run")
@@ -20,11 +48,12 @@ async def run_reviews(
 ):
     """Run all AI review agents on a submission's manuscript.
 
-    Requires the submission to have generated manuscript sections
-    (stored in interview_data under _manuscript key).
+    Each review agent produces a GitHub PR on the paper repo.
+    Requires the submission to have a generated manuscript and a GitHub repo.
     """
     from ai.review_agents import run_all_reviews
     from ai.pipeline_parser import parse_pipeline_outputs
+    from .github_integration import create_review_pr
     from pathlib import Path
 
     stmt = select(Submission).where(
@@ -42,6 +71,12 @@ async def run_reviews(
         raise HTTPException(
             status_code=400,
             detail="No manuscript found. Generate manuscript first.",
+        )
+
+    if not submission.github_repo:
+        raise HTTPException(
+            status_code=400,
+            detail="No GitHub repo. Create the paper repo first.",
         )
 
     # Parse pipeline outputs for statistical review
@@ -68,7 +103,40 @@ async def run_reviews(
         model=settings.llm_model,
     )
 
-    return {"submission_id": submission_id, "reviews": reviews}
+    # Extract org/repo from github_repo URL
+    # e.g. "https://github.com/omc-papers/paper-0001" → "omc-papers/paper-0001"
+    repo_full_name = "/".join(submission.github_repo.rstrip("/").split("/")[-2:])
+
+    # Create a PR for each review type
+    pr_urls = []
+    for review in reviews:
+        review_type = review.get("review_type", "general")
+        body_md = _format_review_as_markdown(review)
+
+        try:
+            pr_url = await create_review_pr(
+                repo_full_name,
+                [{"body": body_md}],
+                review_type,
+            )
+            pr_urls.append({"review_type": review_type, "pr_url": pr_url})
+            logger.info(f"Created review PR: {pr_url}")
+        except Exception as e:
+            logger.error(f"Failed to create {review_type} review PR: {e}")
+            pr_urls.append({"review_type": review_type, "error": str(e)})
+
+    # Store review results and PR URLs in interview_data
+    interview_data["_reviews"] = reviews
+    interview_data["_review_prs"] = pr_urls
+    submission.interview_data = interview_data
+    attributes.flag_modified(submission, "interview_data")
+    await db.commit()
+
+    return {
+        "submission_id": submission_id,
+        "reviews": reviews,
+        "pull_requests": pr_urls,
+    }
 
 
 @router.post("/{submission_id}/generate")
