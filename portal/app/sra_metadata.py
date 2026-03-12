@@ -52,6 +52,7 @@ async def _fetch_sra(accession: str) -> dict:
 async def _fetch_bioproject(accession: str) -> dict:
     """Fetch metadata from BioProject database."""
     try:
+        # Get BioProject summary
         search_handle = Entrez.esearch(db="bioproject", term=accession)
         search_results = Entrez.read(search_handle)
         search_handle.close()
@@ -61,23 +62,19 @@ async def _fetch_bioproject(accession: str) -> dict:
 
         bp_id = search_results["IdList"][0]
 
-        # Get linked SRA runs
-        link_handle = Entrez.elink(dbfrom="bioproject", db="sra", id=bp_id)
-        link_results = Entrez.read(link_handle)
-        link_handle.close()
-
-        sra_ids = []
-        for linkset in link_results:
-            for linksetdb in linkset.get("LinkSetDb", []):
-                for link in linksetdb.get("Link", []):
-                    sra_ids.append(link["Id"])
-
-        # Fetch BioProject summary
         summary_handle = Entrez.esummary(db="bioproject", id=bp_id)
         summary = Entrez.read(summary_handle)
         summary_handle.close()
 
         project_data = summary.get("DocumentSummarySet", {}).get("DocumentSummary", [{}])[0]
+
+        # Find linked SRA runs via esearch (more reliable than elink)
+        sra_search = Entrez.esearch(db="sra", term=accession, retmax=200)
+        sra_results = Entrez.read(sra_search)
+        sra_search.close()
+
+        sra_ids = sra_results.get("IdList", [])
+        total_runs = int(sra_results.get("Count", 0))
 
         metadata = {
             "accession": accession,
@@ -85,16 +82,35 @@ async def _fetch_bioproject(accession: str) -> dict:
             "title": project_data.get("Project_Title", ""),
             "description": project_data.get("Project_Description", ""),
             "organism": project_data.get("Organism_Name", ""),
-            "num_sra_runs": len(sra_ids),
-            "sra_ids": sra_ids[:50],  # Cap at 50 for sanity
+            "organization": project_data.get("Submitter_Organization", ""),
+            "registration_date": project_data.get("Registration_Date", ""),
+            "project_scope": project_data.get("Project_Target_Scope", ""),
+            "num_sra_runs": total_runs,
         }
 
-        # If there are SRA runs, fetch metadata for the first one as a sample
+        # Fetch metadata for the first SRA run as a representative sample
         if sra_ids:
-            first_run_handle = Entrez.efetch(db="sra", id=sra_ids[0], rettype="full", retmode="xml")
+            first_run_handle = Entrez.efetch(
+                db="sra", id=sra_ids[0], rettype="full", retmode="xml"
+            )
             first_xml = first_run_handle.read()
             first_run_handle.close()
             sample_metadata = _parse_sra_xml(first_xml, accession)
+
+            # Merge useful fields from the sample run into the top-level
+            for field in ["platform", "instrument_model", "library_strategy",
+                          "library_source", "library_layout", "study_title"]:
+                if field in sample_metadata and field not in metadata:
+                    metadata[field] = sample_metadata[field]
+
+            # Use organism from SRA if BioProject didn't have it
+            if not metadata["organism"] and sample_metadata.get("organism"):
+                metadata["organism"] = sample_metadata["organism"]
+
+            # Include sample attributes from the representative run
+            if "sample_attributes" in sample_metadata:
+                metadata["sample_attributes"] = sample_metadata["sample_attributes"]
+
             metadata["sample_run_metadata"] = sample_metadata
 
         return metadata
