@@ -176,6 +176,14 @@ async def process_completed_submission(submission: Submission, db_session) -> st
         except Exception as e:
             logger.warning(f"Pipeline output parsing failed, using empty: {e}")
 
+        # Generate figures from parsed outputs
+        try:
+            from ai.figure_generator import generate_figures
+            figures_json = generate_figures(pipeline_outputs, submission.pipeline.value)
+            logger.info(f"Generated {len(figures_json)} figures")
+        except Exception as e:
+            logger.warning(f"Figure generation failed: {e}")
+
         # Step 2: Generate manuscript sections via AI
         sections = {}
         try:

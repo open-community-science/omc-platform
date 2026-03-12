@@ -171,6 +171,14 @@ async def generate_manuscript(
     except Exception:
         pass
 
+    # Generate figures from pipeline data
+    figures_json = {}
+    try:
+        from ai.figure_generator import generate_figures
+        figures_json = generate_figures(pipeline_outputs, submission.pipeline.value)
+    except Exception:
+        pass
+
     interview_data = dict(submission.interview_data or {})
 
     sections = await generate_manuscript_draft(
@@ -193,7 +201,7 @@ async def generate_manuscript(
     if settings.github_token:
         try:
             from .github_integration import create_paper_repo_from_files
-            files = _manuscript_to_files(sections, submission)
+            files = _manuscript_to_files(sections, submission, figures_json)
             repo_url = await create_paper_repo_from_files(submission, files)
             submission.github_repo = repo_url
             logger.info(f"Created paper repo: {repo_url}")
@@ -211,12 +219,13 @@ async def generate_manuscript(
     }
 
 
-def _manuscript_to_files(sections: dict, submission) -> dict:
+def _manuscript_to_files(sections: dict, submission, figures: dict | None = None) -> dict:
     """Convert manuscript sections to Quarto paper repo files.
 
     Uses the paper-repo template structure for GitHub Actions rendering
     (HTML + PDF via Quarto).
     """
+    import json as _json
     from datetime import date
 
     accession = getattr(submission, "bioproject_accession", "")
@@ -371,5 +380,10 @@ Reviews are submitted as pull requests on this repository.
         if name in sections:
             md_parts.append(f"## {name.title()}\n\n{sections[name]}\n")
     files["manuscript/manuscript.md"] = "\n".join(md_parts)
+
+    # Interactive figures as Plotly JSON
+    if figures:
+        for fig_name, fig_data in figures.items():
+            files[f"results/figures/{fig_name}.json"] = _json.dumps(fig_data, indent=2)
 
     return files
