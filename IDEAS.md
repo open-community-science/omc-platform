@@ -6,67 +6,55 @@ Notes and ideas for future development of the OMC platform.
 
 ## Architecture Questions
 
-### Remote SLURM Submission
-Currently using local `sbatch` - need to implement SSH-based remote submission for when the portal runs on a separate VM from the HPC cluster. Options:
-- **paramiko/asyncssh** - Direct SSH library
-- **Fabric** - Higher-level SSH wrapper
-- **SLURM REST API** - If available on Alliance Canada clusters (slurmrestd)
+### Remote SLURM Submission ✅ DECIDED: asyncssh
+Alliance Canada does NOT expose slurmrestd. SSH requires 2FA from external networks, but the portal will run on an Alliance Cloud VM (likely internal network, no 2FA). Using **asyncssh** for async-native fit with FastAPI. Revisit if 2FA is required on internal network.
 
-### Database Choice
-Currently SQLite for simplicity. Consider:
-- **PostgreSQL** for production (better concurrency, JSONB for metadata)
-- **Keep SQLite** - It's probably fine for 50 papers
+### Database Choice ✅ DECIDED: SQLite
+SQLite is sufficient for the expected scale. SQLAlchemy abstraction means migration to Postgres is trivial if ever needed.
 
-### Job Status Monitoring
-How to track SLURM jobs efficiently:
-- Polling with `squeue/sacct` (current approach)
-- File-based completion markers (`.completed` file)
-- Webhook/callback from job script
-- SLURM REST API notifications
+### Job Status Monitoring ✅ DECIDED: Completion marker + daily poll
+Job script writes `.completed` file. Portal checks once daily via SSH (cron or scheduled task). Not time-sensitive — even daily is fine.
 
 ---
 
 ## Feature Ideas
 
-### Pipeline Output Processing
-Need to build the post-pipeline processing step:
-1. Parse Nextflow execution trace
-2. Convert outputs to interactive Plotly figures
-3. Generate results tables (TSV)
-4. Create figure legends from output metadata
+### Pipeline Output Processing ✅ DECIDED: All plots, AI curates
+nanopore_mag already has a `viz/` step that produces interactive plots + JSONs. Approach:
+1. Pipeline outputs all plots from viz JSONs (interactive + static parallel versions)
+2. AI selects the most salient figures for the first draft
+3. Authors iterate on figure selection/emphasis **through the portal only** (no local download/reupload)
+4. All interactions are training data
 
-**Q: What specific outputs from nanopore_mag and microscape should we capture?**
+**Key principle: everything happens in the portal.** No local round-trips — this preserves the training data flywheel.
 
-### Paper Rendering
-Each paper repo needs a rendered view:
-- **GitHub Pages** with custom template
-- Interactive figure embedding (Plotly.js)
-- Automatic rebuild on PR merge
+### Paper Rendering ✅ DECIDED: Quarto → GitHub Pages
+Single self-contained HTML per paper via Quarto (`self-contained: true`). GitHub Action renders `.qmd` → `index.html` on PR merge. Served at `omc-papers.github.io/paper-NNNN`. MIT licensed, built on Pandoc — output is dependency-free static HTML that survives even if Quarto disappears.
 
-Could use:
-- Jekyll (GitHub native)
-- Hugo/Quarto (more flexible)
-- Custom static generator
-
-### Citation Graph
-Build citation network from:
-- References added during review
-- Cross-references between OMC papers
-- DOI linking to external papers
+### Citation Graph / Discoverability — DEFERRED
+Will be a whole module later. Citation network, cross-references, search across OMC papers.
 
 ### AI Improvements
 
-**Smarter Interview**
-- Adaptive questions based on pipeline type
-- Skip questions that can be inferred from SRA metadata
-- Claude-guided clarification follow-ups
+**Interview redesign** (for when interview is added post-MVP):
+- NOT a fixed questionnaire — free-form Claude conversation
+- AI has full SRA metadata loaded in context (even if sparse)
+- SRA accession required before interview begins
+- Asks about intentions, hypotheses, research goals
+- Collects key references / BibTeX
+- Adapts questions based on what metadata already provides vs gaps
+- Interview can run in parallel with pipeline execution
 
-**Better Manuscript Generation**
+**Submission flow (two AI stages):**
+1. Metadata assistant (helps prepare SRA submission if needed) — pre-submission
+2. Author interview (AI has metadata, asks about science + refs) — post-submission, parallel with pipeline
+
+**Better Manuscript Generation** — DEFERRED
 - Few-shot examples from good papers
 - Style matching to target journals
 - Iterative refinement based on review feedback
 
-**Review Agent Enhancements**
+**Review Agent Enhancements** — DEFERRED
 - Domain-specific checklists (e.g., MIMARKS compliance)
 - Integration with checklists from journals
 - Comparison with similar published papers
@@ -75,51 +63,46 @@ Build citation network from:
 
 ## Integration Ideas
 
-### SRA Metadata Auto-Fill
-Before submission, fetch metadata from SRA:
-```python
-# Could pull: organism, collection date, geo_loc, etc.
-from Bio import Entrez
-Entrez.efetch(db="sra", id=accession)
-```
+### SRA Metadata Auto-Fill ✅ DECIDED: Yes, full metadata fetch in MVP
+On accession entry, fetch complete metadata from NCBI via Entrez. Pre-populate submission fields and store full metadata file in the paper repo. This feeds into the AI draft (methods, study context) and reduces author burden.
 
-### DOI Minting
-For published papers:
-- Zenodo integration (free DOIs)
-- DataCite (if we get institutional support)
+### DOI Minting ✅ DECIDED: Zenodo from day one
+Use Zenodo's GitHub integration — auto-mints DOI on release tag. Near-zero effort, papers are citable immediately.
 
-### ORCID Integration
-- Auto-populate author info
-- Credit tracking across papers
+### ORCID Integration — DEFERRED
+GitHub identity sufficient for pilot. Add ORCID OAuth later for formal scholarly attribution.
 
-### Preprint Posting
-Auto-submit accepted papers to:
-- bioRxiv
-- EcoEvoRxiv
-- Zenodo
+### Preprint Posting — DEFERRED (bioRxiv/EcoEvoRxiv)
+Zenodo handles DOI + archival. Quarto auto-generates PDF + HTML + DOCX from the same `.qmd` source, so a bioRxiv-ready PDF is always available in the repo for manual submission. Auto-posting to preprint servers deferred.
 
 ---
 
 ## Community & Process
 
-### Pay-It-Forward Review System
-Design decisions needed:
-- How many reviews required before publishing?
-- Review queue prioritization
-- Reviewer matching (expertise, availability)
-- What if someone doesn't complete their review obligation?
+### Pay-It-Forward Review System — DEFERRED
+Design TBD after first real papers. Questions: how many reviews, matching, enforcement.
 
-### Quality Tiers
-Could have different publication tracks:
-1. **Rapid** - AI review only, labeled as preprint
-2. **Standard** - 1-2 human reviews
-3. **Comprehensive** - 3+ reviews, statistical audit
+### Quality Tiers — DEFERRED
+Rapid (AI-only) / Standard (human) / Comprehensive. Design after MVP.
 
-### Training Data Flywheel
-Each review PR is training data. Need:
-- Consent mechanism for training use
-- Data export format
-- Privacy considerations (anonymize reviewers?)
+### AI Review Agents (first post-MVP feature)
+**Design principles:**
+- Don't hold back due to uncertainty, but be transparent about confidence
+- Each comment includes an **uncertainty index** (high/medium/low confidence) so authors can triage
+- **Educational tone** — every flag explains *why it matters* and suggests alternatives with references. Researchers should learn something from the review, not just feel judged
+- Comment format: flag → explanation → suggestion → reference
+- Author corrections to AI claims are high-quality training data
+
+Agents (all as GitHub PR comments):
+1. **Statistical** — appropriate tests, multiple testing, effect sizes, sample size
+2. **Methodological** — pipeline params, QC, reproducibility, MIMARKS/MIxS compliance
+3. **Completeness** — all sections present, figures referenced, data availability, accessions
+4. **Biological plausibility** — ecological sense, unexpected taxa, contamination flags, known artifacts
+5. **Clarity** — writing quality, jargon, flow, abstract alignment
+6. **Citation** — do refs support claims, missing key refs, outdated refs (needs lit search)
+
+### Training Data Flywheel — DEFERRED
+Consent mechanism, data format, privacy. Think about before launch but implement later.
 
 ---
 
@@ -138,21 +121,17 @@ Each review PR is training data. Need:
 
 ## Open Questions
 
-1. **Should papers be public by default or opt-in?**
-   - Currently assuming public (like GitHub)
+1. **Should papers be public by default or opt-in?** ✅ DECIDED: Always public
+   No private option. Aligns with open science, keeps things simple, free GitHub repos.
 
-2. **How to handle data that can't be on GitHub?**
-   - Large files, sensitive data
-   - Git LFS? External storage with links?
+2. **How to handle data that can't be on GitHub?** ✅ DECIDED: Lightweight repos + containerized reproducibility
+   Repos contain only manuscript, figures, tables, stats. Intermediate files are trashed after pipeline completes. Reproducibility via containers — nanopore_mag already containerized, all pipelines will be. Future: easy import of workflow into Seqera/AWS/user's own HPC for tinkering.
 
-3. **What's the minimal viable pilot?**
-   - Maybe skip review system for v0.1?
-   - Just: submit → run → draft → manual review?
+3. **What's the minimal viable pilot?** ✅ DECIDED: Lean MVP
+   Submit → Pipeline → AI draft → Manual review on GitHub. Defer author interview, automated review agents, and portal-based editing until we learn from first real papers.
 
-4. **Domain name?**
-   - openmicrobial.community?
-   - omc.science?
-   - Something else?
+4. **Domain name?** ✅ DECIDED: opencommunity.science
+   Registered on Porkbun. Extensible to other fields via subdomains (microbial.opencommunity.science, etc). DNS only — portal hosted on Alliance VM, papers on GitHub Pages. No traditional web hosting needed.
 
 ---
 
