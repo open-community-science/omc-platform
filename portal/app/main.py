@@ -23,6 +23,7 @@ from .auth import router as auth_router, get_current_user
 from .submissions import router as submissions_router
 from .interviews import router as interviews_router
 from .reviews import router as reviews_router
+from .metadata import router as metadata_router
 
 settings = get_settings()
 
@@ -56,6 +57,7 @@ app.include_router(auth_router)
 app.include_router(submissions_router)
 app.include_router(interviews_router)
 app.include_router(reviews_router)
+app.include_router(metadata_router)
 
 
 @app.get("/", response_class=HTMLResponse)

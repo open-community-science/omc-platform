@@ -8,6 +8,11 @@
         <h1>Author Interview</h1>
         <p class="lead">Help us understand your research for the manuscript draft.</p>
         <p class="submission-ref">For: {{ submission.title or submission.bioproject_accession }}</p>
+
+        <div class="mode-toggle">
+            <button id="btn-guided" class="btn btn-sm btn-primary" onclick="setMode('guided')">Guided Q&A</button>
+            <button id="btn-ai" class="btn btn-sm btn-outline" onclick="setMode('ai')">AI Conversation</button>
+        </div>
     </div>
 
     <div id="interview-container" class="interview-container">
@@ -39,6 +44,30 @@
 <script>
 const submissionId = {{ submission.id }};
 let currentQuestion = null;
+let mode = 'guided';  // 'guided' or 'ai'
+
+function setMode(newMode) {
+    mode = newMode;
+    document.getElementById('btn-guided').className =
+        mode === 'guided' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline';
+    document.getElementById('btn-ai').className =
+        mode === 'ai' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline';
+
+    const messages = document.getElementById('chat-messages');
+    messages.innerHTML = '';
+
+    if (mode === 'guided') {
+        loadInterview();
+    } else {
+        document.getElementById('progress-text').textContent = 'AI conversation mode';
+        document.getElementById('progress-fill').style.width = '0%';
+        document.getElementById('answer-form').style.display = '';
+        document.getElementById('interview-complete').style.display = 'none';
+        document.getElementById('answer-input').placeholder = 'Tell the AI about your research...';
+        addMessage('Hi! I\'m your AI research assistant. Tell me about your study and I\'ll help build context for the manuscript. What is this research about?', 'assistant');
+        sendAiMessage('');
+    }
+}
 
 async function loadInterview() {
     const resp = await fetch(`/interviews/${submissionId}`);
@@ -47,7 +76,6 @@ async function loadInterview() {
     const messages = document.getElementById('chat-messages');
     messages.innerHTML = '';
 
-    // Show previous answers
     for (const q of data.questions) {
         if (data.answers[q.id]) {
             addMessage(q.question, 'assistant');
@@ -55,7 +83,6 @@ async function loadInterview() {
         }
     }
 
-    // Update progress
     const pct = Math.round(data.progress * 100);
     document.getElementById('progress-fill').style.width = `${pct}%`;
     document.getElementById('progress-text').textContent = `${pct}% complete`;
@@ -79,27 +106,50 @@ function addMessage(text, role) {
     messages.scrollTop = messages.scrollHeight;
 }
 
+async function sendAiMessage(message) {
+    const resp = await fetch(`/interviews/${submissionId}/chat`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ message: message })
+    });
+    const data = await resp.json();
+    addMessage(data.response, 'assistant');
+
+    if (data.complete) {
+        document.getElementById('answer-form').style.display = 'none';
+        document.getElementById('interview-complete').style.display = 'block';
+        document.getElementById('progress-fill').style.width = '100%';
+        document.getElementById('progress-text').textContent = 'Interview complete';
+    }
+}
+
 document.getElementById('answer-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const input = document.getElementById('answer-input');
     const answer = input.value.trim();
-    if (!answer || !currentQuestion) return;
+    if (!answer) return;
 
     addMessage(answer, 'user');
     input.value = '';
     input.disabled = true;
 
-    await fetch(`/interviews/${submissionId}/answer`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            question_id: currentQuestion.id,
-            answer: answer
-        })
-    });
+    if (mode === 'ai') {
+        await sendAiMessage(answer);
+    } else {
+        if (!currentQuestion) return;
+        await fetch(`/interviews/${submissionId}/answer`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                question_id: currentQuestion.id,
+                answer: answer
+            })
+        });
+        loadInterview();
+    }
 
     input.disabled = false;
-    loadInterview();
+    input.focus();
 });
 
 loadInterview();
