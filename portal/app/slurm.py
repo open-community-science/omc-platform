@@ -31,10 +31,10 @@ def _get_pipeline_path(pipeline: PipelineType) -> str:
             f"Pipeline '{pipeline.value}' is not yet supported for SLURM submission."
         )
 
-    # Guard against pipelines that have a config entry but no deployed path yet
+    # Log warning for pipelines that may not be deployed yet
     if pipeline in (PipelineType.ILLUMINA_MAG, PipelineType.RNASEQ, PipelineType.ISOLATE_GENOME):
-        raise NotImplementedError(
-            f"Pipeline '{pipeline.value}' is configured but not yet deployed on HPC. "
+        logger.warning(
+            f"Pipeline '{pipeline.value}' may not be deployed on HPC yet. "
             f"Expected path: {path}"
         )
 

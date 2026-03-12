@@ -1,13 +1,10 @@
 """Parse Nextflow pipeline outputs into structured data for manuscript generation.
 
-Supports nanopore_mag pipeline outputs:
-- Assembly stats (Flye)
-- Binning (CheckM2, DAS Tool, individual binners)
-- Taxonomy (GTDB-Tk, Kraken2)
-- Metabolism (MinPath)
-- MGE detection (DefenseFinder, integrons, genomic islands)
-- Annotation (Bakta)
-- Pipeline timing
+Supports multiple pipeline types:
+- nanopore_mag: Long-read assembly (Flye) + binning + taxonomy + metabolism
+- illumina_mag: Short-read assembly (MEGAHIT/metaSPAdes) + binning + taxonomy
+- rnaseq: Transcript quantification + differential expression
+- isolate_genome: Single-genome assembly + annotation
 """
 import csv
 import logging
@@ -230,6 +227,179 @@ def parse_nanopore_mag(results_dir: Path) -> dict:
     return outputs
 
 
+def parse_illumina_assembly(results_dir: Path) -> dict:
+    """Parse MEGAHIT or metaSPAdes assembly stats."""
+    # Try MEGAHIT first, then metaSPAdes
+    for asm_dir in ["megahit", "metaspades"]:
+        stats_path = results_dir / f"assembly/{asm_dir}/final.contigs.stats.tsv"
+        if stats_path.exists():
+            rows = _read_tsv(stats_path)
+            if rows:
+                lengths = [int(r.get("length", 0)) for r in rows]
+                return {
+                    "assembler": asm_dir,
+                    "total_contigs": len(rows),
+                    "total_length_mb": round(sum(lengths) / 1e6, 2),
+                    "n50_kb": round(_calc_n50(lengths) / 1e3, 1),
+                    "largest_contig_kb": round(max(lengths) / 1e3, 1) if lengths else 0,
+                }
+
+    # Try QUAST report as fallback
+    quast_path = results_dir / "assembly/quast/report.tsv"
+    rows = _read_tsv(quast_path)
+    if rows:
+        r = rows[0]
+        return {
+            "assembler": r.get("Assembly", "unknown"),
+            "total_contigs": int(r.get("# contigs", 0)),
+            "total_length_mb": round(int(r.get("Total length", 0)) / 1e6, 2),
+            "n50_kb": round(int(r.get("N50", 0)) / 1e3, 1),
+            "largest_contig_kb": round(int(r.get("Largest contig", 0)) / 1e3, 1),
+        }
+    return {}
+
+
+def parse_illumina_mag(results_dir: Path) -> dict:
+    """Parse all outputs from an illumina_mag pipeline run.
+
+    Shares most components with nanopore_mag (CheckM2, GTDB-Tk, DAS Tool)
+    but uses short-read assembler (MEGAHIT/metaSPAdes).
+    """
+    results_dir = Path(results_dir)
+    if not results_dir.exists():
+        log.warning(f"Results directory not found: {results_dir}")
+        return {}
+
+    outputs = {}
+
+    assembly = parse_illumina_assembly(results_dir)
+    if assembly:
+        outputs["assembly_stats"] = assembly
+
+    # Shared components (same as nanopore_mag)
+    checkm2 = parse_checkm2(results_dir)
+    if checkm2:
+        outputs["MAG_summary"] = checkm2
+
+    dastool = parse_dastool(results_dir)
+    if dastool:
+        outputs["consensus_binning"] = dastool
+
+    gtdbtk = parse_gtdbtk(results_dir)
+    if gtdbtk:
+        outputs["taxonomy_summary"] = gtdbtk
+
+    metabolism = parse_metabolism(results_dir)
+    if metabolism:
+        outputs["metabolism"] = metabolism
+
+    mge = parse_mge(results_dir)
+    if mge:
+        outputs["mobile_genetic_elements"] = mge
+
+    timing = parse_pipeline_timing(results_dir)
+    if timing:
+        outputs["pipeline_info"] = timing
+
+    binner_dirs = [d.name for d in (results_dir / "binning").iterdir()
+                   if d.is_dir() and d.name not in ("checkm2", "dastool")]
+    if binner_dirs:
+        outputs["binners_used"] = binner_dirs
+
+    log.info(f"Parsed {len(outputs)} output categories from {results_dir}")
+    return outputs
+
+
+def parse_rnaseq(results_dir: Path) -> dict:
+    """Parse RNA-seq pipeline outputs.
+
+    Expects: salmon/quant results, DESeq2 results, FastQC/MultiQC.
+    """
+    results_dir = Path(results_dir)
+    if not results_dir.exists():
+        return {}
+
+    outputs = {}
+
+    # Salmon quantification summary
+    quant_path = results_dir / "quantification/salmon/quant_summary.tsv"
+    rows = _read_tsv(quant_path)
+    if rows:
+        mapping_rates = [float(r.get("mapping_rate", 0)) for r in rows]
+        outputs["quantification"] = {
+            "method": "Salmon",
+            "samples": len(rows),
+            "mean_mapping_rate": round(sum(mapping_rates) / len(mapping_rates), 1) if mapping_rates else 0,
+        }
+
+    # DESeq2 differential expression
+    de_path = results_dir / "differential_expression/deseq2/results.tsv"
+    de_rows = _read_tsv(de_path)
+    if de_rows:
+        sig = [r for r in de_rows if float(r.get("padj", 1)) < 0.05]
+        up = [r for r in sig if float(r.get("log2FoldChange", 0)) > 0]
+        down = [r for r in sig if float(r.get("log2FoldChange", 0)) < 0]
+        outputs["differential_expression"] = {
+            "method": "DESeq2",
+            "total_genes_tested": len(de_rows),
+            "significant_genes": len(sig),
+            "upregulated": len(up),
+            "downregulated": len(down),
+        }
+
+    timing = parse_pipeline_timing(results_dir)
+    if timing:
+        outputs["pipeline_info"] = timing
+
+    log.info(f"Parsed {len(outputs)} output categories from {results_dir}")
+    return outputs
+
+
+def parse_isolate_genome(results_dir: Path) -> dict:
+    """Parse isolate genome assembly + annotation outputs.
+
+    Expects: assembly stats, Bakta annotation, CheckM2 quality.
+    """
+    results_dir = Path(results_dir)
+    if not results_dir.exists():
+        return {}
+
+    outputs = {}
+
+    # Assembly (could be Flye or MEGAHIT depending on sequencing)
+    assembly = parse_assembly(results_dir)
+    if not assembly:
+        assembly = parse_illumina_assembly(results_dir)
+    if assembly:
+        outputs["assembly_stats"] = assembly
+
+    # CheckM2
+    checkm2 = parse_checkm2(results_dir)
+    if checkm2:
+        outputs["genome_quality"] = checkm2
+
+    # GTDB-Tk
+    gtdbtk = parse_gtdbtk(results_dir)
+    if gtdbtk:
+        outputs["taxonomy"] = gtdbtk
+
+    # Bakta annotation summary
+    bakta_path = results_dir / "annotation/bakta/summary.tsv"
+    rows = _read_tsv(bakta_path)
+    if rows:
+        outputs["annotation"] = {
+            "method": "Bakta",
+            "features": {r.get("feature_type", ""): int(r.get("count", 0)) for r in rows},
+        }
+
+    timing = parse_pipeline_timing(results_dir)
+    if timing:
+        outputs["pipeline_info"] = timing
+
+    log.info(f"Parsed {len(outputs)} output categories from {results_dir}")
+    return outputs
+
+
 def _calc_n50(lengths: list[int]) -> int:
     """Calculate N50 from a list of contig lengths."""
     if not lengths:
@@ -247,6 +417,9 @@ def _calc_n50(lengths: list[int]) -> int:
 # Pipeline parser registry
 PARSERS = {
     "nanopore_mag": parse_nanopore_mag,
+    "illumina_mag": parse_illumina_mag,
+    "rnaseq": parse_rnaseq,
+    "isolate_genome": parse_isolate_genome,
 }
 
 
