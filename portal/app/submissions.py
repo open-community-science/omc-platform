@@ -91,6 +91,58 @@ async def lookup_accession(accession: str):
     return metadata
 
 
+@router.get("/lookup/{accession}/samples")
+async def list_samples(accession: str):
+    """Return the breakdown of data types and sample counts for a BioProject.
+
+    This powers the sample picker UI — users see the breakdown table
+    and select which data types (combinations of platform/strategy/source)
+    to include in their analysis.
+
+    Returns:
+        breakdown: list of {platform, instrument, strategy, source, layout, runs, samples, bases}
+        num_samples: total unique samples
+        num_runs: total runs
+        organism: detected organism(s)
+        suggested_pipeline: auto-selected pipeline based on data types
+    """
+    accession = accession.strip().upper()
+    if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA", "SAMN", "SAME", "SAMD")):
+        return {"error": "Invalid accession format"}
+
+    metadata = await resolve_to_bioproject(accession)
+    if "error" in metadata:
+        return metadata
+
+    breakdown = metadata.get("breakdown", [])
+    num_runs = sum(b["runs"] for b in breakdown) if breakdown else 0
+
+    # Auto-suggest pipeline based on data types
+    platforms = {b["platform"].lower() for b in breakdown if b["platform"]}
+    strategies = {b["strategy"].lower() for b in breakdown if b["strategy"]}
+
+    suggested = "nanopore_mag"
+    if "illumina" in " ".join(platforms).lower():
+        if "oxford_nanopore" in " ".join(platforms).lower():
+            suggested = "nanopore_mag"  # Hybrid
+        else:
+            suggested = "illumina_mag"
+    if "rna-seq" in strategies or "rna_seq" in strategies:
+        suggested = "rnaseq"
+
+    return {
+        "accession": metadata.get("accession", accession),
+        "title": metadata.get("title", ""),
+        "organism": metadata.get("organism", ""),
+        "num_samples": metadata.get("num_samples", 0),
+        "num_runs": num_runs,
+        "breakdown": breakdown,
+        "suggested_pipeline": suggested,
+        "library_strategy": metadata.get("library_strategy", ""),
+        "platform": metadata.get("platform", ""),
+    }
+
+
 @router.post("/{submission_id}/submit")
 async def submit_to_hpc(
     submission_id: int,
