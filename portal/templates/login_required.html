@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block title %}Login Required - OMC{% endblock %}
+
+{% block content %}
+<div class="login-required">
+    <h1>Login Required</h1>
+    <p>You need to sign in to access this page.</p>
+    <a href="/auth/login" class="btn btn-primary">Sign in with GitHub</a>
+</div>
+{% endblock %}

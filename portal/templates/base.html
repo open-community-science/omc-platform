@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}OMC Portal{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <header class="site-header">
+        <nav class="nav-container">
+            <a href="/" class="logo">OMC</a>
+            <div class="nav-links">
+                {% if user %}
+                <a href="/dashboard">Dashboard</a>
+                <a href="/submit">New Submission</a>
+                <div class="user-menu">
+                    <img src="{{ user.github_avatar_url }}" alt="{{ user.github_login }}" class="avatar">
+                    <span>{{ user.github_login }}</span>
+                    <a href="/auth/logout" class="logout">Logout</a>
+                </div>
+                {% else %}
+                <a href="/auth/login" class="btn btn-primary">Sign in with GitHub</a>
+                {% endif %}
+            </div>
+        </nav>
+    </header>
+
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+        <p>Open Microbial Community &middot; <a href="https://github.com/rec3141/omc">GitHub</a> &middot; CC-BY 4.0</p>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}{{ submission.title or 'Submission' }} - OMC{% endblock %}
+
+{% block content %}
+<div class="submission-detail">
+    <div class="submission-header">
+        <h1>{{ submission.title or 'Untitled Submission' }}</h1>
+        <span class="status-badge status-{{ submission.status.value }}">{{ submission.status.value }}</span>
+    </div>
+
+    <div class="submission-meta">
+        <dl>
+            <dt>SRA Accession</dt>
+            <dd><a href="https://www.ncbi.nlm.nih.gov/sra/{{ submission.sra_accession }}" target="_blank">{{ submission.sra_accession }}</a></dd>
+
+            <dt>Pipeline</dt>
+            <dd>{{ submission.pipeline.value }}</dd>
+
+            <dt>Created</dt>
+            <dd>{{ submission.created_at.strftime('%Y-%m-%d %H:%M') }}</dd>
+
+            {% if submission.submitted_at %}
+            <dt>Submitted</dt>
+            <dd>{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</dd>
+            {% endif %}
+
+            {% if submission.slurm_job_id %}
+            <dt>SLURM Job ID</dt>
+            <dd>{{ submission.slurm_job_id }}</dd>
+            {% endif %}
+
+            {% if submission.github_repo %}
+            <dt>GitHub Repository</dt>
+            <dd><a href="{{ submission.github_repo }}" target="_blank">{{ submission.github_repo }}</a></dd>
+            {% endif %}
+        </dl>
+    </div>
+
+    {% if submission.error_message %}
+    <div class="error-box">
+        <strong>Error:</strong> {{ submission.error_message }}
+    </div>
+    {% endif %}
+
+    <div class="submission-actions">
+        {% if submission.status.value == 'draft' %}
+        <form action="/submissions/{{ submission.id }}/submit" method="POST" style="display:inline;">
+            <button type="submit" class="btn btn-primary">Submit to HPC</button>
+        </form>
+        <a href="/submissions/{{ submission.id }}/interview" class="btn btn-secondary">Author Interview</a>
+        {% elif submission.status.value in ['submitted', 'queued', 'running'] %}
+        <div class="status-message" hx-get="/submissions/{{ submission.id }}/status" hx-trigger="every 10s" hx-swap="innerHTML">
+            <p>Job is {{ submission.status.value }}... checking status</p>
+        </div>
+        {% elif submission.status.value == 'processing' %}
+        <p>Processing pipeline outputs...</p>
+        {% elif submission.status.value == 'drafting' %}
+        <a href="/submissions/{{ submission.id }}/interview" class="btn btn-primary">Complete Interview</a>
+        <p>Waiting for author interview to generate manuscript draft.</p>
+        {% elif submission.status.value == 'review' %}
+        <a href="{{ submission.github_repo }}/pulls" target="_blank" class="btn btn-primary">View Reviews</a>
+        {% elif submission.status.value == 'published' %}
+        <a href="{{ submission.github_repo }}" target="_blank" class="btn btn-primary">View Paper</a>
+        {% endif %}
+    </div>
+
+    <div class="workflow-progress">
+        <h2>Workflow Progress</h2>
+        <ol class="progress-steps">
+            <li class="{% if submission.status.value != 'draft' %}completed{% elif submission.status.value == 'draft' %}current{% endif %}">
+                Submit Data
+            </li>
+            <li class="{% if submission.status.value in ['processing', 'drafting', 'review', 'published'] %}completed{% elif submission.status.value in ['queued', 'running'] %}current{% endif %}">
+                Pipeline Analysis
+            </li>
+            <li class="{% if submission.status.value in ['review', 'published'] %}completed{% elif submission.status.value == 'drafting' %}current{% endif %}">
+                Author Interview & Draft
+            </li>
+            <li class="{% if submission.status.value == 'published' %}completed{% elif submission.status.value == 'review' %}current{% endif %}">
+                Peer Review
+            </li>
+            <li class="{% if submission.status.value == 'published' %}completed{% endif %}">
+                Published
+            </li>
+        </ol>
+    </div>
+</div>
+{% endblock %}

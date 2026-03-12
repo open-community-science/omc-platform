@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - OMC{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="dashboard-header">
+        <h1>Your Submissions</h1>
+        <a href="/submit" class="btn btn-primary">New Submission</a>
+    </div>
+
+    {% if submissions %}
+    <div class="submissions-list">
+        {% for sub in submissions %}
+        <div class="submission-card">
+            <div class="submission-info">
+                <h3><a href="/submissions/{{ sub.id }}">{{ sub.title or 'Untitled' }}</a></h3>
+                <p class="accession">{{ sub.sra_accession }} &middot; {{ sub.pipeline.value }}</p>
+                <p class="date">Created {{ sub.created_at.strftime('%Y-%m-%d') }}</p>
+            </div>
+            <div class="submission-status">
+                <span class="status-badge status-{{ sub.status.value }}">{{ sub.status.value }}</span>
+                {% if sub.github_repo %}
+                <a href="{{ sub.github_repo }}" target="_blank" class="github-link">View on GitHub</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No submissions yet.</p>
+        <a href="/submit" class="btn btn-primary">Create your first submission</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,15 @@
+# OMC Portal Dependencies
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+jinja2>=3.1.3
+httpx>=0.26.0
+authlib>=1.3.0
+itsdangerous>=2.1.2
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+sqlalchemy>=2.0.25
+aiosqlite>=0.19.0
+anthropic>=0.18.0
+pyyaml>=6.0.1

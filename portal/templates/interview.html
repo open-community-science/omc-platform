@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Author Interview - OMC{% endblock %}
+
+{% block content %}
+<div class="interview-page">
+    <div class="interview-header">
+        <h1>Author Interview</h1>
+        <p class="lead">Help us understand your research for the manuscript draft.</p>
+        <p class="submission-ref">For: {{ submission.title or submission.sra_accession }}</p>
+    </div>
+
+    <div id="interview-container" class="interview-container">
+        <div id="chat-messages" class="chat-messages">
+            <!-- Messages loaded here -->
+        </div>
+
+        <form id="answer-form" class="answer-form">
+            <textarea id="answer-input" name="answer" rows="4" placeholder="Type your response..."></textarea>
+            <button type="submit" class="btn btn-primary">Send</button>
+        </form>
+
+        <div id="interview-complete" class="interview-complete" style="display:none;">
+            <p>Interview complete. Your responses will help generate the manuscript draft.</p>
+            <a href="/submissions/{{ submission.id }}" class="btn btn-primary">Back to Submission</a>
+        </div>
+    </div>
+
+    <div class="interview-progress">
+        <div class="progress-bar">
+            <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+        </div>
+        <p id="progress-text">Loading...</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const submissionId = {{ submission.id }};
+let currentQuestion = null;
+
+async function loadInterview() {
+    const resp = await fetch(`/interviews/${submissionId}`);
+    const data = await resp.json();
+
+    const messages = document.getElementById('chat-messages');
+    messages.innerHTML = '';
+
+    // Show previous answers
+    for (const q of data.questions) {
+        if (data.answers[q.id]) {
+            addMessage(q.question, 'assistant');
+            addMessage(data.answers[q.id], 'user');
+        }
+    }
+
+    // Update progress
+    const pct = Math.round(data.progress * 100);
+    document.getElementById('progress-fill').style.width = `${pct}%`;
+    document.getElementById('progress-text').textContent = `${pct}% complete`;
+
+    if (data.complete) {
+        document.getElementById('answer-form').style.display = 'none';
+        document.getElementById('interview-complete').style.display = 'block';
+    } else {
+        currentQuestion = data.next_question;
+        addMessage(currentQuestion.question, 'assistant');
+        document.getElementById('answer-input').focus();
+    }
+}
+
+function addMessage(text, role) {
+    const messages = document.getElementById('chat-messages');
+    const div = document.createElement('div');
+    div.className = `message message-${role}`;
+    div.textContent = text;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+}
+
+document.getElementById('answer-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('answer-input');
+    const answer = input.value.trim();
+    if (!answer || !currentQuestion) return;
+
+    addMessage(answer, 'user');
+    input.value = '';
+    input.disabled = true;
+
+    await fetch(`/interviews/${submissionId}/answer`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            question_id: currentQuestion.id,
+            answer: answer
+        })
+    });
+
+    input.disabled = false;
+    loadInterview();
+});
+
+loadInterview();
+</script>
+{% endblock %}

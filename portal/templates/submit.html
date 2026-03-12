@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}New Submission - OMC{% endblock %}
+
+{% block content %}
+<div class="submit-page">
+    <h1>New Submission</h1>
+    <p class="lead">Submit your sequence data for analysis and manuscript generation.</p>
+
+    <form action="/submissions/create" method="POST" class="submit-form">
+        <div class="form-group">
+            <label for="sra_accession">SRA Accession</label>
+            <input type="text" id="sra_accession" name="sra_accession" required
+                   placeholder="e.g., SRR12345678 or PRJNA123456"
+                   pattern="[A-Za-z]{2,6}[0-9]+"
+                   title="Enter a valid SRA accession (SRR, ERR, DRR, SRX, SRP, or PRJNA prefix)">
+            <small>Enter an SRA run accession (SRR/ERR/DRR) or BioProject (PRJNA)</small>
+        </div>
+
+        <div class="form-group">
+            <label for="pipeline">Analysis Pipeline</label>
+            <select id="pipeline" name="pipeline" required>
+                <option value="">Select a pipeline...</option>
+                <option value="nanopore_mag">nanopore_mag - Long-read MAG assembly</option>
+                <option value="microscape">microscape - Amplicon analysis</option>
+            </select>
+            <small>Choose the analysis pipeline appropriate for your data type</small>
+        </div>
+
+        <div class="form-group">
+            <label for="title">Paper Title (optional)</label>
+            <input type="text" id="title" name="title"
+                   placeholder="e.g., Microbial community analysis of Arctic permafrost">
+            <small>You can set or change this later</small>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Create Submission</button>
+            <a href="/dashboard" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

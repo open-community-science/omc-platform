@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}OMC - Open Microbial Community{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <h1>Open Microbial Community</h1>
+    <p class="tagline">A git-native, AI-assisted platform for microbial ecology research</p>
+    <p class="subtitle">Point at an SRA accession. Select your analysis. Get a paper.</p>
+
+    {% if not user %}
+    <a href="/auth/login" class="btn btn-primary btn-large">Get Started with GitHub</a>
+    {% else %}
+    <a href="/submit" class="btn btn-primary btn-large">Start New Submission</a>
+    {% endif %}
+</div>
+
+<section class="features">
+    <div class="feature-grid">
+        <div class="feature">
+            <h3>$5-48 per paper</h3>
+            <p>vs. $2,000-$11,000 traditional APCs</p>
+        </div>
+        <div class="feature">
+            <h3>Days to weeks</h3>
+            <p>vs. 6-18 months to publication</p>
+        </div>
+        <div class="feature">
+            <h3>Interactive figures</h3>
+            <p>Not static PNGs trapped in PDFs</p>
+        </div>
+        <div class="feature">
+            <h3>Living documents</h3>
+            <p>Improve over time via pull requests</p>
+        </div>
+    </div>
+</section>
+
+<section class="how-it-works">
+    <h2>How It Works</h2>
+    <ol class="steps">
+        <li>
+            <strong>Submit your data</strong>
+            <p>Enter an SRA accession and select your analysis pipeline</p>
+        </li>
+        <li>
+            <strong>Pipeline runs on HPC</strong>
+            <p>Standardized Nextflow pipelines process your sequences</p>
+        </li>
+        <li>
+            <strong>Answer a few questions</strong>
+            <p>Our AI interviews you about the study context</p>
+        </li>
+        <li>
+            <strong>Draft generated</strong>
+            <p>AI creates a manuscript from results + your input</p>
+        </li>
+        <li>
+            <strong>Review via GitHub</strong>
+            <p>Peer review happens through pull requests</p>
+        </li>
+    </ol>
+</section>
+{% endblock %}
