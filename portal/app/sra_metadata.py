@@ -11,9 +11,12 @@ Entrez.email = "omc@opencommunity.science"
 
 async def fetch_sra_metadata(accession: str) -> dict:
     """
-    Fetch full metadata for an SRA accession from NCBI.
+    Fetch full metadata for an SRA/BioSample/BioProject accession from NCBI.
 
-    Supports: SRR/ERR/DRR (run), SRX (experiment), SRP (study), PRJNA (BioProject)
+    Supports:
+      SRR/ERR/DRR (run), SRX (experiment), SRP (study) — SRA database
+      PRJNA (BioProject) — BioProject database
+      SAMN/SAME/SAMD (BioSample) — BioSample database
     Returns parsed metadata dict.
     """
     accession = accession.strip().upper()
@@ -21,6 +24,8 @@ async def fetch_sra_metadata(accession: str) -> dict:
     # Determine which database to query
     if accession.startswith("PRJNA"):
         return await _fetch_bioproject(accession)
+    elif accession.startswith(("SAMN", "SAME", "SAMD")):
+        return await _fetch_biosample(accession)
     else:
         return await _fetch_sra(accession)
 
@@ -117,6 +122,109 @@ async def _fetch_bioproject(accession: str) -> dict:
 
     except Exception as e:
         return {"error": str(e), "accession": accession}
+
+
+async def _fetch_biosample(accession: str) -> dict:
+    """Fetch metadata from BioSample database."""
+    try:
+        # Search BioSample
+        search_handle = Entrez.esearch(db="biosample", term=accession)
+        search_results = Entrez.read(search_handle)
+        search_handle.close()
+
+        if not search_results["IdList"]:
+            return {"error": f"BioSample {accession} not found", "accession": accession}
+
+        bs_id = search_results["IdList"][0]
+
+        # Fetch full BioSample record
+        fetch_handle = Entrez.efetch(db="biosample", id=bs_id, rettype="full", retmode="xml")
+        xml_data = fetch_handle.read()
+        fetch_handle.close()
+
+        metadata = _parse_biosample_xml(xml_data, accession)
+
+        # Check if there are linked SRA runs
+        sra_search = Entrez.esearch(db="sra", term=accession)
+        sra_results = Entrez.read(sra_search)
+        sra_search.close()
+
+        sra_ids = sra_results.get("IdList", [])
+        metadata["num_sra_runs"] = int(sra_results.get("Count", 0))
+
+        # If there are SRA runs, fetch the first for sequencing details
+        if sra_ids:
+            run_handle = Entrez.efetch(db="sra", id=sra_ids[0], rettype="full", retmode="xml")
+            run_xml = run_handle.read()
+            run_handle.close()
+            run_metadata = _parse_sra_xml(run_xml, accession)
+
+            for field in ["platform", "instrument_model", "library_strategy",
+                          "library_source", "library_layout", "run_accession",
+                          "total_spots", "total_bases", "size_mb",
+                          "study_title", "study_accession"]:
+                if field in run_metadata:
+                    metadata[field] = run_metadata[field]
+
+        return metadata
+
+    except Exception as e:
+        return {"error": str(e), "accession": accession}
+
+
+def _parse_biosample_xml(xml_data: str | bytes, accession: str) -> dict:
+    """Parse BioSample XML into a clean metadata dict."""
+    if isinstance(xml_data, str):
+        xml_data = xml_data.encode()
+
+    root = ElementTree.fromstring(xml_data)
+
+    metadata = {
+        "accession": accession,
+        "type": "BioSample",
+    }
+
+    for biosample in root.iter("BioSample"):
+        metadata["biosample_id"] = biosample.get("accession", accession)
+
+        # Title / description
+        title_el = biosample.find(".//Title")
+        if title_el is not None:
+            metadata["sample_title"] = title_el.text
+
+        # Organism
+        org_el = biosample.find(".//Organism")
+        if org_el is not None:
+            metadata["organism"] = org_el.get("taxonomy_name", "")
+            metadata["taxon_id"] = org_el.get("taxonomy_id", "")
+
+        # Owner/submitter
+        owner_el = biosample.find(".//Owner/Name")
+        if owner_el is not None:
+            metadata["organization"] = owner_el.text
+
+        # Model (e.g., MIGS/MIMS/MIMARKS)
+        model_el = biosample.find(".//Model")
+        if model_el is not None:
+            metadata["biosample_model"] = model_el.text
+
+        # Package
+        pkg_el = biosample.find(".//Package")
+        if pkg_el is not None:
+            metadata["biosample_package"] = pkg_el.get("display_name", pkg_el.text or "")
+
+        # Sample attributes
+        attrs = {}
+        for attr in biosample.iter("Attribute"):
+            name = attr.get("harmonized_name") or attr.get("attribute_name", "")
+            if name and attr.text:
+                attrs[name] = attr.text
+        metadata["sample_attributes"] = attrs
+
+        # Only parse first BioSample
+        break
+
+    return metadata
 
 
 def _parse_sra_xml(xml_data: str | bytes, accession: str) -> dict:
@@ -231,9 +339,18 @@ def metadata_summary(metadata: dict) -> str:
 
     lines = []
     lines.append(f"Accession: {metadata.get('accession', 'Unknown')}")
+    meta_type = metadata.get("type", "")
+    if meta_type:
+        lines.append(f"Type: {meta_type}")
 
+    if metadata.get("title"):
+        lines.append(f"Title: {metadata['title']}")
     if metadata.get("study_title"):
         lines.append(f"Study: {metadata['study_title']}")
+    if metadata.get("sample_title"):
+        lines.append(f"Sample: {metadata['sample_title']}")
+    if metadata.get("description"):
+        lines.append(f"Description: {metadata['description']}")
     if metadata.get("organism"):
         lines.append(f"Organism: {metadata['organism']}")
     if metadata.get("platform"):

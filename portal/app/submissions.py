@@ -28,7 +28,7 @@ async def create_submission(
     """Create a new submission."""
     # Validate SRA accession format (basic check)
     sra_accession = sra_accession.strip().upper()
-    if not (sra_accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA"))):
+    if not (sra_accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA", "SAMN", "SAME", "SAMD"))):
         raise HTTPException(status_code=400, detail="Invalid SRA accession format")
 
     # Validate pipeline
@@ -67,7 +67,7 @@ async def create_submission(
 async def lookup_accession(accession: str):
     """Live lookup of SRA metadata for the submission form."""
     accession = accession.strip().upper()
-    if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA")):
+    if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA", "SAMN", "SAME", "SAMD")):
         return {"error": "Invalid accession format"}
 
     metadata = await fetch_sra_metadata(accession)

@@ -12,12 +12,12 @@
             <label for="sra_accession">SRA Accession</label>
             <div style="display: flex; gap: 0.5rem;">
                 <input type="text" id="sra_accession" name="sra_accession" required
-                       placeholder="e.g., SRR12345678 or PRJNA123456"
+                       placeholder="e.g., SRR12345678, PRJNA123456, or SAMN12345678"
                        pattern="[A-Za-z]{2,6}[0-9]+"
-                       title="Enter a valid SRA accession (SRR, ERR, DRR, SRX, SRP, or PRJNA prefix)">
+                       title="Enter a valid NCBI accession (SRR, ERR, DRR, SRX, SRP, PRJNA, or SAMN prefix)">
                 <button type="button" id="lookup-btn" class="btn btn-secondary" onclick="lookupAccession()">Lookup</button>
             </div>
-            <small>Enter an SRA run accession (SRR/ERR/DRR) or BioProject (PRJNA)</small>
+            <small>Enter a run (SRR/ERR/DRR), experiment (SRX), study (SRP), BioProject (PRJNA), or BioSample (SAMN)</small>
         </div>
 
         <div id="metadata-preview" class="metadata-preview" style="display:none;">
@@ -82,8 +82,11 @@ async function lookupAccession() {
             content.innerHTML = `<p class="error-text">${data.error}</p>`;
             preview.style.display = 'block';
         } else {
-            let html = '<dl>';
+            let html = `<dl><dt>Type</dt><dd>${data.type || 'SRA'}</dd>`;
+            if (data.title) html += `<dt>Title</dt><dd>${data.title}</dd>`;
             if (data.study_title) html += `<dt>Study</dt><dd>${data.study_title}</dd>`;
+            if (data.sample_title) html += `<dt>Sample</dt><dd>${data.sample_title}</dd>`;
+            if (data.description) html += `<dt>Description</dt><dd>${data.description}</dd>`;
             if (data.organism) html += `<dt>Organism</dt><dd>${data.organism}</dd>`;
             if (data.platform) html += `<dt>Platform</dt><dd>${data.platform} (${data.instrument_model || ''})</dd>`;
             if (data.library_strategy) html += `<dt>Library</dt><dd>${data.library_strategy} / ${data.library_source || ''} / ${data.library_layout || ''}</dd>`;
@@ -91,6 +94,7 @@ async function lookupAccession() {
                 const gb = (parseInt(data.total_bases) / 1e9).toFixed(2);
                 html += `<dt>Data</dt><dd>${data.total_spots} reads, ${gb} Gbp</dd>`;
             }
+            if (data.num_sra_runs) html += `<dt>SRA Runs</dt><dd>${data.num_sra_runs}</dd>`;
             if (data.organization) html += `<dt>Center</dt><dd>${data.organization}</dd>`;
 
             const attrs = data.sample_attributes || {};
@@ -101,10 +105,11 @@ async function lookupAccession() {
 
             html += '</dl>';
 
-            // Auto-fill title from study
+            // Auto-fill title from study or BioProject
             const titleInput = document.getElementById('title');
-            if (!titleInput.value && data.study_title) {
-                titleInput.placeholder = data.study_title;
+            if (!titleInput.value) {
+                const suggestedTitle = data.study_title || data.title || data.sample_title;
+                if (suggestedTitle) titleInput.placeholder = suggestedTitle;
             }
 
             content.innerHTML = html;
