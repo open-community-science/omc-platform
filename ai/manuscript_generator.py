@@ -1,31 +1,9 @@
 """AI-powered manuscript generation from pipeline outputs and author interview."""
-from anthropic import Anthropic
-from typing import Optional
-import yaml
 import json
+from .llm_client import get_client, chat
 
 
-async def generate_manuscript_draft(
-    api_key: str,
-    pipeline_outputs: dict,
-    interview_data: dict,
-    pipeline_type: str,
-    sra_accession: str,
-) -> dict:
-    """
-    Generate a manuscript draft from pipeline outputs and author interview.
-
-    Returns a dict with sections: introduction, methods, results, discussion
-    """
-    client = Anthropic(api_key=api_key)
-
-    # Build context from pipeline outputs
-    results_summary = _summarize_results(pipeline_outputs)
-
-    # Build context from interview
-    interview_context = _format_interview(interview_data)
-
-    system_prompt = """You are a scientific writing assistant for microbial ecology research.
+SYSTEM_PROMPT = """You are a scientific writing assistant for microbial ecology research.
 You help generate clear, accurate manuscript drafts based on bioinformatics pipeline outputs
 and author-provided context. Write in a professional academic style suitable for publication.
 
@@ -37,16 +15,35 @@ Key principles:
 - Include placeholders [CITE] where citations would be needed
 """
 
-    # Generate each section
+
+async def generate_manuscript_draft(
+    pipeline_outputs: dict,
+    interview_data: dict,
+    pipeline_type: str,
+    bioproject_accession: str,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
+) -> dict:
+    """
+    Generate a manuscript draft from pipeline outputs and author interview.
+
+    Returns a dict with sections: abstract, introduction, methods, results, discussion
+    """
+    client = get_client(base_url=base_url, api_key=api_key)
+
+    results_summary = _summarize_results(pipeline_outputs)
+    interview_context = _format_interview(interview_data)
+
     sections = {}
 
     # Introduction
-    intro_prompt = f"""Generate an Introduction section for a paper with this context:
+    sections["introduction"] = chat(client, SYSTEM_PROMPT, f"""Generate an Introduction section for a paper with this context:
 
 RESEARCH CONTEXT FROM AUTHOR:
 {interview_context}
 
-SRA Accession: {sra_accession}
+BioProject: {bioproject_accession}
 Pipeline: {pipeline_type}
 
 Write 2-3 paragraphs that:
@@ -54,21 +51,14 @@ Write 2-3 paragraphs that:
 2. State the research question/hypothesis
 3. Briefly preview the approach
 
-Use [CITE] placeholders where literature citations would go."""
+Use [CITE] placeholders where literature citations would go.""",
+        model=model, max_tokens=2000)
 
-    intro_response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        system=system_prompt,
-        messages=[{"role": "user", "content": intro_prompt}],
-    )
-    sections["introduction"] = intro_response.content[0].text
-
-    # Methods (largely templated from pipeline)
-    methods_prompt = f"""Generate a Methods section for this analysis:
+    # Methods
+    sections["methods"] = chat(client, SYSTEM_PROMPT, f"""Generate a Methods section for this analysis:
 
 Pipeline: {pipeline_type}
-SRA Accession: {sra_accession}
+BioProject: {bioproject_accession}
 
 AUTHOR CONTEXT ON SAMPLES:
 {interview_data.get('study_context', 'Not provided')}
@@ -78,25 +68,18 @@ PIPELINE OUTPUTS:
 {results_summary}
 
 Write a Methods section covering:
-1. Data acquisition (SRA)
+1. Data acquisition (SRA/BioProject)
 2. Sequence processing pipeline
 3. Analysis parameters (inferred from outputs)
 4. Statistical approaches used
 
-Be specific about tools and versions where inferable."""
-
-    methods_response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        system=system_prompt,
-        messages=[{"role": "user", "content": methods_prompt}],
-    )
-    sections["methods"] = methods_response.content[0].text
+Be specific about tools and versions where inferable.""",
+        model=model, max_tokens=2000)
 
     # Results
-    results_prompt = f"""Generate a Results section based on these pipeline outputs:
+    sections["results"] = chat(client, SYSTEM_PROMPT, f"""Generate a Results section based on these pipeline outputs:
 
-{json.dumps(pipeline_outputs, indent=2, default=str)}
+{json.dumps(pipeline_outputs, indent=2, default=str) if pipeline_outputs else 'No pipeline outputs available yet.'}
 
 RESEARCH QUESTION:
 {interview_data.get('research_question', 'Not specified')}
@@ -107,18 +90,11 @@ Write a Results section that:
 3. Includes key statistics and quantitative findings
 4. Follows a logical flow from overview to specific findings
 
-Do not interpret results - save that for Discussion."""
-
-    results_response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=3000,
-        system=system_prompt,
-        messages=[{"role": "user", "content": results_prompt}],
-    )
-    sections["results"] = results_response.content[0].text
+Do not interpret results - save that for Discussion.""",
+        model=model, max_tokens=3000)
 
     # Discussion
-    discussion_prompt = f"""Generate a Discussion section:
+    sections["discussion"] = chat(client, SYSTEM_PROMPT, f"""Generate a Discussion section:
 
 KEY RESULTS:
 {sections['results'][:1500]}
@@ -139,15 +115,30 @@ Write a Discussion that:
 4. Addresses limitations honestly
 5. Suggests future directions
 
-Use [CITE] placeholders for literature references."""
+Use [CITE] placeholders for literature references.""",
+        model=model, max_tokens=3000)
 
-    discussion_response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=3000,
-        system=system_prompt,
-        messages=[{"role": "user", "content": discussion_prompt}],
-    )
-    sections["discussion"] = discussion_response.content[0].text
+    # Abstract (written last, based on all sections)
+    sections["abstract"] = chat(client, SYSTEM_PROMPT, f"""Write an abstract for this manuscript:
+
+INTRODUCTION (summary):
+{sections['introduction'][:500]}
+
+METHODS (summary):
+{sections['methods'][:500]}
+
+KEY RESULTS:
+{sections['results'][:500]}
+
+DISCUSSION (summary):
+{sections['discussion'][:500]}
+
+Write a single paragraph (200-300 words) covering:
+1. Background and objective
+2. Methods
+3. Key results
+4. Conclusions""",
+        model=model, max_tokens=500)
 
     return sections
 

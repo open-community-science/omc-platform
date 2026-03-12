@@ -158,6 +158,23 @@
     </div>
     {% endif %}
 
+    {% if submission.selected_runs %}
+    <div class="selected-data-types">
+        <h2>Selected Data Types</h2>
+        {% set rows = submission.selected_runs %}
+        <table class="breakdown-table transposed">
+            <tr><th>Platform</th>{% for r in rows %}<td>{{ r.platform }}</td>{% endfor %}</tr>
+            <tr><th>Instrument</th>{% for r in rows %}<td>{{ r.instrument }}</td>{% endfor %}</tr>
+            <tr><th>Strategy</th>{% for r in rows %}<td>{{ r.strategy }}</td>{% endfor %}</tr>
+            <tr><th>Source</th>{% for r in rows %}<td>{{ r.source }}</td>{% endfor %}</tr>
+            <tr><th>Layout</th>{% for r in rows %}<td>{{ r.layout }}</td>{% endfor %}</tr>
+            <tr><th>Runs</th>{% for r in rows %}<td>{{ r.runs }}</td>{% endfor %}</tr>
+            <tr><th>Samples</th>{% for r in rows %}<td>{{ r.samples }}</td>{% endfor %}</tr>
+            <tr><th>Data</th>{% for r in rows %}<td>{% if r.bases %}{{ (r.bases / 1e9) | round(2) }} Gbp{% endif %}</td>{% endfor %}</tr>
+        </table>
+    </div>
+    {% endif %}
+
     {% if submission.error_message %}
     <div class="error-box">
         <strong>Error:</strong> {{ submission.error_message }}

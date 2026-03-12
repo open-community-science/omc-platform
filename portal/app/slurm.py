@@ -12,13 +12,38 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
+def _get_pipeline_path(pipeline: PipelineType) -> str:
+    """Return the HPC path for a given pipeline type.
+
+    Raises NotImplementedError for pipelines that are not yet deployed.
+    """
+    pipeline_paths = {
+        PipelineType.NANOPORE_MAG: settings.pipeline_nanopore_mag,
+        PipelineType.MICROSCAPE: settings.pipeline_microscape,
+        PipelineType.ILLUMINA_MAG: settings.pipeline_illumina_mag,
+        PipelineType.RNASEQ: settings.pipeline_rnaseq,
+        PipelineType.ISOLATE_GENOME: settings.pipeline_isolate_genome,
+    }
+
+    path = pipeline_paths.get(pipeline)
+    if path is None:
+        raise NotImplementedError(
+            f"Pipeline '{pipeline.value}' is not yet supported for SLURM submission."
+        )
+
+    # Guard against pipelines that have a config entry but no deployed path yet
+    if pipeline in (PipelineType.ILLUMINA_MAG, PipelineType.RNASEQ, PipelineType.ISOLATE_GENOME):
+        raise NotImplementedError(
+            f"Pipeline '{pipeline.value}' is configured but not yet deployed on HPC. "
+            f"Expected path: {path}"
+        )
+
+    return path
+
+
 def _build_sbatch_script(submission: Submission) -> str:
     """Generate sbatch script for the pipeline."""
-    pipeline_path = (
-        settings.pipeline_nanopore_mag
-        if submission.pipeline == PipelineType.NANOPORE_MAG
-        else settings.pipeline_microscape
-    )
+    pipeline_path = _get_pipeline_path(submission.pipeline)
 
     output_dir = f"{settings.results_path}/{submission.id}"
 
@@ -42,7 +67,7 @@ mkdir -p {output_dir}
 # Run pipeline
 cd {output_dir}
 nextflow run {pipeline_path}/main.nf \\
-    --sra_accession {submission.sra_accession} \\
+    --bioproject_accession {submission.bioproject_accession} \\
     --outdir {output_dir}/results \\
     -profile singularity,slurm \\
     -resume

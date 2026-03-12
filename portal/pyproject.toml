@@ -21,6 +21,7 @@ dependencies = [
     "asyncssh>=2.14.0",
     "biopython>=1.83",
     "greenlet>=3.3.2",
+    "openai>=2.26.0",
 ]
 
 [project.scripts]

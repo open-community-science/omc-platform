@@ -20,7 +20,12 @@ class Settings(BaseSettings):
     github_token: str = ""
     github_org: str = "omc-papers"
 
-    # Claude API
+    # LLM settings (OpenAI-compatible — works with LM Studio, OpenAI, etc.)
+    llm_base_url: str = "http://127.0.0.1:1234/v1"
+    llm_api_key: str = "lm-studio"
+    llm_model: str = "qwen/qwen3-coder-30b"
+
+    # Claude API (for production — falls back to llm_* settings if empty)
     anthropic_api_key: str = ""
 
     # Database
@@ -37,6 +42,9 @@ class Settings(BaseSettings):
     # Pipeline paths on HPC
     pipeline_nanopore_mag: str = "/project/def-alloc/pipelines/nanopore_mag"
     pipeline_microscape: str = "/project/def-alloc/pipelines/microscape"
+    pipeline_illumina_mag: str = "/project/def-alloc/pipelines/illumina_mag"
+    pipeline_rnaseq: str = "/project/def-alloc/pipelines/rnaseq"
+    pipeline_isolate_genome: str = "/project/def-alloc/pipelines/isolate_genome"
 
     # Shared filesystem mount (for results)
     results_path: str = "/project/def-alloc/omc/results"

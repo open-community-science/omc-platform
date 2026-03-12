@@ -33,12 +33,12 @@ def render_manuscript_template(
 
     # Build substitution dict
     subs = {
-        "title": submission.title or f"Analysis of {submission.sra_accession}",
+        "title": submission.title or f"Analysis of {submission.bioproject_accession}",
         "author_name": author_name or "OMC Contributors",
         "affiliation": affiliation or "",
         "date": datetime.utcnow().strftime("%Y-%m-%d"),
         "abstract": sections.get("abstract", "*Abstract pending.*"),
-        "sra_accession": submission.sra_accession,
+        "sra_accession": submission.bioproject_accession,
         "pipeline": submission.pipeline.value,
         "paper_id": f"paper-{submission.id:04d}",
         "introduction": sections.get("introduction", "*Introduction pending.*"),
@@ -93,6 +93,7 @@ def build_paper_repo_files(
     # data/accessions.yaml
     import yaml
     accession_data = {
+        "bioproject_accession": submission.bioproject_accession,
         "sra_accession": submission.sra_accession,
         "pipeline": submission.pipeline.value,
         "submitted_at": submission.submitted_at.isoformat() if submission.submitted_at else None,
@@ -167,19 +168,21 @@ async def process_completed_submission(submission: Submission, db_session) -> st
         tables = {}
         pipeline_outputs = {}
 
-        # Step 2: Generate manuscript sections via AI (if API key available)
+        # Step 2: Generate manuscript sections via AI
         sections = {}
-        if settings.anthropic_api_key:
+        try:
             from ai.manuscript_generator import generate_manuscript_draft
             sections = await generate_manuscript_draft(
-                api_key=settings.anthropic_api_key,
                 pipeline_outputs=pipeline_outputs,
                 interview_data=submission.interview_data or {},
                 pipeline_type=submission.pipeline.value,
-                sra_accession=submission.sra_accession,
+                bioproject_accession=submission.bioproject_accession,
+                base_url=settings.llm_base_url,
+                api_key=settings.llm_api_key,
+                model=settings.llm_model,
             )
-        else:
-            # Placeholder sections
+        except Exception as e:
+            logger.warning(f"AI generation failed, using placeholders: {e}")
             sections = {
                 "abstract": "*Abstract will be generated after pipeline outputs and author interview are available.*",
                 "introduction": "*Introduction pending AI generation.*",

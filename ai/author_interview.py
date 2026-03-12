@@ -1,114 +1,169 @@
 """AI-powered author interview for gathering manuscript context."""
-from anthropic import Anthropic
-from typing import Optional
+import json
+from .llm_client import get_client, chat, multi_turn
+
+
+INTERVIEW_SYSTEM = """You are a scientific editor conducting an author interview for the
+Open Microbial Community (OMC) platform. Your job is to gather enough context from the
+researcher to generate a good first draft of their manuscript.
+
+You have access to the project's SRA metadata (provided below). Use it to ask informed
+questions — don't ask the author things you can already see in the metadata.
+
+Be conversational but efficient. Each message should either:
+1. Ask a focused question about the research
+2. Confirm your understanding of something
+3. Summarize what you've learned so far
+
+Topics to cover (not necessarily in order):
+- Research question / hypothesis
+- Why this study matters (broader significance)
+- Key references the author wants cited
+- Expected vs surprising findings
+- Known limitations or caveats
+- Sample selection rationale (which runs to include and why)
+- Any methodological choices the author wants highlighted
+
+When you have enough context, say so and provide a structured summary.
+Do NOT ask more than 8-10 questions total. Respect the author's time.
+"""
 
 
 async def conduct_interview_turn(
-    api_key: str,
-    question: str,
-    answer: str,
-    previous_answers: dict,
-    sra_accession: str,
+    message: str,
+    conversation_history: list[dict],
+    project_metadata: dict,
     pipeline_type: str,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
 ) -> dict:
     """
-    Process an interview answer and provide follow-up if needed.
+    Process one turn of the interview conversation.
 
-    The interview is mostly structured (predefined questions), but this
-    can provide intelligent follow-up questions or clarifications.
+    Args:
+        message: The author's latest message
+        conversation_history: List of {"role": ..., "content": ...} dicts
+        project_metadata: The BioProject metadata dict
+        pipeline_type: Selected pipeline
+
+    Returns:
+        {"response": str, "complete": bool, "summary": dict|None}
     """
-    client = Anthropic(api_key=api_key)
+    client = get_client(base_url=base_url, api_key=api_key)
 
-    context = f"""SRA Accession: {sra_accession}
-Pipeline: {pipeline_type}
+    # Build system prompt with project context
+    meta_context = json.dumps({
+        k: v for k, v in project_metadata.items()
+        if k not in ("breakdown",)  # skip the big breakdown table
+    }, indent=2, default=str) if project_metadata else "Not available"
 
-Previous answers:
-{_format_previous(previous_answers)}
+    system = f"""{INTERVIEW_SYSTEM}
 
-Current question: {question}
-Author's answer: {answer}
+PROJECT METADATA:
+{meta_context}
+
+PIPELINE: {pipeline_type}
 """
 
-    prompt = f"""Review this interview response from a researcher submitting a paper to OMC:
+    # Add the author's new message to history
+    messages = list(conversation_history) + [{"role": "user", "content": message}]
 
-{context}
-
-Evaluate the response:
-1. Is it sufficiently detailed for manuscript generation?
-2. Are there any clarifications needed?
-3. Any follow-up questions that would help?
-
-If the answer is good, respond with: {{"status": "accepted", "feedback": null}}
-If clarification needed, respond with: {{"status": "needs_clarification", "feedback": "Your follow-up question or prompt"}}
-
-Only ask for clarification if truly needed - don't be unnecessarily demanding."""
-
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=500,
-        messages=[{"role": "user", "content": prompt}],
+    response_text = multi_turn(
+        client, system, messages,
+        model=model, max_tokens=1000, temperature=0.7,
     )
 
-    response_text = response.content[0].text
+    # Check if the interview is complete (AI says it has enough)
+    complete = any(phrase in response_text.lower() for phrase in [
+        "i have enough", "that covers everything", "ready to generate",
+        "sufficient context", "let me summarize what i've learned",
+        "here's a summary of what i've gathered",
+    ])
 
-    # Parse response
-    import json
-    try:
-        # Try to extract JSON from response
-        if "{" in response_text:
-            json_start = response_text.index("{")
-            json_end = response_text.rindex("}") + 1
-            result = json.loads(response_text[json_start:json_end])
-            return result
-    except (ValueError, json.JSONDecodeError):
-        pass
+    result = {
+        "response": response_text,
+        "complete": complete,
+        "summary": None,
+    }
 
-    # Default to accepting
-    return {"status": "accepted", "feedback": None}
+    # If complete, extract the structured summary
+    if complete:
+        result["summary"] = await _extract_summary(
+            client, messages + [{"role": "assistant", "content": response_text}],
+            model=model,
+        )
+
+    return result
 
 
-async def generate_interview_summary(
-    api_key: str,
-    interview_data: dict,
-    sra_accession: str,
+async def start_interview(
+    project_metadata: dict,
     pipeline_type: str,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
 ) -> str:
-    """Generate a summary of the interview for the manuscript generation step."""
-    client = Anthropic(api_key=api_key)
+    """Generate the opening message for the interview."""
+    client = get_client(base_url=base_url, api_key=api_key)
 
-    prompt = f"""Summarize this author interview for use in manuscript generation:
+    meta_context = json.dumps({
+        k: v for k, v in project_metadata.items()
+        if k not in ("breakdown",)
+    }, indent=2, default=str) if project_metadata else "Not available"
 
-SRA Accession: {sra_accession}
-Pipeline: {pipeline_type}
+    return chat(client,
+        f"""{INTERVIEW_SYSTEM}
 
-Interview Responses:
-{_format_previous(interview_data)}
+PROJECT METADATA:
+{meta_context}
 
-Create a concise summary (2-3 paragraphs) that captures:
-1. The research question and context
-2. Key sample/study information
-3. Expected findings and significance
-4. Any limitations or caveats
-
-This summary will be used by the AI to generate appropriate manuscript sections."""
-
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1000,
-        messages=[{"role": "user", "content": prompt}],
+PIPELINE: {pipeline_type}
+""",
+        """This is the start of the interview. The author just submitted their BioProject
+and selected a pipeline. Introduce yourself briefly, show that you've reviewed their
+metadata (mention something specific you noticed), and ask your first question.
+Keep it under 150 words.""",
+        model=model, max_tokens=300, temperature=0.7,
     )
 
-    return response.content[0].text
 
+async def _extract_summary(
+    client,
+    conversation: list[dict],
+    model: str | None = None,
+) -> dict:
+    """Extract a structured summary from the completed interview."""
+    summary_prompt = """Based on the interview conversation above, extract a structured summary as JSON:
 
-def _format_previous(answers: dict) -> str:
-    """Format previous answers for context."""
-    if not answers:
-        return "None yet"
+{
+    "research_question": "...",
+    "study_context": "...",
+    "sample_info": "...",
+    "expected_findings": "...",
+    "broader_significance": "...",
+    "limitations": "...",
+    "key_references": ["...", "..."],
+    "notes": "Any other relevant context"
+}
 
-    formatted = []
-    for key, value in answers.items():
-        label = key.replace("_", " ").title()
-        formatted.append(f"{label}:\n{value}")
+Return ONLY the JSON."""
 
-    return "\n\n".join(formatted)
+    messages = list(conversation) + [{"role": "user", "content": summary_prompt}]
+
+    response = multi_turn(
+        client,
+        "Extract structured information from the interview. Return only valid JSON.",
+        messages,
+        model=model, max_tokens=1000, temperature=0.3,
+    )
+
+    try:
+        text = response.strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        return json.loads(text)
+    except (ValueError, json.JSONDecodeError):
+        return {"raw_summary": response}
