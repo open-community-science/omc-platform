@@ -14,6 +14,7 @@ from .database import init_db, get_db, Submission, User
 from .auth import router as auth_router, get_current_user
 from .submissions import router as submissions_router
 from .interviews import router as interviews_router
+from .reviews import router as reviews_router
 
 settings = get_settings()
 
@@ -46,6 +47,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 app.include_router(auth_router)
 app.include_router(submissions_router)
 app.include_router(interviews_router)
+app.include_router(reviews_router)
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -145,6 +145,98 @@ async def submit_answer(
     }
 
 
+@router.post("/{submission_id}/chat")
+async def ai_interview_chat(
+    submission_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """AI-powered conversational interview turn.
+
+    Send {"message": "..."} to chat with the AI interviewer.
+    Send {"message": ""} or omit to start/get opening message.
+    Returns AI response, completion flag, and extracted summary when done.
+    """
+    from ai.author_interview import conduct_interview_turn, start_interview
+
+    stmt = select(Submission).where(
+        Submission.id == submission_id,
+        Submission.user_id == user.id,
+    )
+    result = await db.execute(stmt)
+    submission = result.scalar_one_or_none()
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    body = await request.json()
+    user_message = body.get("message", "").strip()
+
+    # Build project metadata from submission
+    project_meta = {
+        "accession": submission.bioproject_accession,
+        "pipeline": submission.pipeline.value,
+        "title": submission.title or "",
+        "metadata": submission.sample_metadata or {},
+    }
+
+    # Get conversation history from interview_data
+    interview_data = dict(submission.interview_data or {})
+    chat_history = interview_data.get("_chat_history", [])
+
+    if not user_message and not chat_history:
+        # Start new AI interview
+        opening = await start_interview(
+            project_meta,
+            submission.pipeline.value,
+            base_url=settings.llm_base_url,
+            api_key=settings.llm_api_key,
+            model=settings.llm_model,
+        )
+        chat_history.append({"role": "assistant", "content": opening})
+        interview_data["_chat_history"] = chat_history
+        submission.interview_data = interview_data
+        attributes.flag_modified(submission, "interview_data")
+        await db.commit()
+        return {"response": opening, "complete": False, "turn": len(chat_history)}
+
+    # Get AI response
+    result = await conduct_interview_turn(
+        user_message,
+        chat_history,
+        project_meta,
+        submission.pipeline.value,
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key,
+        model=settings.llm_model,
+    )
+
+    response_text = result["response"]
+    is_complete = result["complete"]
+    summary = result.get("summary")
+
+    chat_history.append({"role": "user", "content": user_message})
+    chat_history.append({"role": "assistant", "content": response_text})
+
+    # If complete, merge extracted summary into interview_data
+    if is_complete and summary:
+        for key, value in summary.items():
+            if key != "_chat_history" and value:
+                interview_data[key] = value
+
+    interview_data["_chat_history"] = chat_history
+    submission.interview_data = interview_data
+    attributes.flag_modified(submission, "interview_data")
+    await db.commit()
+
+    return {
+        "response": response_text,
+        "complete": is_complete,
+        "turn": len(chat_history),
+        "summary": summary if is_complete else None,
+    }
+
+
 @router.post("/{submission_id}/reset")
 async def reset_interview(
     submission_id: int,

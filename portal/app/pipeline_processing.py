@@ -162,11 +162,19 @@ async def process_completed_submission(submission: Submission, db_session) -> st
     from .database import SubmissionStatus
 
     try:
-        # Step 1: Parse pipeline outputs (TODO: implement)
-        # For now, use empty placeholders
+        # Step 1: Parse pipeline outputs from results directory
         figures_json = {}
         tables = {}
         pipeline_outputs = {}
+        try:
+            from ai.pipeline_parser import parse_pipeline_outputs
+            results_path = Path(settings.results_path) / f"{submission.bioproject_accession}"
+            pipeline_outputs = parse_pipeline_outputs(
+                submission.pipeline.value, results_path
+            )
+            logger.info(f"Parsed {len(pipeline_outputs)} output categories from {results_path}")
+        except Exception as e:
+            logger.warning(f"Pipeline output parsing failed, using empty: {e}")
 
         # Step 2: Generate manuscript sections via AI
         sections = {}
