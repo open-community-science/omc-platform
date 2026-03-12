@@ -37,6 +37,55 @@
         </dl>
     </div>
 
+    {% if submission.sample_metadata and submission.sample_metadata.get('organism') %}
+    <div class="sra-metadata">
+        <h2>SRA Metadata</h2>
+        <dl>
+            {% if submission.sample_metadata.get('organism') %}
+            <dt>Organism</dt>
+            <dd>{{ submission.sample_metadata.organism }}</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('platform') %}
+            <dt>Platform</dt>
+            <dd>{{ submission.sample_metadata.platform }} ({{ submission.sample_metadata.get('instrument_model', '') }})</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('library_strategy') %}
+            <dt>Library</dt>
+            <dd>{{ submission.sample_metadata.library_strategy }} / {{ submission.sample_metadata.get('library_source', '') }} / {{ submission.sample_metadata.get('library_layout', '') }}</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('total_bases') %}
+            <dt>Data</dt>
+            <dd>{{ submission.sample_metadata.total_spots }} reads, {{ submission.sample_metadata.size_mb }} MB</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('organization') %}
+            <dt>Center</dt>
+            <dd>{{ submission.sample_metadata.organization }}</dd>
+            {% endif %}
+
+            {% if submission.sample_metadata.get('study_title') %}
+            <dt>Study</dt>
+            <dd>{{ submission.sample_metadata.study_title }}</dd>
+            {% endif %}
+        </dl>
+
+        {% if submission.sample_metadata.get('sample_attributes') %}
+        <details>
+            <summary>Sample Attributes ({{ submission.sample_metadata.sample_attributes | length }})</summary>
+            <dl>
+                {% for key, val in submission.sample_metadata.sample_attributes.items() %}
+                <dt>{{ key }}</dt>
+                <dd>{{ val }}</dd>
+                {% endfor %}
+            </dl>
+        </details>
+        {% endif %}
+    </div>
+    {% endif %}
+
     {% if submission.error_message %}
     <div class="error-box">
         <strong>Error:</strong> {{ submission.error_message }}

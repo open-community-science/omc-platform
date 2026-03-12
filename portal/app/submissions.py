@@ -10,6 +10,7 @@ from .config import get_settings
 from .database import get_db, Submission, User, SubmissionStatus, PipelineType
 from .auth import require_user
 from .slurm import submit_pipeline_job
+from .sra_metadata import fetch_sra_metadata
 
 router = APIRouter(prefix="/submissions", tags=["submissions"])
 settings = get_settings()
@@ -36,12 +37,23 @@ async def create_submission(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid pipeline selection")
 
+    # Fetch SRA metadata from NCBI
+    sra_metadata = await fetch_sra_metadata(sra_accession)
+
+    # Use study title as default paper title if available
+    default_title = (
+        sra_metadata.get("study_title")
+        or sra_metadata.get("title")
+        or f"Analysis of {sra_accession}"
+    )
+
     # Create submission
     submission = Submission(
         user_id=user.id,
         sra_accession=sra_accession,
         pipeline=pipeline_type,
-        title=title or f"Analysis of {sra_accession}",
+        title=title or default_title,
+        sample_metadata=sra_metadata,
         status=SubmissionStatus.DRAFT,
     )
     db.add(submission)
@@ -49,6 +61,17 @@ async def create_submission(
     await db.refresh(submission)
 
     return RedirectResponse(url=f"/submissions/{submission.id}", status_code=302)
+
+
+@router.get("/lookup/{accession}")
+async def lookup_accession(accession: str):
+    """Live lookup of SRA metadata for the submission form."""
+    accession = accession.strip().upper()
+    if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA")):
+        return {"error": "Invalid accession format"}
+
+    metadata = await fetch_sra_metadata(accession)
+    return metadata
 
 
 @router.post("/{submission_id}/submit")

@@ -10,11 +10,19 @@
     <form action="/submissions/create" method="POST" class="submit-form">
         <div class="form-group">
             <label for="sra_accession">SRA Accession</label>
-            <input type="text" id="sra_accession" name="sra_accession" required
-                   placeholder="e.g., SRR12345678 or PRJNA123456"
-                   pattern="[A-Za-z]{2,6}[0-9]+"
-                   title="Enter a valid SRA accession (SRR, ERR, DRR, SRX, SRP, or PRJNA prefix)">
+            <div style="display: flex; gap: 0.5rem;">
+                <input type="text" id="sra_accession" name="sra_accession" required
+                       placeholder="e.g., SRR12345678 or PRJNA123456"
+                       pattern="[A-Za-z]{2,6}[0-9]+"
+                       title="Enter a valid SRA accession (SRR, ERR, DRR, SRX, SRP, or PRJNA prefix)">
+                <button type="button" id="lookup-btn" class="btn btn-secondary" onclick="lookupAccession()">Lookup</button>
+            </div>
             <small>Enter an SRA run accession (SRR/ERR/DRR) or BioProject (PRJNA)</small>
+        </div>
+
+        <div id="metadata-preview" class="metadata-preview" style="display:none;">
+            <h3>SRA Metadata</h3>
+            <div id="metadata-content"></div>
         </div>
 
         <div class="form-group">
@@ -31,13 +39,84 @@
             <label for="title">Paper Title (optional)</label>
             <input type="text" id="title" name="title"
                    placeholder="e.g., Microbial community analysis of Arctic permafrost">
-            <small>You can set or change this later</small>
+            <small>You can set or change this later. If blank, uses study title from SRA.</small>
         </div>
 
         <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Create Submission</button>
+            <button type="submit" class="btn btn-primary" id="submit-btn">Create Submission</button>
             <a href="/dashboard" class="btn btn-secondary">Cancel</a>
         </div>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let lookupTimeout = null;
+
+// Auto-lookup after typing stops
+document.getElementById('sra_accession').addEventListener('input', function() {
+    clearTimeout(lookupTimeout);
+    const val = this.value.trim();
+    if (val.length >= 6) {
+        lookupTimeout = setTimeout(lookupAccession, 800);
+    }
+});
+
+async function lookupAccession() {
+    const accession = document.getElementById('sra_accession').value.trim();
+    if (!accession) return;
+
+    const btn = document.getElementById('lookup-btn');
+    const preview = document.getElementById('metadata-preview');
+    const content = document.getElementById('metadata-content');
+
+    btn.textContent = 'Looking up...';
+    btn.disabled = true;
+
+    try {
+        const resp = await fetch(`/submissions/lookup/${encodeURIComponent(accession)}`);
+        const data = await resp.json();
+
+        if (data.error) {
+            content.innerHTML = `<p class="error-text">${data.error}</p>`;
+            preview.style.display = 'block';
+        } else {
+            let html = '<dl>';
+            if (data.study_title) html += `<dt>Study</dt><dd>${data.study_title}</dd>`;
+            if (data.organism) html += `<dt>Organism</dt><dd>${data.organism}</dd>`;
+            if (data.platform) html += `<dt>Platform</dt><dd>${data.platform} (${data.instrument_model || ''})</dd>`;
+            if (data.library_strategy) html += `<dt>Library</dt><dd>${data.library_strategy} / ${data.library_source || ''} / ${data.library_layout || ''}</dd>`;
+            if (data.total_bases) {
+                const gb = (parseInt(data.total_bases) / 1e9).toFixed(2);
+                html += `<dt>Data</dt><dd>${data.total_spots} reads, ${gb} Gbp</dd>`;
+            }
+            if (data.organization) html += `<dt>Center</dt><dd>${data.organization}</dd>`;
+
+            const attrs = data.sample_attributes || {};
+            const attrCount = Object.keys(attrs).length;
+            if (attrCount > 0) {
+                html += `<dt>Sample Attributes</dt><dd>${attrCount} fields</dd>`;
+            }
+
+            html += '</dl>';
+
+            // Auto-fill title from study
+            const titleInput = document.getElementById('title');
+            if (!titleInput.value && data.study_title) {
+                titleInput.placeholder = data.study_title;
+            }
+
+            content.innerHTML = html;
+            preview.style.display = 'block';
+        }
+    } catch (e) {
+        content.innerHTML = `<p class="error-text">Lookup failed: ${e.message}</p>`;
+        preview.style.display = 'block';
+    }
+
+    btn.textContent = 'Lookup';
+    btn.disabled = false;
+}
+</script>
 {% endblock %}
