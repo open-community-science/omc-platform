@@ -73,11 +73,7 @@ async def run_reviews(
             detail="No manuscript found. Generate manuscript first.",
         )
 
-    if not submission.github_repo:
-        raise HTTPException(
-            status_code=400,
-            detail="No GitHub repo. Create the paper repo first.",
-        )
+    has_github_repo = bool(submission.github_repo)
 
     # Parse pipeline outputs for statistical review
     pipeline_outputs = {}
@@ -103,27 +99,29 @@ async def run_reviews(
         model=settings.llm_model,
     )
 
-    # Extract org/repo from github_repo URL
-    # e.g. "https://github.com/omc-papers/paper-0001" → "omc-papers/paper-0001"
-    repo_full_name = "/".join(submission.github_repo.rstrip("/").split("/")[-2:])
-
-    # Create a PR for each review type
+    # Create PRs if the paper has a GitHub repo
     pr_urls = []
-    for review in reviews:
-        review_type = review.get("review_type", "general")
-        body_md = _format_review_as_markdown(review)
+    if has_github_repo:
+        # e.g. "https://github.com/omc-papers/paper-0001" → "omc-papers/paper-0001"
+        repo_full_name = "/".join(submission.github_repo.rstrip("/").split("/")[-2:])
 
-        try:
-            pr_url = await create_review_pr(
-                repo_full_name,
-                [{"body": body_md}],
-                review_type,
-            )
-            pr_urls.append({"review_type": review_type, "pr_url": pr_url})
-            logger.info(f"Created review PR: {pr_url}")
-        except Exception as e:
-            logger.error(f"Failed to create {review_type} review PR: {e}")
-            pr_urls.append({"review_type": review_type, "error": str(e)})
+        for review in reviews:
+            review_type = review.get("review_type", "general")
+            body_md = _format_review_as_markdown(review)
+
+            try:
+                pr_url = await create_review_pr(
+                    repo_full_name,
+                    [{"body": body_md}],
+                    review_type,
+                )
+                pr_urls.append({"review_type": review_type, "pr_url": pr_url})
+                logger.info(f"Created review PR: {pr_url}")
+            except Exception as e:
+                logger.error(f"Failed to create {review_type} review PR: {e}")
+                pr_urls.append({"review_type": review_type, "error": str(e)})
+    else:
+        logger.info(f"No GitHub repo for submission {submission_id} — reviews saved without PRs")
 
     # Store review results and PR URLs in interview_data
     interview_data["_reviews"] = reviews

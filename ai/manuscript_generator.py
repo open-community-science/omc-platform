@@ -1,6 +1,10 @@
 """AI-powered manuscript generation from pipeline outputs and author interview."""
 import json
+import logging
 from .llm_client import get_client, chat
+from .citation_resolver import find_cite_contexts, generate_search_queries, format_bibtex_entry, format_inline_citation
+
+log = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """You are a scientific writing assistant for microbial ecology research.
@@ -140,6 +144,20 @@ Write a single paragraph (200-300 words) covering:
 4. Conclusions""",
         model=model, max_tokens=500)
 
+    # Resolve [CITE] placeholders across all sections (non-blocking)
+    try:
+        sections, bibliography = await resolve_citations(
+            sections,
+            pipeline_type=pipeline_type,
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+        )
+        if bibliography:
+            sections["bibliography"] = bibliography
+    except Exception as e:
+        log.warning(f"Citation resolution failed (manuscript preserved): {e}")
+
     return sections
 
 
@@ -169,3 +187,94 @@ def _format_interview(interview_data: dict) -> str:
         formatted.append(f"{label}: {value}")
 
     return "\n".join(formatted)
+
+
+async def resolve_citations(
+    sections: dict,
+    pipeline_type: str = "",
+    search_fn=None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
+) -> tuple[dict, str]:
+    """Resolve [CITE] placeholders in manuscript sections.
+
+    For each [CITE], generates a PubMed search query, searches PubMed,
+    and replaces the placeholder with an inline citation. Returns the
+    updated sections and a BibTeX bibliography string.
+
+    search_fn: optional callable(query) -> list[dict] for testing/mocking.
+               Each dict should have title, authors, journal, year, doi, pmid.
+    """
+    # Combine all sections into one text for context extraction
+    full_text = "\n\n".join(
+        f"## {name}\n{content}" for name, content in sections.items()
+    )
+
+    contexts = find_cite_contexts(full_text)
+    if not contexts:
+        return sections, ""
+
+    # Generate search queries from contexts
+    queries = generate_search_queries(
+        contexts,
+        pipeline_type=pipeline_type,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+    )
+
+    # Search PubMed for each query and collect results
+    bibtex_entries = []
+    replacements = []  # (original_text, replacement_text)
+
+    for i, (ctx, query) in enumerate(zip(contexts, queries)):
+        article = None
+        if search_fn:
+            try:
+                results = search_fn(query)
+                if results:
+                    article = results[0]
+            except Exception as e:
+                log.warning(f"Search failed for query '{query}': {e}")
+
+        if article:
+            # Generate citation key: firstauthor2023keyword
+            authors = article.get("authors", [])
+            first_author = authors[0].split()[-1].lower() if authors else "unknown"
+            year = article.get("year", "")
+            title_word = article.get("title", "").split()[0].lower() if article.get("title") else "ref"
+            cite_key = f"{first_author}{year}{title_word}"
+
+            inline = format_inline_citation(article, cite_key)
+            bibtex = format_bibtex_entry(article, cite_key)
+            bibtex_entries.append(bibtex)
+        else:
+            # No search result — leave a numbered placeholder
+            cite_key = f"ref{i+1}"
+            hint = ctx.get("hint", "")
+            inline = f"[{hint or cite_key}]"
+            log.info(f"No PubMed result for citation {i+1}: '{query}'")
+
+        original = full_text[ctx["span"][0]:ctx["span"][1]]
+        replacements.append((original, inline))
+
+    # Apply replacements in reverse order to preserve spans
+    for original, replacement in reversed(replacements):
+        full_text = full_text.replace(original, replacement, 1)
+
+    # Split back into sections
+    updated_sections = {}
+    for name in sections:
+        marker = f"## {name}\n"
+        if marker in full_text:
+            start = full_text.index(marker) + len(marker)
+            # Find next section or end
+            next_markers = [full_text.index(f"## {n}\n") for n in sections if f"## {n}\n" in full_text and full_text.index(f"## {n}\n") > start]
+            end = min(next_markers) if next_markers else len(full_text)
+            updated_sections[name] = full_text[start:end].strip()
+        else:
+            updated_sections[name] = sections[name]
+
+    bibliography = "\n\n".join(bibtex_entries)
+    return updated_sections, bibliography
