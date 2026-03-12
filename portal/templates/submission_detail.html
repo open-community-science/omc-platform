@@ -187,6 +187,8 @@
             <button type="submit" class="btn btn-primary">Submit to HPC</button>
         </form>
         <a href="/submissions/{{ submission.id }}/interview" class="btn btn-secondary">Author Interview</a>
+        <button class="btn btn-secondary" onclick="generateManuscript()">Generate Manuscript</button>
+        <button class="btn btn-secondary" onclick="runReviews()">Run AI Reviews</button>
         {% elif submission.status.value in ['submitted', 'queued', 'running'] %}
         <div class="status-message" hx-get="/submissions/{{ submission.id }}/status" hx-trigger="every 10s" hx-swap="innerHTML">
             <p>Job is {{ submission.status.value }}... checking status</p>
@@ -195,13 +197,40 @@
         <p>Processing pipeline outputs...</p>
         {% elif submission.status.value == 'drafting' %}
         <a href="/submissions/{{ submission.id }}/interview" class="btn btn-primary">Complete Interview</a>
+        <button class="btn btn-secondary" onclick="generateManuscript()">Generate Manuscript</button>
         <p>Waiting for author interview to generate manuscript draft.</p>
         {% elif submission.status.value == 'review' %}
         <a href="{{ submission.github_repo }}/pulls" target="_blank" class="btn btn-primary">View Reviews</a>
+        <button class="btn btn-secondary" onclick="runReviews()">Re-run AI Reviews</button>
         {% elif submission.status.value == 'published' %}
         <a href="{{ submission.github_repo }}" target="_blank" class="btn btn-primary">View Paper</a>
         {% endif %}
+
+        <a href="#" class="btn btn-outline" onclick="event.preventDefault(); openMetadata()">Metadata Assistant</a>
     </div>
+
+    <div id="action-status" class="action-status" style="display:none;">
+        <p id="action-message">Working...</p>
+    </div>
+
+    {% set interview_data = submission.interview_data or {} %}
+    {% if interview_data.get('_review_prs') %}
+    <div class="review-prs">
+        <h2>Review Pull Requests</h2>
+        <ul>
+        {% for pr in interview_data['_review_prs'] %}
+            <li>
+                {{ pr.review_type | title }}:
+                {% if pr.get('pr_url') %}
+                <a href="{{ pr.pr_url }}" target="_blank">{{ pr.pr_url }}</a>
+                {% else %}
+                <span class="text-muted">{{ pr.get('error', 'No PR created') }}</span>
+                {% endif %}
+            </li>
+        {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
 
     <div class="workflow-progress">
         <h2>Workflow Progress</h2>
@@ -224,4 +253,52 @@
         </ol>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const subId = {{ submission.id }};
+
+function showStatus(msg) {
+    document.getElementById('action-status').style.display = '';
+    document.getElementById('action-message').textContent = msg;
+}
+
+async function generateManuscript() {
+    showStatus('Generating manuscript... this may take a minute.');
+    try {
+        const resp = await fetch(`/reviews/${subId}/generate`, { method: 'POST' });
+        const data = await resp.json();
+        if (data.github_repo) {
+            showStatus(`Manuscript generated and pushed to ${data.github_repo}`);
+        } else {
+            showStatus(`Manuscript generated (${Object.keys(data.sections || {}).length} sections).`);
+        }
+        setTimeout(() => location.reload(), 2000);
+    } catch (e) {
+        showStatus(`Error: ${e.message}`);
+    }
+}
+
+async function runReviews() {
+    showStatus('Running AI reviews... this may take a few minutes.');
+    try {
+        const resp = await fetch(`/reviews/${subId}/run`, { method: 'POST' });
+        const data = await resp.json();
+        const prs = (data.pull_requests || []).filter(p => p.pr_url);
+        if (prs.length) {
+            showStatus(`Reviews complete. ${prs.length} PR(s) created.`);
+        } else {
+            showStatus(`Reviews complete (${(data.reviews || []).length} reviews).`);
+        }
+        setTimeout(() => location.reload(), 2000);
+    } catch (e) {
+        showStatus(`Error: ${e.message}`);
+    }
+}
+
+function openMetadata() {
+    window.location.href = `/submissions/${subId}/interview#metadata`;
+}
+</script>
 {% endblock %}
