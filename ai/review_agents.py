@@ -41,16 +41,20 @@ async def statistical_review(
     """Review statistical methods and claims."""
     client = get_client(base_url=base_url, api_key=api_key)
 
+    methods_text = (manuscript.get('methods', '') or '')[:3000]
+    results_text = (manuscript.get('results', '') or '')[:3000]
+    data_text = json.dumps(results_data, indent=2, default=str)[:2000] if results_data else 'Not available'
+
     response = chat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for statistical issues:
 
 METHODS:
-{manuscript.get('methods', '')}
+{methods_text}
 
 RESULTS:
-{manuscript.get('results', '')}
+{results_text}
 
 PIPELINE DATA:
-{json.dumps(results_data, indent=2, default=str) if results_data else 'Not available'}
+{data_text}
 
 Check for:
 1. Whether the pipeline's statistical tests are appropriate for the data type
@@ -98,6 +102,20 @@ Respond in the JSON format specified.""",
     return _parse_review(response, "methodological")
 
 
+def _truncate_manuscript(manuscript: dict, max_chars: int = 6000) -> str:
+    """Build manuscript text, truncating sections proportionally to fit context."""
+    sections = list(manuscript.items())
+    full_text = "\n\n".join(f"# {s.title()}\n{c}" for s, c in sections)
+    if len(full_text) <= max_chars:
+        return full_text
+    # Proportionally truncate each section
+    per_section = max_chars // max(len(sections), 1)
+    return "\n\n".join(
+        f"# {s.title()}\n{c[:per_section]}{'... [truncated]' if len(c) > per_section else ''}"
+        for s, c in sections
+    )
+
+
 async def clarity_review(
     manuscript: dict,
     base_url: str | None = None,
@@ -107,10 +125,7 @@ async def clarity_review(
     """Review writing clarity and structure."""
     client = get_client(base_url=base_url, api_key=api_key)
 
-    full_text = "\n\n".join([
-        f"# {section.title()}\n{content}"
-        for section, content in manuscript.items()
-    ])
+    full_text = _truncate_manuscript(manuscript)
 
     response = chat(client, REVIEW_SYSTEM, f"""Review this manuscript for clarity and readability:
 

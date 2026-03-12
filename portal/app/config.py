@@ -21,9 +21,9 @@ class Settings(BaseSettings):
     github_org: str = "omc-papers"
 
     # LLM settings (OpenAI-compatible — works with LM Studio, OpenAI, etc.)
-    llm_base_url: str = "http://127.0.0.1:1234/v1"
+    llm_base_url: str = "http://10.151.49.182:1234/v1"
     llm_api_key: str = "lm-studio"
-    llm_model: str = "qwen/qwen3-coder-30b"
+    llm_model: str = "qwen3-coder-30b-a3b-instruct"
 
     # Claude API (for production — falls back to llm_* settings if empty)
     anthropic_api_key: str = ""

@@ -1,6 +1,6 @@
 """AI assistant for helping users prepare SRA/GenBank metadata submissions."""
-from anthropic import Anthropic
 from typing import Optional
+from .llm_client import get_client, multi_turn
 
 
 METADATA_FIELDS = {
@@ -21,19 +21,31 @@ METADATA_FIELDS = {
 }
 
 
+def _use_anthropic(api_key: str | None) -> bool:
+    """Check if we should use Anthropic SDK (has key and SDK available)."""
+    if not api_key:
+        return False
+    try:
+        from anthropic import Anthropic  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 async def interactive_metadata_help(
     api_key: str,
     user_message: str,
     conversation_history: list,
     current_metadata: dict,
+    base_url: str | None = None,
+    model: str | None = None,
 ) -> dict:
     """
     Interactive chat assistant for metadata preparation.
 
     Returns response text and any extracted metadata values.
+    Uses Anthropic API if api_key provided, otherwise falls back to LM Studio.
     """
-    client = Anthropic(api_key=api_key)
-
     system_prompt = f"""You are a helpful assistant for preparing NCBI SRA/GenBank metadata submissions.
 Your job is to help researchers provide accurate, complete metadata for their sequence submissions.
 
@@ -60,14 +72,23 @@ End your response with a JSON block if you've extracted any values:
 
     messages = conversation_history + [{"role": "user", "content": user_message}]
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1500,
-        system=system_prompt,
-        messages=messages,
-    )
-
-    response_text = response.content[0].text
+    if _use_anthropic(api_key):
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1500,
+            system=system_prompt,
+            messages=messages,
+        )
+        response_text = response.content[0].text
+    else:
+        # Fall back to LM Studio / OpenAI-compatible endpoint
+        client = get_client(base_url=base_url)
+        response_text = multi_turn(
+            client, system_prompt, messages,
+            model=model, max_tokens=1500, temperature=0.7,
+        )
 
     # Extract any JSON metadata from response
     extracted = {}

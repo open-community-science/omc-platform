@@ -3,6 +3,7 @@ from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import attributes
 from typing import Optional
 import json
 
@@ -120,10 +121,11 @@ async def submit_answer(
     if question_id not in valid_ids:
         raise HTTPException(status_code=400, detail="Invalid question_id")
 
-    # Update interview data
-    interview_data = submission.interview_data or {}
+    # Update interview data (copy dict so SQLAlchemy detects the change)
+    interview_data = dict(submission.interview_data or {})
     interview_data[question_id] = answer
     submission.interview_data = interview_data
+    attributes.flag_modified(submission, "interview_data")
 
     await db.commit()
 
