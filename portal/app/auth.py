@@ -1,7 +1,6 @@
 """GitHub OAuth authentication."""
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import RedirectResponse
-from authlib.integrations.starlette_client import OAuth
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime
@@ -12,22 +11,54 @@ from .database import get_db, User
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
 
-# OAuth setup
-oauth = OAuth()
-oauth.register(
-    name="github",
-    client_id=settings.github_client_id,
-    client_secret=settings.github_client_secret,
-    access_token_url="https://github.com/login/oauth/access_token",
-    authorize_url="https://github.com/login/oauth/authorize",
-    api_base_url="https://api.github.com/",
-    client_kwargs={"scope": "user:email read:user"},
-)
+
+def _is_dev_mode() -> bool:
+    """Check if running in dev mode (no GitHub OAuth configured)."""
+    return settings.debug and not settings.github_client_id
+
+
+# Only register OAuth if credentials are present
+if settings.github_client_id:
+    from authlib.integrations.starlette_client import OAuth
+
+    oauth = OAuth()
+    oauth.register(
+        name="github",
+        client_id=settings.github_client_id,
+        client_secret=settings.github_client_secret,
+        access_token_url="https://github.com/login/oauth/access_token",
+        authorize_url="https://github.com/login/oauth/authorize",
+        api_base_url="https://api.github.com/",
+        client_kwargs={"scope": "user:email read:user"},
+    )
 
 
 @router.get("/login")
-async def login(request: Request):
-    """Redirect to GitHub OAuth."""
+async def login(request: Request, db: AsyncSession = Depends(get_db)):
+    """Redirect to GitHub OAuth, or auto-login in dev mode."""
+    if _is_dev_mode():
+        # Dev mode: create/find a dev user and log in directly
+        stmt = select(User).where(User.github_login == "dev-user")
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if not user:
+            user = User(
+                github_id=0,
+                github_login="dev-user",
+                github_name="Dev User",
+                github_email="dev@localhost",
+                github_avatar_url="",
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+
+        request.session["user_id"] = user.id
+        request.session["github_login"] = user.github_login
+        request.session["github_avatar"] = user.github_avatar_url
+        return RedirectResponse(url="/dashboard", status_code=302)
+
     if not settings.github_client_id:
         raise HTTPException(status_code=500, detail="GitHub OAuth not configured")
     redirect_uri = settings.github_redirect_uri
@@ -37,6 +68,9 @@ async def login(request: Request):
 @router.get("/callback")
 async def auth_callback(request: Request, db: AsyncSession = Depends(get_db)):
     """Handle GitHub OAuth callback."""
+    if _is_dev_mode():
+        return RedirectResponse(url="/dashboard", status_code=302)
+
     try:
         token = await oauth.github.authorize_access_token(request)
     except Exception as e:
@@ -52,14 +86,12 @@ async def auth_callback(request: Request, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
 
     if user:
-        # Update existing user
         user.github_login = github_user["login"]
         user.github_name = github_user.get("name")
         user.github_email = github_user.get("email")
         user.github_avatar_url = github_user.get("avatar_url")
         user.last_login = datetime.utcnow()
     else:
-        # Create new user
         user = User(
             github_id=github_user["id"],
             github_login=github_user["login"],

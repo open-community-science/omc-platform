@@ -1,26 +1,32 @@
 """GitHub integration for paper repo creation and management."""
 import httpx
-from typing import Optional
 import base64
-import yaml
+import logging
+from typing import Optional
 
 from .config import get_settings
 from .database import Submission
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
 
 
-async def create_paper_repo(submission: Submission, results_data: dict) -> str:
-    """Create a new paper repository from template."""
+async def create_paper_repo_from_files(submission: Submission, files: dict) -> str:
+    """
+    Create a new paper repository and populate it with the given files.
+
+    files: dict of {filepath: content_string}
+    Returns the repo URL.
+    """
     if not settings.github_token:
         raise RuntimeError("GitHub token not configured")
 
     repo_name = f"paper-{submission.id:04d}"
     full_name = f"{settings.github_org}/{repo_name}"
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         headers = {
             "Authorization": f"token {settings.github_token}",
             "Accept": "application/vnd.github.v3+json",
@@ -35,111 +41,39 @@ async def create_paper_repo(submission: Submission, results_data: dict) -> str:
                 "description": f"OMC Paper: {submission.title}",
                 "private": False,
                 "auto_init": True,
-                "license_template": "cc-by-4.0",
+                "has_issues": True,
+                "has_projects": False,
+                "has_wiki": False,
             },
         )
 
-        if resp.status_code not in (201, 422):  # 422 = already exists
-            raise RuntimeError(f"Failed to create repo: {resp.text}")
+        if resp.status_code == 201:
+            logger.info(f"Created repo {full_name}")
+        elif resp.status_code == 422:
+            logger.info(f"Repo {full_name} already exists")
+        else:
+            raise RuntimeError(f"Failed to create repo: {resp.status_code} {resp.text}")
 
-        # Create initial file structure
-        await _create_repo_structure(client, headers, full_name, submission, results_data)
+        # Commit all files
+        for filepath, content in files.items():
+            await _create_or_update_file(
+                client, headers, full_name, filepath, content,
+                f"Add {filepath}"
+            )
 
-        return f"https://github.com/{full_name}"
+        # Enable GitHub Pages on the repo (from docs/ directory)
+        await client.post(
+            f"{GITHUB_API}/repos/{full_name}/pages",
+            headers=headers,
+            json={"source": {"branch": "gh-pages", "path": "/"}},
+        )
 
-
-async def _create_repo_structure(
-    client: httpx.AsyncClient,
-    headers: dict,
-    repo: str,
-    submission: Submission,
-    results_data: dict,
-):
-    """Create the standard paper repo structure."""
-
-    # data/accessions.yaml
-    accessions = {
-        "sra_accession": submission.sra_accession,
-        "pipeline": submission.pipeline.value,
-        "submitted_at": submission.submitted_at.isoformat() if submission.submitted_at else None,
-    }
-    await _create_file(
-        client, headers, repo,
-        "data/accessions.yaml",
-        yaml.dump(accessions),
-        "Add data accessions"
-    )
-
-    # paper.yaml (JSON-LD metadata)
-    paper_meta = {
-        "@context": "https://schema.org",
-        "@type": "ScholarlyArticle",
-        "name": submission.title,
-        "author": [],  # Will be populated from git contributors
-        "dateCreated": submission.created_at.isoformat(),
-        "license": "https://creativecommons.org/licenses/by/4.0/",
-    }
-    await _create_file(
-        client, headers, repo,
-        "paper.yaml",
-        yaml.dump(paper_meta),
-        "Add paper metadata"
-    )
-
-    # manuscript/01-introduction.md
-    await _create_file(
-        client, headers, repo,
-        "manuscript/01-introduction.md",
-        "# Introduction\n\n*AI-generated draft pending*\n",
-        "Add manuscript template"
-    )
-
-    # manuscript/02-methods.md
-    methods = f"""# Methods
-
-## Data Acquisition
-
-Sequence data were obtained from the NCBI Sequence Read Archive under accession {submission.sra_accession}.
-
-## Analysis Pipeline
-
-Analysis was performed using the `{submission.pipeline.value}` pipeline through the Open Microbial Community platform.
-
-*Additional methods details to be generated from pipeline execution trace.*
-"""
-    await _create_file(
-        client, headers, repo,
-        "manuscript/02-methods.md",
-        methods,
-        "Add methods template"
-    )
-
-    # manuscript/03-results.md
-    await _create_file(
-        client, headers, repo,
-        "manuscript/03-results.md",
-        "# Results\n\n*Results will be generated from pipeline outputs.*\n",
-        "Add results template"
-    )
-
-    # manuscript/04-discussion.md
-    await _create_file(
-        client, headers, repo,
-        "manuscript/04-discussion.md",
-        "# Discussion\n\n*AI-generated draft pending author interview.*\n",
-        "Add discussion template"
-    )
-
-    # CONTRIBUTORS.md
-    await _create_file(
-        client, headers, repo,
-        "CONTRIBUTORS.md",
-        "# Contributors\n\n*Auto-generated from git history.*\n",
-        "Add contributors template"
-    )
+        repo_url = f"https://github.com/{full_name}"
+        logger.info(f"Populated repo {full_name} with {len(files)} files")
+        return repo_url
 
 
-async def _create_file(
+async def _create_or_update_file(
     client: httpx.AsyncClient,
     headers: dict,
     repo: str,
@@ -147,32 +81,102 @@ async def _create_file(
     content: str,
     message: str,
 ):
-    """Create or update a file in the repo."""
+    """Create or update a file in the repo via the Contents API."""
     content_b64 = base64.b64encode(content.encode()).decode()
+
+    # Check if file exists (need sha for updates)
+    get_resp = await client.get(
+        f"{GITHUB_API}/repos/{repo}/contents/{path}",
+        headers=headers,
+    )
+
+    payload = {
+        "message": message,
+        "content": content_b64,
+    }
+
+    if get_resp.status_code == 200:
+        # File exists — include sha to update
+        payload["sha"] = get_resp.json()["sha"]
 
     resp = await client.put(
         f"{GITHUB_API}/repos/{repo}/contents/{path}",
         headers=headers,
-        json={
-            "message": message,
-            "content": content_b64,
-        },
+        json=payload,
     )
 
     if resp.status_code not in (200, 201):
-        # May fail if file exists - that's ok for now
-        pass
+        logger.warning(f"Failed to create {path} in {repo}: {resp.status_code}")
 
 
-async def commit_results(repo_url: str, results_path: str) -> bool:
-    """Commit pipeline results to the paper repo."""
-    # This would use git commands or GitHub API to commit
-    # results files (figures, tables, stats) to the repo
-    # For now, placeholder
-    raise NotImplementedError("Results commit not yet implemented")
+async def create_review_pr(
+    repo_full_name: str,
+    review_comments: list[dict],
+    review_type: str,
+) -> str:
+    """
+    Create a review PR with AI-generated comments.
 
+    review_comments: list of {"file": "path", "line": N, "body": "comment"}
+    Returns the PR URL.
+    """
+    if not settings.github_token:
+        raise RuntimeError("GitHub token not configured")
 
-async def create_review_pr(repo_url: str, reviewer: str, review_type: str) -> str:
-    """Create a PR for review."""
-    # Create a branch, add review comments, open PR
-    raise NotImplementedError("Review PR creation not yet implemented")
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        headers = {
+            "Authorization": f"token {settings.github_token}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+
+        # Get default branch SHA
+        repo_resp = await client.get(
+            f"{GITHUB_API}/repos/{repo_full_name}",
+            headers=headers,
+        )
+        default_branch = repo_resp.json()["default_branch"]
+
+        ref_resp = await client.get(
+            f"{GITHUB_API}/repos/{repo_full_name}/git/ref/heads/{default_branch}",
+            headers=headers,
+        )
+        base_sha = ref_resp.json()["object"]["sha"]
+
+        # Create review branch
+        branch_name = f"review/{review_type}"
+        await client.post(
+            f"{GITHUB_API}/repos/{repo_full_name}/git/refs",
+            headers=headers,
+            json={
+                "ref": f"refs/heads/{branch_name}",
+                "sha": base_sha,
+            },
+        )
+
+        # Create PR
+        pr_resp = await client.post(
+            f"{GITHUB_API}/repos/{repo_full_name}/pulls",
+            headers=headers,
+            json={
+                "title": f"AI Review: {review_type}",
+                "body": f"Automated {review_type} review by the OMC platform.",
+                "head": branch_name,
+                "base": default_branch,
+            },
+        )
+
+        if pr_resp.status_code != 201:
+            raise RuntimeError(f"Failed to create PR: {pr_resp.text}")
+
+        pr_data = pr_resp.json()
+        pr_number = pr_data["number"]
+
+        # Add review comments to the PR
+        for comment in review_comments:
+            await client.post(
+                f"{GITHUB_API}/repos/{repo_full_name}/issues/{pr_number}/comments",
+                headers=headers,
+                json={"body": comment["body"]},
+            )
+
+        return pr_data["html_url"]

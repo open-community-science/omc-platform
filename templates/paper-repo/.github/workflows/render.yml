@@ -1,0 +1,29 @@
+name: Render Paper
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Render HTML + PDF
+        run: quarto render manuscript.qmd
+
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs

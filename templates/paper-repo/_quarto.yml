@@ -1,0 +1,28 @@
+project:
+  type: manuscript
+  output-dir: docs
+
+manuscript:
+  article: manuscript.qmd
+
+format:
+  html:
+    self-contained: true
+    toc: true
+    toc-depth: 3
+    theme:
+      light: cosmo
+    css: styles.css
+    code-fold: true
+    fig-responsive: true
+  pdf:
+    documentclass: article
+    geometry:
+      - margin=1in
+    fontsize: 11pt
+    colorlinks: true
+  docx:
+    reference-doc: default
+
+execute:
+  freeze: auto
