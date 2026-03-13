@@ -86,6 +86,20 @@ body {
     font-size: 0.875rem;
 }
 
+.nav-new-btn {
+    background: none;
+    border: none;
+    color: var(--color-text);
+    font-size: 1rem;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 0;
+}
+
+.nav-new-btn:hover {
+    color: var(--color-primary);
+}
+
 /* Main content */
 .main-content {
     flex: 1;
@@ -674,4 +688,496 @@ body {
     cursor: pointer;
     font-weight: 500;
     color: var(--color-primary);
+}
+
+/* ── Workflow step cards (submission detail) ── */
+.workflow-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.wf-step {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+    padding: 1.25rem 1.5rem;
+    position: relative;
+    transition: border-color 0.15s;
+}
+
+/* Left accent bar */
+.wf-step::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    border-radius: 0.5rem 0 0 0.5rem;
+    background: var(--color-border);
+}
+
+.wf-step.completed::before { background: var(--color-success); }
+.wf-step.current::before   { background: var(--color-primary); }
+.wf-step.available::before  { background: var(--color-warning); }
+.wf-step.locked::before     { background: var(--color-border); }
+
+.wf-step.locked {
+    opacity: 0.55;
+}
+
+.wf-step.current {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 15%, transparent);
+}
+
+/* Step header row */
+.wf-step-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.wf-step-number {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    flex-shrink: 0;
+    background: var(--color-bg);
+    color: var(--color-text-muted);
+    border: 1px solid var(--color-border);
+}
+
+.wf-step.completed .wf-step-number { background: var(--color-success); color: white; border-color: var(--color-success); }
+.wf-step.current .wf-step-number   { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+
+.wf-step-title {
+    font-size: 1rem;
+    font-weight: 600;
+    flex: 1;
+}
+
+/* Step badges */
+.wf-step-badge {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.2rem 0.6rem;
+    border-radius: 9999px;
+    flex-shrink: 0;
+}
+
+.wf-step-badge.done    { background: #dcfce7; color: #166534; }
+.wf-step-badge.ready   { background: #dbeafe; color: #1e40af; }
+.wf-step-badge.running { background: #fef3c7; color: #92400e; }
+.wf-step-badge.locked  { background: #f1f5f9; color: #64748b; }
+
+/* Step description */
+.wf-step-desc {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin-bottom: 0.75rem;
+    line-height: 1.5;
+}
+
+/* Step actions */
+.wf-step-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.wf-step-actions .btn {
+    font-size: 0.875rem;
+    padding: 0.5rem 1rem;
+}
+
+.wf-step-actions .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* Status polling within a step */
+.status-polling {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    padding: 0.5rem 0;
+}
+
+/* Review PRs list within step 4 */
+.wf-review-prs {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.wf-pr-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    font-size: 0.8125rem;
+}
+
+.wf-pr-type {
+    font-weight: 500;
+    min-width: 6rem;
+}
+
+.wf-pr-row a {
+    color: var(--color-primary);
+    text-decoration: none;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+}
+
+/* Details toggle inside step cards */
+.wf-details {
+    margin-top: 0.5rem;
+}
+
+.wf-details summary {
+    cursor: pointer;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-primary);
+    user-select: none;
+}
+
+.wf-details-body {
+    margin-top: 0.75rem;
+}
+
+.wf-meta-grid {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 0.4rem 0.75rem;
+    font-size: 0.8125rem;
+    margin-bottom: 0.75rem;
+}
+
+.wf-meta-grid dt {
+    font-weight: 500;
+    color: var(--color-text-muted);
+}
+
+.wf-meta-grid dd {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+}
+
+/* Action status toast */
+.action-status {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-text);
+    color: white;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Footer actions */
+.wf-footer-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+}
+
+/* Header meta line */
+.submission-header-meta {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin-top: 0.25rem;
+}
+
+.submission-header-meta .mono {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+}
+
+.text-muted {
+    color: var(--color-text-muted);
+}
+
+.btn-outline {
+    background: none;
+    color: var(--color-text-muted);
+    border: 1px solid var(--color-border);
+}
+
+.btn-outline:hover {
+    color: var(--color-text);
+    border-color: var(--color-text-muted);
+}
+
+/* ── Inline editing ── */
+.editable-title {
+    cursor: pointer;
+    position: relative;
+}
+
+.editable-title .edit-hint {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--color-text-muted);
+    opacity: 0;
+    margin-left: 0.5rem;
+    transition: opacity 0.15s;
+    vertical-align: middle;
+}
+
+.editable-title:hover .edit-hint {
+    opacity: 1;
+}
+
+.editable-title-form {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.title-edit-input {
+    font-size: 1.5rem;
+    font-weight: 600;
+    font-family: inherit;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--color-primary);
+    border-radius: 0.375rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.btn-sm {
+    font-size: 0.8125rem;
+    padding: 0.375rem 0.75rem;
+}
+
+/* Inline edit rows within step cards */
+.wf-edit-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.wf-edit-row:last-of-type {
+    margin-bottom: 0.75rem;
+}
+
+.wf-edit-label {
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    min-width: 5.5rem;
+    flex-shrink: 0;
+}
+
+.wf-edit-field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.btn-inline-edit {
+    background: none;
+    border: none;
+    color: var(--color-primary);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 0;
+    font-family: inherit;
+}
+
+.btn-inline-edit:hover {
+    text-decoration: underline;
+}
+
+.inline-edit-input {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    padding: 0.375rem 0.5rem;
+    border: 1px solid var(--color-primary);
+    border-radius: 0.375rem;
+    width: 16rem;
+}
+
+.inline-edit-select {
+    font-size: 0.875rem;
+    padding: 0.375rem 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.375rem;
+    font-family: inherit;
+    background: var(--color-surface);
+}
+
+.inline-status {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+}
+
+.wf-section-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.wf-data-selection {
+    margin: 0.75rem 0;
+}
+
+/* ── Data type cards ── */
+.dt-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.dt-card {
+    background: var(--color-bg);
+    border: 2px solid var(--color-border);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    user-select: none;
+}
+
+.dt-card:hover {
+    border-color: var(--color-primary);
+}
+
+.dt-card.selected {
+    border-color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 6%, white);
+    box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.dt-card.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.dt-card.disabled:hover {
+    border-color: var(--color-border);
+}
+
+.dt-card-platform {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    margin-bottom: 0.125rem;
+}
+
+.dt-card-instrument {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-bottom: 0.5rem;
+}
+
+.dt-card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.dt-tag {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+    background: #f1f5f9;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.dt-card.selected .dt-tag {
+    background: color-mix(in srgb, var(--color-primary) 12%, white);
+    color: var(--color-primary-dark);
+}
+
+.dt-card-stats {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    font-family: var(--font-mono);
+}
+
+/* ── Pipeline info box ── */
+.pipeline-info-box {
+    margin-top: 0.75rem;
+    padding: 1rem 1.25rem;
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 0.5rem;
+}
+
+.pipeline-info-box:empty {
+    display: none;
+}
+
+.pipe-title {
+    font-weight: 600;
+    font-size: 1rem;
+    margin-bottom: 0.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.pipe-status {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+}
+
+.pipe-ready {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.pipe-dev {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.pipe-desc {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    margin-bottom: 0.5rem;
+    line-height: 1.5;
+}
+
+.pipe-link {
+    font-size: 0.8125rem;
+    color: var(--color-primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.pipe-link:hover {
+    text-decoration: underline;
 }

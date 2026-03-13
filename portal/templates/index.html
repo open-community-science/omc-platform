@@ -11,15 +11,17 @@
     {% if not user %}
     <a href="/auth/login" class="btn btn-primary btn-large">Get Started with GitHub</a>
     {% else %}
-    <a href="/submit" class="btn btn-primary btn-large">Start New Submission</a>
+    <form action="/submissions/create" method="POST" style="display:inline;">
+        <button type="submit" class="btn btn-primary btn-large">Start New Submission</button>
+    </form>
     {% endif %}
 </div>
 
 <section class="features">
     <div class="feature-grid">
         <div class="feature">
-            <h3>$5-48 per paper</h3>
-            <p>vs. $2,000-$11,000 traditional APCs</p>
+            <h3>Free & Open</h3>
+            <p>No article processing charges</p>
         </div>
         <div class="feature">
             <h3>Days to weeks</h3>

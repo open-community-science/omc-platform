@@ -59,10 +59,10 @@ class Submission(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     # Project & data info
-    bioproject_accession = Column(String(50), nullable=False)
+    bioproject_accession = Column(String(50))  # nullable until accession is resolved
     sra_accession = Column(String(50))  # original accession entered by user
     selected_runs = Column(JSON)  # list of SRA run accessions chosen during interview
-    pipeline = Column(Enum(PipelineType), nullable=False)
+    pipeline = Column(Enum(PipelineType), default=PipelineType.NANOPORE_MAG)
 
     # Status tracking
     status = Column(Enum(SubmissionStatus), default=SubmissionStatus.DRAFT)
@@ -125,6 +125,27 @@ async def init_db():
                 slug = uuid.uuid4().hex[:8]
                 await conn.execute(text(f"UPDATE submissions SET slug = '{slug}' WHERE id = {row[0]}"))
             logging.getLogger(__name__).info(f"Migrated {len(rows)} submissions with slugs")
+
+        # Migration: make bioproject_accession nullable (SQLite can't ALTER constraints,
+        # so recreate the table if the column is NOT NULL)
+        try:
+            # Test if NULL is allowed
+            await conn.execute(text(
+                "INSERT INTO submissions (slug, user_id, title, status, created_at) "
+                "VALUES ('_test_', 0, 'test', 'DRAFT', '2000-01-01')"
+            ))
+            await conn.execute(text("DELETE FROM submissions WHERE slug = '_test_'"))
+        except Exception:
+            # Column is NOT NULL — recreate table
+            log = logging.getLogger(__name__)
+            log.info("Migrating submissions table: making bioproject_accession nullable")
+            await conn.execute(text("ALTER TABLE submissions RENAME TO _submissions_old"))
+            await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(text(
+                "INSERT INTO submissions SELECT * FROM _submissions_old"
+            ))
+            await conn.execute(text("DROP TABLE _submissions_old"))
+            log.info("Migration complete")
 
 
 async def get_db() -> AsyncSession:

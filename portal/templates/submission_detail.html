@@ -2,178 +2,45 @@
 
 {% block title %}{{ submission.title or 'Submission' }} - OMC{% endblock %}
 
+{# ── Status helpers ── #}
+{% set s = submission.status.value %}
+{% set has_accession = submission.bioproject_accession is not none %}
+{% set has_pipeline_results = s in ['processing', 'drafting', 'review', 'published'] %}
+{% set has_manuscript = submission.github_repo is not none %}
+{% set has_interview = submission.interview_data is not none and submission.interview_data | length > 0 %}
+{% set interview_prs = (submission.interview_data or {}).get('_review_prs', []) %}
+
 {% block content %}
 <div class="submission-detail">
+
+    {# ── Header ── #}
     <div class="submission-header">
-        <h1>{{ submission.title or 'Untitled Submission' }}</h1>
-        <span class="status-badge status-{{ submission.status.value }}">{{ submission.status.value }}</span>
+        <div>
+            <h1 class="editable-title" id="title-display" onclick="startEditTitle()">
+                <span class="title-text">{{ submission.title or 'Untitled Submission' }}</span>
+                <span class="edit-hint">edit</span>
+            </h1>
+            <div class="editable-title-form" id="title-form" style="display:none;">
+                <input type="text" id="title-input" value="{{ submission.title or '' }}"
+                       placeholder="Paper title" class="title-edit-input"
+                       onkeydown="if(event.key==='Enter')saveTitle(); if(event.key==='Escape')cancelEditTitle();">
+                <button class="btn btn-primary btn-sm" onclick="saveTitle()">Save</button>
+                <button class="btn btn-secondary btn-sm" onclick="cancelEditTitle()">Cancel</button>
+            </div>
+            <p class="submission-header-meta">
+                {% if has_accession %}
+                <a href="https://www.ncbi.nlm.nih.gov/bioproject/{{ submission.bioproject_accession }}" target="_blank" class="mono">{{ submission.bioproject_accession }}</a>
+                {% if submission.sra_accession %}
+                    <span class="text-muted">(entered as {{ submission.sra_accession }})</span>
+                {% endif %}
+                &middot; {{ submission.pipeline.value }}
+                &middot;
+                {% endif %}
+                Created {{ submission.created_at.strftime('%Y-%m-%d') }}
+            </p>
+        </div>
+        <span class="status-badge status-{{ s }}">{{ s }}</span>
     </div>
-
-    <div class="submission-meta">
-        <dl>
-            <dt>BioProject</dt>
-            <dd><a href="https://www.ncbi.nlm.nih.gov/bioproject/{{ submission.bioproject_accession }}" target="_blank">{{ submission.bioproject_accession }}</a></dd>
-
-            {% if submission.sra_accession %}
-            <dt>Entered as</dt>
-            <dd>{{ submission.sra_accession }}</dd>
-            {% endif %}
-
-            <dt>Pipeline</dt>
-            <dd>{{ submission.pipeline.value }}</dd>
-
-            <dt>Created</dt>
-            <dd>{{ submission.created_at.strftime('%Y-%m-%d %H:%M') }}</dd>
-
-            {% if submission.submitted_at %}
-            <dt>Submitted</dt>
-            <dd>{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</dd>
-            {% endif %}
-
-            {% if submission.slurm_job_id %}
-            <dt>SLURM Job ID</dt>
-            <dd>{{ submission.slurm_job_id }}</dd>
-            {% endif %}
-
-            {% if submission.github_repo %}
-            <dt>GitHub Repository</dt>
-            <dd><a href="{{ submission.github_repo }}" target="_blank">{{ submission.github_repo }}</a></dd>
-            {% endif %}
-        </dl>
-    </div>
-
-    {% if submission.sample_metadata and (submission.sample_metadata.get('organism') or submission.sample_metadata.get('type')) %}
-    <div class="sra-metadata">
-        <h2>SRA Metadata</h2>
-
-        {% if submission.sample_metadata.get('type') == 'BioProject' %}
-        {# ── Project-level summary ── #}
-        <dl>
-            {% if submission.sample_metadata.get('title') %}
-            <dt>Project Title</dt>
-            <dd>{{ submission.sample_metadata.title }}</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('description') %}
-            <dt>Description</dt>
-            <dd>{{ submission.sample_metadata.description }}</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('organism') %}
-            <dt>Organism</dt>
-            <dd>{{ submission.sample_metadata.organism | replace(', ', '<br>') | safe }}</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('organization') %}
-            <dt>Organization</dt>
-            <dd>{{ submission.sample_metadata.organization }}</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('registration_date') %}
-            <dt>Registered</dt>
-            <dd>{{ submission.sample_metadata.registration_date }}</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('num_sra_runs') %}
-            <dt>SRA Runs</dt>
-            <dd>{{ submission.sample_metadata.num_sra_runs }}</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('num_samples') %}
-            <dt>Samples</dt>
-            <dd>{{ submission.sample_metadata.num_samples }}</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('total_bases') %}
-            <dt>Data</dt>
-            <dd>{{ "{:,}".format(submission.sample_metadata.total_spots) }} reads, {{ (submission.sample_metadata.total_bases / 1e9) | round(2) }} Gbp</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('study_title') %}
-            <dt>Study</dt>
-            <dd>{{ submission.sample_metadata.study_title }}</dd>
-            {% endif %}
-        </dl>
-
-        {% if submission.sample_metadata.get('breakdown') %}
-        {% set rows = submission.sample_metadata.breakdown %}
-        <table class="breakdown-table transposed">
-            <tr><th>Platform</th>{% for r in rows %}<td>{{ r.platform }}</td>{% endfor %}</tr>
-            <tr><th>Instrument</th>{% for r in rows %}<td>{{ r.instrument }}</td>{% endfor %}</tr>
-            <tr><th>Strategy</th>{% for r in rows %}<td>{{ r.strategy }}</td>{% endfor %}</tr>
-            <tr><th>Source</th>{% for r in rows %}<td>{{ r.source }}</td>{% endfor %}</tr>
-            <tr><th>Layout</th>{% for r in rows %}<td>{{ r.layout }}</td>{% endfor %}</tr>
-            <tr><th>Runs</th>{% for r in rows %}<td>{{ r.runs }}</td>{% endfor %}</tr>
-            <tr><th>Samples</th>{% for r in rows %}<td>{{ r.samples }}</td>{% endfor %}</tr>
-            <tr><th>Data</th>{% for r in rows %}<td>{% if r.bases %}{{ (r.bases / 1e9) | round(2) }} Gbp{% endif %}</td>{% endfor %}</tr>
-        </table>
-        {% endif %}
-
-        {% else %}
-        {# ── Single run / BioSample view ── #}
-        <dl>
-            {% if submission.sample_metadata.get('organism') %}
-            <dt>Organism</dt>
-            <dd>{{ submission.sample_metadata.organism }}</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('platform') %}
-            <dt>Platform</dt>
-            <dd>{{ submission.sample_metadata.platform }} ({{ submission.sample_metadata.get('instrument_model', '') }})</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('library_strategy') %}
-            <dt>Library</dt>
-            <dd>{{ submission.sample_metadata.library_strategy }} / {{ submission.sample_metadata.get('library_source', '') }} / {{ submission.sample_metadata.get('library_layout', '') }}</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('total_bases') %}
-            <dt>Data</dt>
-            <dd>{{ submission.sample_metadata.total_spots }} reads, {{ submission.sample_metadata.size_mb }} MB</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('organization') %}
-            <dt>Center</dt>
-            <dd>{{ submission.sample_metadata.organization }}</dd>
-            {% endif %}
-
-            {% if submission.sample_metadata.get('study_title') %}
-            <dt>Study</dt>
-            <dd>{{ submission.sample_metadata.study_title }}</dd>
-            {% endif %}
-        </dl>
-
-        {% if submission.sample_metadata.get('sample_attributes') %}
-        <details>
-            <summary>Sample Attributes ({{ submission.sample_metadata.sample_attributes | length }})</summary>
-            <dl>
-                {% for key, val in submission.sample_metadata.sample_attributes.items() %}
-                <dt>{{ key }}</dt>
-                <dd>{{ val }}</dd>
-                {% endfor %}
-            </dl>
-        </details>
-        {% endif %}
-        {% endif %}
-    </div>
-    {% endif %}
-
-    {% if submission.selected_runs %}
-    <div class="selected-data-types">
-        <h2>Selected Data Types</h2>
-        {% set rows = submission.selected_runs %}
-        <table class="breakdown-table transposed">
-            <tr><th>Platform</th>{% for r in rows %}<td>{{ r.platform }}</td>{% endfor %}</tr>
-            <tr><th>Instrument</th>{% for r in rows %}<td>{{ r.instrument }}</td>{% endfor %}</tr>
-            <tr><th>Strategy</th>{% for r in rows %}<td>{{ r.strategy }}</td>{% endfor %}</tr>
-            <tr><th>Source</th>{% for r in rows %}<td>{{ r.source }}</td>{% endfor %}</tr>
-            <tr><th>Layout</th>{% for r in rows %}<td>{{ r.layout }}</td>{% endfor %}</tr>
-            <tr><th>Runs</th>{% for r in rows %}<td>{{ r.runs }}</td>{% endfor %}</tr>
-            <tr><th>Samples</th>{% for r in rows %}<td>{{ r.samples }}</td>{% endfor %}</tr>
-            <tr><th>Data</th>{% for r in rows %}<td>{% if r.bases %}{{ (r.bases / 1e9) | round(2) }} Gbp{% endif %}</td>{% endfor %}</tr>
-        </table>
-    </div>
-    {% endif %}
 
     {% if submission.error_message %}
     <div class="error-box">
@@ -181,76 +48,326 @@
     </div>
     {% endif %}
 
-    <div class="submission-actions">
-        {% if submission.status.value == 'draft' %}
-        <form action="/submissions/{{ submission.slug }}/submit" method="POST" style="display:inline;">
-            <button type="submit" class="btn btn-primary">Submit to HPC</button>
-        </form>
-        <a href="/submissions/{{ submission.slug }}/interview" class="btn btn-secondary">Author Interview</a>
-        <button class="btn btn-secondary" onclick="generateManuscript()">Generate Manuscript</button>
-        <button class="btn btn-secondary" onclick="runReviews()">Run AI Reviews</button>
-        {% elif submission.status.value in ['submitted', 'queued', 'running'] %}
-        <div class="status-message" hx-get="/submissions/{{ submission.slug }}/status" hx-trigger="every 10s" hx-swap="innerHTML">
-            <p>Job is {{ submission.status.value }}... checking status</p>
-        </div>
-        {% elif submission.status.value == 'processing' %}
-        <p>Processing pipeline outputs...</p>
-        {% elif submission.status.value == 'drafting' %}
-        <a href="/submissions/{{ submission.slug }}/interview" class="btn btn-primary">Complete Interview</a>
-        <button class="btn btn-secondary" onclick="generateManuscript()">Generate Manuscript</button>
-        <p>Waiting for author interview to generate manuscript draft.</p>
-        {% elif submission.status.value == 'review' %}
-        <a href="{{ submission.github_repo }}/pulls" target="_blank" class="btn btn-primary">View Reviews</a>
-        <button class="btn btn-secondary" onclick="runReviews()">Re-run AI Reviews</button>
-        {% elif submission.status.value == 'published' %}
-        <a href="{{ submission.github_repo }}" target="_blank" class="btn btn-primary">View Paper</a>
-        {% endif %}
+    <div class="workflow-steps">
 
-        <a href="#" class="btn btn-outline" onclick="event.preventDefault(); openMetadata()">Metadata Assistant</a>
+        {# ── Step 1: Data Selected ── #}
+        {% set is_draft = s == 'draft' %}
+        {% set needs_accession = is_draft and not has_accession %}
+        <div class="wf-step {% if needs_accession %}current{% elif is_draft %}current{% else %}completed{% endif %}">
+            <div class="wf-step-header">
+                <span class="wf-step-number">1</span>
+                <h2 class="wf-step-title">{% if needs_accession %}Link Your Data{% else %}Data Selected{% endif %}</h2>
+                {% if needs_accession %}
+                <span class="wf-step-badge running">Needs Accession</span>
+                {% elif is_draft %}
+                <span class="wf-step-badge ready">Editable</span>
+                {% else %}
+                <span class="wf-step-badge done">Locked</span>
+                {% endif %}
+            </div>
+
+            {% if needs_accession %}
+            <p class="wf-step-desc">Enter any NCBI accession to get started. We'll resolve it to a BioProject and load the metadata.</p>
+            <div class="wf-accession-entry">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="text" id="accession-input"
+                               placeholder="e.g., PRJNA123456, SRR12345678, or SAMN12345678"
+                               class="inline-edit-input" style="flex:1; width:auto;"
+                               onkeydown="if(event.key==='Enter')saveAccession();">
+                        <button class="btn btn-primary" onclick="saveAccession()" id="accession-save-btn">Lookup & Save</button>
+                    </div>
+                    <small>Enter a BioProject, SRA run, BioSample, or experiment accession</small>
+                    <span id="accession-status" class="inline-status"></span>
+                </div>
+            </div>
+
+            {% elif is_draft %}
+            <p class="wf-step-desc">Your BioProject data has been linked. You can change these until you submit to HPC.</p>
+
+            <div class="wf-edit-row">
+                <label class="wf-edit-label">Accession</label>
+                <div class="wf-edit-field" id="accession-display">
+                    <span class="mono">{{ submission.bioproject_accession }}</span>
+                    {% if submission.sra_accession %}<span class="text-muted">(entered as {{ submission.sra_accession }})</span>{% endif %}
+                    <button class="btn-inline-edit" onclick="startEditAccession()">change</button>
+                </div>
+                <div class="wf-edit-field" id="accession-form" style="display:none;">
+                    <input type="text" id="accession-input" value="{{ submission.sra_accession or submission.bioproject_accession }}"
+                           placeholder="e.g., PRJNA123456" class="inline-edit-input"
+                           onkeydown="if(event.key==='Enter')saveAccession(); if(event.key==='Escape')cancelEditAccession();">
+                    <button class="btn btn-primary btn-sm" onclick="saveAccession()" id="accession-save-btn">Save</button>
+                    <button class="btn btn-secondary btn-sm" onclick="cancelEditAccession()">Cancel</button>
+                    <span id="accession-status" class="inline-status"></span>
+                </div>
+            </div>
+
+            {% if submission.sample_metadata and submission.sample_metadata.get('breakdown') %}
+            <div class="wf-data-selection">
+                <h3 class="wf-section-label">Data Selection</h3>
+                <p class="wf-step-desc">Click to select which data types to include. Types must share the same strategy, source, and layout.</p>
+                <div id="breakdown-container"></div>
+            </div>
+            {% endif %}
+
+            {% else %}
+            <p class="wf-step-desc">Your BioProject data has been linked and a pipeline selected.</p>
+            {% endif %}
+
+            {% if has_accession %}
+            <details class="wf-details"{% if is_draft %} open{% endif %}>
+                <summary>{% if is_draft %}Project metadata{% else %}View project metadata{% endif %}</summary>
+                <div class="wf-details-body">
+                    {% if submission.sample_metadata %}
+                    <dl class="wf-meta-grid">
+                        {% if submission.sample_metadata.get('title') %}
+                        <dt>Project Title</dt>
+                        <dd>{{ submission.sample_metadata.title }}</dd>
+                        {% endif %}
+                        {% if submission.sample_metadata.get('organism') %}
+                        <dt>Organism</dt>
+                        <dd>{{ submission.sample_metadata.organism | replace(', ', ', ') }}</dd>
+                        {% endif %}
+                        {% if submission.sample_metadata.get('organization') %}
+                        <dt>Organization</dt>
+                        <dd>{{ submission.sample_metadata.organization }}</dd>
+                        {% endif %}
+                        {% if submission.sample_metadata.get('num_sra_runs') %}
+                        <dt>SRA Runs</dt>
+                        <dd>{{ submission.sample_metadata.num_sra_runs }}</dd>
+                        {% endif %}
+                        {% if submission.sample_metadata.get('num_samples') %}
+                        <dt>Samples</dt>
+                        <dd>{{ submission.sample_metadata.num_samples }}</dd>
+                        {% endif %}
+                        {% if submission.sample_metadata.get('total_bases') %}
+                        <dt>Data</dt>
+                        <dd>{{ "{:,}".format(submission.sample_metadata.total_spots) }} reads, {{ (submission.sample_metadata.total_bases / 1e9) | round(2) }} Gbp</dd>
+                        {% endif %}
+                        {% if submission.sample_metadata.get('description') %}
+                        <dt>Description</dt>
+                        <dd>{{ submission.sample_metadata.description }}</dd>
+                        {% endif %}
+                    </dl>
+                    {% endif %}
+                </div>
+            </details>
+            {% endif %}
+
+            {% if not is_draft and submission.selected_runs %}
+            <details class="wf-details">
+                <summary>Selected data types</summary>
+                <div class="wf-details-body">
+                    {% set rows = submission.selected_runs %}
+                    <table class="breakdown-table transposed">
+                        <tr><th>Platform</th>{% for r in rows %}<td>{{ r.platform }}</td>{% endfor %}</tr>
+                        <tr><th>Strategy</th>{% for r in rows %}<td>{{ r.strategy }}</td>{% endfor %}</tr>
+                        <tr><th>Source</th>{% for r in rows %}<td>{{ r.source }}</td>{% endfor %}</tr>
+                        <tr><th>Runs</th>{% for r in rows %}<td>{{ r.runs }}</td>{% endfor %}</tr>
+                        <tr><th>Data</th>{% for r in rows %}<td>{% if r.bases %}{{ (r.bases / 1e9) | round(2) }} Gbp{% endif %}</td>{% endfor %}</tr>
+                    </table>
+                </div>
+            </details>
+            {% endif %}
+        </div>
+
+        {# ── Step 2: Pipeline Analysis ── #}
+        {% set step2_current = s in ['submitted', 'queued', 'running'] or (s == 'draft' and has_accession) %}
+        {% set step2_done = s in ['processing', 'drafting', 'review', 'published'] %}
+        {% set step2_state = 'completed' if step2_done else ('current' if step2_current else 'locked') %}
+        <div class="wf-step {{ step2_state }}">
+            <div class="wf-step-header">
+                <span class="wf-step-number">2</span>
+                <h2 class="wf-step-title">Pipeline Analysis</h2>
+                {% if step2_done %}
+                <span class="wf-step-badge done">Done</span>
+                {% elif s == 'draft' and has_accession %}
+                <span class="wf-step-badge ready">Ready</span>
+                {% elif s in ['submitted', 'queued'] %}
+                <span class="wf-step-badge running">Queued</span>
+                {% elif s == 'running' %}
+                <span class="wf-step-badge running">Running</span>
+                {% elif not has_accession %}
+                <span class="wf-step-badge locked">Waiting for data</span>
+                {% endif %}
+            </div>
+
+            {% if s == 'draft' and has_accession %}
+            <p class="wf-step-desc">Select a pipeline and submit to Alliance Canada HPC for processing.</p>
+
+            <div class="wf-edit-row" style="border-bottom: none;">
+                <label class="wf-edit-label" for="pipeline-select">Pipeline</label>
+                <div class="wf-edit-field">
+                    <select id="pipeline-select" class="inline-edit-select" onchange="savePipeline()">
+                        <option value="nanopore_mag" {% if submission.pipeline and submission.pipeline.value == 'nanopore_mag' %}selected{% endif %}>nanopore_mag</option>
+                        <option value="illumina_mag" {% if submission.pipeline and submission.pipeline.value == 'illumina_mag' %}selected{% endif %}>illumina_mag</option>
+                        <option value="microscape" {% if submission.pipeline and submission.pipeline.value == 'microscape' %}selected{% endif %}>microscape</option>
+                        <option value="rnaseq" {% if submission.pipeline and submission.pipeline.value == 'rnaseq' %}selected{% endif %}>rnaseq</option>
+                        <option value="isolate_genome" {% if submission.pipeline and submission.pipeline.value == 'isolate_genome' %}selected{% endif %}>isolate_genome</option>
+                    </select>
+                </div>
+            </div>
+            <div id="pipeline-info" class="pipeline-info-box"></div>
+
+            <div class="wf-step-actions">
+                <form action="/submissions/{{ submission.slug }}/submit" method="POST" style="display:inline;">
+                    <button type="submit" class="btn btn-primary">Submit to HPC</button>
+                </form>
+            </div>
+
+            {% elif s == 'draft' and not has_accession %}
+            <p class="wf-step-desc">Link your data in Step 1 first, then choose a pipeline.</p>
+
+            {% elif s in ['submitted', 'queued', 'running'] %}
+            <p class="wf-step-desc">
+                Running the <strong>{{ submission.pipeline.value }}</strong> pipeline on Alliance Canada HPC.
+            </p>
+            <div class="wf-step-status" hx-get="/submissions/{{ submission.slug }}/status" hx-trigger="every 10s" hx-swap="innerHTML">
+                <p class="status-polling">
+                    Job is <strong>{{ s }}</strong>{% if submission.slurm_job_id %} (SLURM {{ submission.slurm_job_id }}){% endif %}... checking automatically.
+                </p>
+            </div>
+
+            {% else %}
+            <p class="wf-step-desc">
+                Processed with <strong>{{ submission.pipeline.value }}</strong> on Alliance Canada HPC.
+            </p>
+            {% endif %}
+        </div>
+
+        {# ── Step 3: Author Interview ── #}
+        {% set step3_available = has_pipeline_results or s == 'draft' %}
+        {% set step3_current = s == 'drafting' %}
+        {% set step3_done = s in ['review', 'published'] or has_manuscript %}
+        {% set step3_state = 'completed' if step3_done else ('current' if step3_current else ('available' if step3_available else 'locked')) %}
+        <div class="wf-step {{ step3_state }}">
+            <div class="wf-step-header">
+                <span class="wf-step-number">3</span>
+                <h2 class="wf-step-title">Author Interview & Manuscript</h2>
+                {% if step3_done %}
+                <span class="wf-step-badge done">Done</span>
+                {% elif step3_current %}
+                <span class="wf-step-badge ready">In Progress</span>
+                {% elif step3_available %}
+                <span class="wf-step-badge ready">Available</span>
+                {% else %}
+                <span class="wf-step-badge locked">Waiting for pipeline</span>
+                {% endif %}
+            </div>
+            <p class="wf-step-desc">
+                Answer questions about your study so the AI can draft a manuscript. Then generate the paper and push it to GitHub.
+            </p>
+
+            {% if step3_state != 'locked' %}
+            <div class="wf-step-actions">
+                {% if has_interview %}
+                <a href="/submissions/{{ submission.slug }}/interview" class="btn btn-secondary">Continue Interview</a>
+                {% else %}
+                <a href="/submissions/{{ submission.slug }}/interview" class="btn {% if step3_current %}btn-primary{% else %}btn-secondary{% endif %}">Start Interview</a>
+                {% endif %}
+
+                <button class="btn {% if step3_current and has_interview %}btn-primary{% else %}btn-secondary{% endif %}" onclick="generateManuscript()"
+                    {% if not has_interview %}title="Complete the author interview first" disabled{% endif %}>
+                    Generate Manuscript
+                </button>
+            </div>
+            {% endif %}
+        </div>
+
+        {# ── Step 4: Peer Review ── #}
+        {% set step4_current = s == 'review' %}
+        {% set step4_done = s == 'published' %}
+        {% set step4_available = has_manuscript %}
+        {% set step4_state = 'completed' if step4_done else ('current' if step4_current else ('available' if step4_available else 'locked')) %}
+        <div class="wf-step {{ step4_state }}">
+            <div class="wf-step-header">
+                <span class="wf-step-number">4</span>
+                <h2 class="wf-step-title">Peer Review</h2>
+                {% if step4_done %}
+                <span class="wf-step-badge done">Done</span>
+                {% elif step4_current %}
+                <span class="wf-step-badge ready">In Review</span>
+                {% elif step4_available %}
+                <span class="wf-step-badge ready">Available</span>
+                {% else %}
+                <span class="wf-step-badge locked">Waiting for manuscript</span>
+                {% endif %}
+            </div>
+            <p class="wf-step-desc">
+                AI reviewers check your manuscript for statistical rigor, methodological soundness, and clarity. Each review is submitted as a GitHub pull request.
+            </p>
+
+            {% if step4_state != 'locked' %}
+            <div class="wf-step-actions">
+                <button class="btn {% if step4_current %}btn-primary{% elif step4_available %}btn-secondary{% endif %}" onclick="runReviews()">
+                    {% if interview_prs %}Re-run AI Reviews{% else %}Run AI Reviews{% endif %}
+                </button>
+
+                {% if submission.github_repo %}
+                <a href="{{ submission.github_repo }}/pulls" target="_blank" class="btn btn-secondary">View PRs on GitHub</a>
+                {% endif %}
+            </div>
+
+            {% if interview_prs %}
+            <div class="wf-review-prs">
+                {% for pr in interview_prs %}
+                <div class="wf-pr-row">
+                    <span class="wf-pr-type">{{ pr.review_type | title }}</span>
+                    {% if pr.get('pr_url') %}
+                    <a href="{{ pr.pr_url }}" target="_blank">{{ pr.pr_url.split('/')[-1] }}</a>
+                    {% else %}
+                    <span class="text-muted">{{ pr.get('error', 'No PR created') }}</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endif %}
+        </div>
+
+        {# ── Step 5: Published ── #}
+        {% set step5_state = 'completed' if s == 'published' else 'locked' %}
+        <div class="wf-step {{ step5_state }}">
+            <div class="wf-step-header">
+                <span class="wf-step-number">5</span>
+                <h2 class="wf-step-title">Published</h2>
+                {% if s == 'published' %}
+                <span class="wf-step-badge done">Live</span>
+                {% else %}
+                <span class="wf-step-badge locked">Waiting for review</span>
+                {% endif %}
+            </div>
+            <p class="wf-step-desc">
+                Your paper is published on GitHub Pages with full provenance tracking.
+            </p>
+
+            {% if s == 'published' and submission.github_repo %}
+            <div class="wf-step-actions">
+                <a href="{{ submission.github_repo }}" target="_blank" class="btn btn-primary">View Published Paper</a>
+            </div>
+            {% endif %}
+        </div>
+
     </div>
 
+    {# ── Action status toast ── #}
     <div id="action-status" class="action-status" style="display:none;">
         <p id="action-message">Working...</p>
     </div>
 
-    {% set interview_data = submission.interview_data or {} %}
-    {% if interview_data.get('_review_prs') %}
-    <div class="review-prs">
-        <h2>Review Pull Requests</h2>
-        <ul>
-        {% for pr in interview_data['_review_prs'] %}
-            <li>
-                {{ pr.review_type | title }}:
-                {% if pr.get('pr_url') %}
-                <a href="{{ pr.pr_url }}" target="_blank">{{ pr.pr_url }}</a>
-                {% else %}
-                <span class="text-muted">{{ pr.get('error', 'No PR created') }}</span>
-                {% endif %}
-            </li>
-        {% endfor %}
-        </ul>
-    </div>
-    {% endif %}
-
-    <div class="workflow-progress">
-        <h2>Workflow Progress</h2>
-        <ol class="progress-steps">
-            <li class="{% if submission.status.value != 'draft' %}completed{% elif submission.status.value == 'draft' %}current{% endif %}">
-                Submit Data
-            </li>
-            <li class="{% if submission.status.value in ['processing', 'drafting', 'review', 'published'] %}completed{% elif submission.status.value in ['queued', 'running'] %}current{% endif %}">
-                Pipeline Analysis
-            </li>
-            <li class="{% if submission.status.value in ['review', 'published'] %}completed{% elif submission.status.value == 'drafting' %}current{% endif %}">
-                Author Interview & Draft
-            </li>
-            <li class="{% if submission.status.value == 'published' %}completed{% elif submission.status.value == 'review' %}current{% endif %}">
-                Peer Review
-            </li>
-            <li class="{% if submission.status.value == 'published' %}completed{% endif %}">
-                Published
-            </li>
-        </ol>
+    {# ── Footer actions ── #}
+    <div class="wf-footer-actions">
+        {% if submission.github_repo %}
+        <a href="{{ submission.github_repo }}" target="_blank" class="btn btn-secondary">View on GitHub</a>
+        {% endif %}
+        <a href="/submissions/{{ submission.slug }}/interview#metadata" class="btn btn-secondary">Metadata Assistant</a>
+        {% if s == 'draft' %}
+        <form action="/submissions/{{ submission.slug }}/delete" method="POST" style="display:inline;"
+              onsubmit="return confirm('Delete this submission? This cannot be undone.')">
+            <button type="submit" class="btn btn-delete">Delete Submission</button>
+        </form>
+        {% endif %}
+        <a href="/dashboard" class="btn btn-secondary">Back to Dashboard</a>
     </div>
 </div>
 {% endblock %}
@@ -259,10 +376,272 @@
 <script>
 const subId = '{{ submission.slug }}';
 
-function showStatus(msg) {
-    document.getElementById('action-status').style.display = '';
-    document.getElementById('action-message').textContent = msg;
+/* ── Pipeline metadata ── */
+const PIPELINES = {
+    nanopore_mag: {
+        name: 'nanopore_mag',
+        title: 'Long-read MAG Assembly',
+        desc: 'Assembles metagenome-assembled genomes (MAGs) from Oxford Nanopore or PacBio long reads. Produces binned genomes with taxonomic classification and quality metrics.',
+        status: 'Implemented',
+        github: 'https://github.com/rec3141/danaSeq',
+    },
+    illumina_mag: {
+        name: 'illumina_mag',
+        title: 'Short-read MAG Assembly',
+        desc: 'Assembles MAGs from Illumina short reads using metaSPAdes or MEGAHIT. Co-assembly and differential coverage binning across samples.',
+        status: 'In development',
+        github: 'https://github.com/rec3141/danaSeq',
+    },
+    microscape: {
+        name: 'microscape',
+        title: 'Amplicon Analysis',
+        desc: 'Processes 16S/18S/ITS amplicon data. DADA2 denoising, taxonomy assignment, diversity analysis, and community composition.',
+        status: 'Planned',
+        github: 'https://github.com/rec3141/microscape',
+    },
+    rnaseq: {
+        name: 'rnaseq',
+        title: 'RNA-Seq Differential Expression',
+        desc: 'Quantifies gene expression from RNA-Seq data. Alignment, counting, normalization, and differential expression analysis.',
+        status: 'In development',
+        github: 'https://github.com/rec3141/rnaseq',
+    },
+    isolate_genome: {
+        name: 'isolate_genome',
+        title: 'Isolate Genome Assembly',
+        desc: 'Assembles and annotates individual microbial isolate genomes. Quality assessment, gene prediction, and functional annotation.',
+        status: 'In development',
+        github: 'https://github.com/rec3141/isolate_genome',
+    },
+};
+
+function updatePipelineInfo() {
+    const box = document.getElementById('pipeline-info');
+    if (!box) return;
+    const sel = document.getElementById('pipeline-select');
+    if (!sel) return;
+    const info = PIPELINES[sel.value];
+    if (!info) { box.innerHTML = ''; return; }
+
+    const statusCls = info.status === 'Implemented' ? 'pipe-ready' : 'pipe-dev';
+    box.innerHTML = `
+        <div class="pipe-title">${info.title} <span class="pipe-status ${statusCls}">${info.status}</span></div>
+        <p class="pipe-desc">${info.desc}</p>
+        <a href="${info.github}" target="_blank" class="pipe-link">View on GitHub</a>
+    `;
 }
+
+function showStatus(msg) {
+    const el = document.getElementById('action-status');
+    el.style.display = '';
+    document.getElementById('action-message').textContent = msg;
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+/* ── Title editing ── */
+function startEditTitle() {
+    document.getElementById('title-display').style.display = 'none';
+    document.getElementById('title-form').style.display = 'flex';
+    document.getElementById('title-input').focus();
+    document.getElementById('title-input').select();
+}
+
+function cancelEditTitle() {
+    document.getElementById('title-display').style.display = '';
+    document.getElementById('title-form').style.display = 'none';
+}
+
+async function saveTitle() {
+    const input = document.getElementById('title-input');
+    const val = input.value.trim();
+    if (!val) return;
+
+    const resp = await fetch(`/submissions/${subId}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: val }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+        document.querySelector('#title-display .title-text').textContent = data.title;
+        cancelEditTitle();
+        showStatus('Title updated');
+    } else {
+        showStatus('Error: ' + (data.error || 'Failed to save'));
+    }
+}
+
+/* ── Accession editing ── */
+function startEditAccession() {
+    const d = document.getElementById('accession-display');
+    if (d) d.style.display = 'none';
+    const f = document.getElementById('accession-form');
+    if (f) f.style.display = 'flex';
+    document.getElementById('accession-input').focus();
+    document.getElementById('accession-input').select();
+}
+
+function cancelEditAccession() {
+    const d = document.getElementById('accession-display');
+    if (d) d.style.display = '';
+    const f = document.getElementById('accession-form');
+    if (f) f.style.display = 'none';
+    document.getElementById('accession-status').textContent = '';
+}
+
+async function saveAccession() {
+    const input = document.getElementById('accession-input');
+    const status = document.getElementById('accession-status');
+    const btn = document.getElementById('accession-save-btn');
+    const val = input.value.trim();
+    if (!val) return;
+
+    btn.disabled = true;
+    status.textContent = 'Resolving...';
+
+    const resp = await fetch(`/submissions/${subId}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sra_accession: val }),
+    });
+    const data = await resp.json();
+    btn.disabled = false;
+
+    if (data.ok) {
+        showStatus('Accession updated — reloading...');
+        setTimeout(() => location.reload(), 500);
+    } else {
+        status.textContent = data.error || 'Failed to save';
+        status.style.color = 'var(--color-error)';
+    }
+}
+
+/* ── Pipeline editing ── */
+async function savePipeline() {
+    const val = document.getElementById('pipeline-select').value;
+    const resp = await fetch(`/submissions/${subId}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pipeline: val }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+        updatePipelineInfo();
+        showStatus('Pipeline updated');
+    } else {
+        showStatus('Error: ' + (data.error || 'Failed to save'));
+    }
+}
+
+/* ── Data selection (draft only) ── */
+{% if submission.status.value == 'draft' and submission.sample_metadata and submission.sample_metadata.get('breakdown') %}
+const breakdownData = {{ submission.sample_metadata.breakdown | tojson }};
+const selectedRunsData = {{ (submission.selected_runs or []) | tojson }};
+
+let selected = new Set();
+(function initSelection() {
+    for (let i = 0; i < breakdownData.length; i++) {
+        for (const sr of selectedRunsData) {
+            if (breakdownData[i].platform === sr.platform &&
+                breakdownData[i].strategy === sr.strategy &&
+                breakdownData[i].source === sr.source &&
+                breakdownData[i].layout === sr.layout &&
+                breakdownData[i].instrument === sr.instrument) {
+                selected.add(i);
+                break;
+            }
+        }
+    }
+    if (selected.size === 0 && breakdownData.length > 0) {
+        breakdownData.forEach((_, i) => selected.add(i));
+    }
+    renderBreakdown();
+})();
+
+function fmtBases(b) {
+    if (b >= 1e9) return (b / 1e9).toFixed(1) + ' Gbp';
+    if (b >= 1e6) return (b / 1e6).toFixed(0) + ' Mbp';
+    return b.toLocaleString() + ' bp';
+}
+
+function renderBreakdown() {
+    const container = document.getElementById('breakdown-container');
+    if (!container) return;
+
+    let html = '<div class="dt-cards">';
+    for (let i = 0; i < breakdownData.length; i++) {
+        const r = breakdownData[i];
+        const isSel = selected.has(i);
+        const canSel = isSel || canSelect(i);
+        const cls = isSel ? 'dt-card selected' : (canSel ? 'dt-card' : 'dt-card disabled');
+
+        html += `<div class="${cls}" onclick="${canSel ? `toggleColumn(${i})` : ''}" ${!canSel ? 'title="Incompatible strategy/source/layout"' : ''}>`;
+        html += `<div class="dt-card-platform">${r.platform}</div>`;
+        html += `<div class="dt-card-instrument">${r.instrument}</div>`;
+        html += `<div class="dt-card-tags">`;
+        html += `<span class="dt-tag">${r.strategy}</span>`;
+        html += `<span class="dt-tag">${r.source}</span>`;
+        html += `<span class="dt-tag">${r.layout}</span>`;
+        html += `</div>`;
+        html += `<div class="dt-card-stats">${r.runs} runs &middot; ${r.samples} samples`;
+        if (r.bases > 0) html += ` &middot; ${fmtBases(r.bases)}`;
+        html += `</div>`;
+        html += `</div>`;
+    }
+    html += '</div>';
+
+    if (selected.size > 0) {
+        const selRows = [...selected].map(i => breakdownData[i]);
+        const totalRuns = selRows.reduce((a, r) => a + r.runs, 0);
+        const totalSamples = selRows.reduce((a, r) => a + r.samples, 0);
+        const totalBases = selRows.reduce((a, r) => a + r.bases, 0);
+        html += `<p class="selection-summary">${selected.size} of ${breakdownData.length} types selected &middot; ${totalRuns} runs &middot; ${totalSamples} samples &middot; ${fmtBases(totalBases)}</p>`;
+    } else {
+        html += '<p class="selection-summary" style="color: var(--color-warning)">No data selected</p>';
+    }
+    container.innerHTML = html;
+}
+
+function canSelect(idx) {
+    if (selected.size === 0) return true;
+    const row = breakdownData[idx];
+    for (const si of selected) {
+        const sel = breakdownData[si];
+        if (row.strategy !== sel.strategy) return false;
+        if (row.source !== sel.source) return false;
+        if (row.layout !== sel.layout) return false;
+    }
+    return true;
+}
+
+function toggleColumn(idx) {
+    if (selected.has(idx)) selected.delete(idx); else selected.add(idx);
+    renderBreakdown();
+    saveSelection();
+}
+
+let selectionSaveTimer = null;
+function saveSelection() {
+    clearTimeout(selectionSaveTimer);
+    selectionSaveTimer = setTimeout(async () => {
+        const resp = await fetch(`/submissions/${subId}/update`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selected_runs: [...selected] }),
+        });
+        const data = await resp.json();
+        if (data.ok && data.pipeline) {
+            const ps = document.getElementById('pipeline-select');
+            if (ps) { ps.value = data.pipeline; updatePipelineInfo(); }
+            showStatus('Selection saved');
+        }
+    }, 500);
+}
+{% endif %}
+
+/* ── Init pipeline info on load ── */
+updatePipelineInfo();
 
 async function generateManuscript() {
     showStatus('Generating manuscript... this may take a minute.');
@@ -295,10 +674,6 @@ async function runReviews() {
     } catch (e) {
         showStatus(`Error: ${e.message}`);
     }
-}
-
-function openMetadata() {
-    window.location.href = `/submissions/${subId}/interview#metadata`;
 }
 </script>
 {% endblock %}

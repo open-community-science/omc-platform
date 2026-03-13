@@ -18,7 +18,9 @@
             <div class="nav-links">
                 {% if user %}
                 <a href="/dashboard">Dashboard</a>
-                <a href="/submit">New Submission</a>
+                <form action="/submissions/create" method="POST" style="display:inline;">
+                    <button type="submit" class="nav-new-btn">New Submission</button>
+                </form>
                 <div class="user-menu">
                     <img src="{{ user.github_avatar_url }}" alt="{{ user.github_login }}" class="avatar">
                     <span>{{ user.github_login }}</span>

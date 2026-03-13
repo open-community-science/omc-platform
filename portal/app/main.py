@@ -91,22 +91,6 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     )
 
 
-@app.get("/submit", response_class=HTMLResponse)
-async def submit_form(request: Request, db: AsyncSession = Depends(get_db)):
-    """New submission form."""
-    user = await get_current_user(request, db)
-    if not user:
-        return templates.TemplateResponse(
-            "login_required.html",
-            {"request": request},
-        )
-
-    return templates.TemplateResponse(
-        "submit.html",
-        {"request": request, "user": user},
-    )
-
-
 @app.get("/submissions/{slug}", response_class=HTMLResponse)
 async def submission_detail(
     slug: str,

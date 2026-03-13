@@ -1,6 +1,6 @@
 """Submission routes and logic."""
 from fastapi import APIRouter, Request, Depends, HTTPException, Form
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime
@@ -29,61 +29,41 @@ async def _get_submission(slug: str, user: User, db: AsyncSession) -> Submission
     return submission
 
 
+def _auto_pipeline(breakdown: list) -> PipelineType:
+    """Pick a pipeline from breakdown rows (best guess)."""
+    if not breakdown:
+        return PipelineType.NANOPORE_MAG
+
+    platforms = {b.get("platform", "").upper() for b in breakdown}
+    strategies = {b.get("strategy", "").upper() for b in breakdown}
+    sources = {b.get("source", "").upper() for b in breakdown}
+
+    has_long = any("OXFORD" in p or "NANOPORE" in p or "PACBIO" in p for p in platforms)
+    has_short = any("ILLUMINA" in p or "BGISEQ" in p for p in platforms)
+
+    if any("AMPLICON" in s for s in strategies):
+        return PipelineType.MICROSCAPE
+    if any("RNA" in s for s in strategies):
+        return PipelineType.RNASEQ
+    if any("METAGENOMIC" in s or "METATRANSCRIPTOMIC" in s for s in sources):
+        return PipelineType.NANOPORE_MAG if has_long else PipelineType.ILLUMINA_MAG
+    if any("WGS" in s or "WGA" in s for s in strategies):
+        if has_long:
+            return PipelineType.NANOPORE_MAG
+        return PipelineType.ILLUMINA_MAG
+    return PipelineType.NANOPORE_MAG
+
+
 @router.post("/create")
 async def create_submission(
     request: Request,
-    sra_accession: str = Form(...),
-    pipeline: str = Form(...),
-    title: Optional[str] = Form(None),
-    selected_breakdown: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
-    """Create a new submission."""
-    import json as _json
-
-    # Validate SRA accession format (basic check)
-    sra_accession = sra_accession.strip().upper()
-    if not (sra_accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA", "SAMN", "SAME", "SAMD"))):
-        raise HTTPException(status_code=400, detail="Invalid SRA accession format")
-
-    # Validate pipeline
-    try:
-        pipeline_type = PipelineType(pipeline)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid pipeline selection")
-
-    # Resolve to BioProject (any accession → PRJNA)
-    project_metadata = await resolve_to_bioproject(sra_accession)
-
-    bioproject_acc = project_metadata.get("accession", sra_accession)
-
-    # Parse selected breakdown indices and store the selected subset metadata
-    selected_data = None
-    if selected_breakdown and project_metadata.get("breakdown"):
-        try:
-            indices = _json.loads(selected_breakdown)
-            breakdown = project_metadata["breakdown"]
-            selected_data = [breakdown[i] for i in indices if i < len(breakdown)]
-        except (ValueError, IndexError):
-            pass
-
-    # Use study title as default paper title if available
-    default_title = (
-        project_metadata.get("study_title")
-        or project_metadata.get("title")
-        or f"Analysis of {bioproject_acc}"
-    )
-
-    # Create submission
+    """Create a blank draft submission and redirect to its detail page."""
     submission = Submission(
         user_id=user.id,
-        bioproject_accession=bioproject_acc,
-        sra_accession=sra_accession if sra_accession != bioproject_acc else None,
-        selected_runs=selected_data,
-        pipeline=pipeline_type,
-        title=title or default_title,
-        sample_metadata=project_metadata,
+        title="Untitled Submission",
         status=SubmissionStatus.DRAFT,
     )
     db.add(submission)
@@ -169,6 +149,9 @@ async def submit_to_hpc(
     if submission.status != SubmissionStatus.DRAFT:
         raise HTTPException(status_code=400, detail="Submission already submitted")
 
+    if not submission.bioproject_accession:
+        raise HTTPException(status_code=400, detail="No accession linked yet")
+
     # Submit to SLURM
     if settings.slurm_enabled:
         try:
@@ -204,6 +187,79 @@ async def get_status(
         "github_repo": submission.github_repo,
         "error_message": submission.error_message,
     }
+
+
+@router.post("/{slug}/update")
+async def update_submission(
+    slug: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Update editable submission fields.
+
+    Title is always editable.
+    Accession, pipeline, and data selection are only editable in draft.
+    """
+    import json as _json
+
+    submission = await _get_submission(slug, user, db)
+    body = await request.json()
+
+    # Title — always editable
+    if "title" in body:
+        title = body["title"].strip()
+        if title:
+            submission.title = title
+
+    # Fields locked after HPC submission
+    if submission.status == SubmissionStatus.DRAFT:
+        if "pipeline" in body:
+            try:
+                submission.pipeline = PipelineType(body["pipeline"])
+            except ValueError:
+                return JSONResponse({"error": "Invalid pipeline"}, status_code=400)
+
+        if "sra_accession" in body:
+            accession = body["sra_accession"].strip().upper()
+            if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA", "SAMN", "SAME", "SAMD")):
+                return JSONResponse({"error": "Invalid accession format"}, status_code=400)
+
+            project_metadata = await resolve_to_bioproject(accession)
+            bioproject_acc = project_metadata.get("accession", accession)
+
+            submission.bioproject_accession = bioproject_acc
+            submission.sra_accession = accession if accession != bioproject_acc else None
+            submission.sample_metadata = project_metadata
+
+            # Auto-update title from metadata
+            new_title = (
+                project_metadata.get("study_title")
+                or project_metadata.get("title")
+                or f"Analysis of {bioproject_acc}"
+            )
+            submission.title = new_title
+
+            # Re-select all breakdown rows by default
+            breakdown = project_metadata.get("breakdown", [])
+            submission.selected_runs = breakdown if breakdown else None
+
+            # Auto-pick pipeline for new accession
+            submission.pipeline = _auto_pipeline(breakdown)
+
+        if "selected_runs" in body:
+            # Accept list of breakdown indices → store the actual row dicts
+            breakdown = (submission.sample_metadata or {}).get("breakdown", [])
+            indices = body["selected_runs"]
+            if isinstance(indices, list) and breakdown:
+                submission.selected_runs = [breakdown[i] for i in indices if isinstance(i, int) and i < len(breakdown)]
+                # Re-auto pipeline from selected subset
+                submission.pipeline = _auto_pipeline(submission.selected_runs)
+            elif not indices:
+                submission.selected_runs = None
+
+    await db.commit()
+    return JSONResponse({"ok": True, "title": submission.title, "pipeline": submission.pipeline.value})
 
 
 @router.post("/{slug}/delete")
