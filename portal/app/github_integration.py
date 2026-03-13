@@ -23,7 +23,7 @@ async def create_paper_repo_from_files(submission: Submission, files: dict) -> s
     if not settings.github_token:
         raise RuntimeError("GitHub token not configured")
 
-    repo_name = f"paper-{submission.id:04d}"
+    repo_name = f"micro-{submission.id:04d}"
     full_name = f"{settings.github_org}/{repo_name}"
 
     async with httpx.AsyncClient(timeout=30.0) as client:

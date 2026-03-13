@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # GitHub API (for repo creation)
     github_token: str = ""
-    github_org: str = "omc-papers"
+    github_org: str = "open-community-science"
 
     # LLM settings (OpenAI-compatible — works with LM Studio, OpenAI, etc.)
     llm_base_url: str = "http://10.151.49.182:1234/v1"
