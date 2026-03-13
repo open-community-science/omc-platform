@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # GitHub App (preferred over PAT for bot operations)
     github_app_id: str = ""
     github_app_private_key: str = ""  # PEM content or file path
+    github_app_client_id: str = ""    # For OAuth flows
 
     # LLM settings (OpenAI-compatible — works with LM Studio, OpenAI, etc.)
     llm_base_url: str = "http://10.151.49.182:1234/v1"
