@@ -40,9 +40,9 @@ def _format_review_as_markdown(review: dict) -> str:
     return "\n".join(lines)
 
 
-@router.post("/{submission_id}/run")
+@router.post("/{slug}/run")
 async def run_reviews(
-    submission_id: int,
+    slug: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
@@ -57,7 +57,7 @@ async def run_reviews(
     from pathlib import Path
 
     stmt = select(Submission).where(
-        Submission.id == submission_id,
+        Submission.slug == slug,
         Submission.user_id == user.id,
     )
     result = await db.execute(stmt)
@@ -131,15 +131,15 @@ async def run_reviews(
     await db.commit()
 
     return {
-        "submission_id": submission_id,
+        "slug": slug,
         "reviews": reviews,
         "pull_requests": pr_urls,
     }
 
 
-@router.post("/{submission_id}/generate")
+@router.post("/{slug}/generate")
 async def generate_manuscript(
-    submission_id: int,
+    slug: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
@@ -153,7 +153,7 @@ async def generate_manuscript(
     from pathlib import Path
 
     stmt = select(Submission).where(
-        Submission.id == submission_id,
+        Submission.slug == slug,
         Submission.user_id == user.id,
     )
     result = await db.execute(stmt)
@@ -212,7 +212,7 @@ async def generate_manuscript(
     await db.commit()
 
     return {
-        "submission_id": submission_id,
+        "slug": slug,
         "sections": {k: len(v) for k, v in sections.items()},
         "manuscript": sections,
         "github_repo": repo_url,
@@ -406,7 +406,7 @@ Reviews are submitted as pull requests on this repository.
     files[".omc/pipeline_config.json"] = _json.dumps({
         "pipeline": pipeline_name,
         "bioproject_accession": accession,
-        "submission_id": getattr(submission, "id", None),
+        "submission_slug": getattr(submission, "slug", None),
         "generated_at": date.today().isoformat(),
         "platform": "open-community-science/omc-platform",
     }, indent=2)

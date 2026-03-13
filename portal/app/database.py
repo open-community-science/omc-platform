@@ -1,9 +1,10 @@
 """Database setup and models."""
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import Column, Integer, String, DateTime, Text, Enum, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Text, Enum, ForeignKey, JSON, text
 from datetime import datetime
 import enum
+import uuid
 
 from .config import get_settings
 
@@ -53,6 +54,7 @@ class Submission(Base):
     __tablename__ = "submissions"
 
     id = Column(Integer, primary_key=True)
+    slug = Column(String(12), unique=True, nullable=False, default=lambda: uuid.uuid4().hex[:8])
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     # Project & data info
@@ -107,9 +109,21 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 
 async def init_db():
-    """Initialize database tables."""
+    """Initialize database tables and run lightweight migrations."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        # Migration: add slug column to existing submissions
+        try:
+            await conn.execute(text("SELECT slug FROM submissions LIMIT 1"))
+        except Exception:
+            await conn.execute(text("ALTER TABLE submissions ADD COLUMN slug VARCHAR(12)"))
+            # Backfill existing rows with random slugs
+            rows = (await conn.execute(text("SELECT id FROM submissions WHERE slug IS NULL"))).fetchall()
+            for row in rows:
+                slug = uuid.uuid4().hex[:8]
+                await conn.execute(text(f"UPDATE submissions SET slug = '{slug}' WHERE id = {row[0]}"))
+            logging.getLogger(__name__).info(f"Migrated {len(rows)} submissions with slugs")
 
 
 async def get_db() -> AsyncSession:

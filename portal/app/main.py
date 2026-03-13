@@ -107,9 +107,9 @@ async def submit_form(request: Request, db: AsyncSession = Depends(get_db)):
     )
 
 
-@app.get("/submissions/{submission_id}", response_class=HTMLResponse)
+@app.get("/submissions/{slug}", response_class=HTMLResponse)
 async def submission_detail(
-    submission_id: int,
+    slug: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
@@ -122,7 +122,7 @@ async def submission_detail(
         )
 
     stmt = select(Submission).where(
-        Submission.id == submission_id,
+        Submission.slug == slug,
         Submission.user_id == user.id,
     )
     result = await db.execute(stmt)
@@ -141,9 +141,9 @@ async def submission_detail(
     )
 
 
-@app.get("/submissions/{submission_id}/interview", response_class=HTMLResponse)
+@app.get("/submissions/{slug}/interview", response_class=HTMLResponse)
 async def interview_page(
-    submission_id: int,
+    slug: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
@@ -156,7 +156,7 @@ async def interview_page(
         )
 
     stmt = select(Submission).where(
-        Submission.id == submission_id,
+        Submission.slug == slug,
         Submission.user_id == user.id,
     )
     result = await db.execute(stmt)

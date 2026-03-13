@@ -183,20 +183,20 @@
 
     <div class="submission-actions">
         {% if submission.status.value == 'draft' %}
-        <form action="/submissions/{{ submission.id }}/submit" method="POST" style="display:inline;">
+        <form action="/submissions/{{ submission.slug }}/submit" method="POST" style="display:inline;">
             <button type="submit" class="btn btn-primary">Submit to HPC</button>
         </form>
-        <a href="/submissions/{{ submission.id }}/interview" class="btn btn-secondary">Author Interview</a>
+        <a href="/submissions/{{ submission.slug }}/interview" class="btn btn-secondary">Author Interview</a>
         <button class="btn btn-secondary" onclick="generateManuscript()">Generate Manuscript</button>
         <button class="btn btn-secondary" onclick="runReviews()">Run AI Reviews</button>
         {% elif submission.status.value in ['submitted', 'queued', 'running'] %}
-        <div class="status-message" hx-get="/submissions/{{ submission.id }}/status" hx-trigger="every 10s" hx-swap="innerHTML">
+        <div class="status-message" hx-get="/submissions/{{ submission.slug }}/status" hx-trigger="every 10s" hx-swap="innerHTML">
             <p>Job is {{ submission.status.value }}... checking status</p>
         </div>
         {% elif submission.status.value == 'processing' %}
         <p>Processing pipeline outputs...</p>
         {% elif submission.status.value == 'drafting' %}
-        <a href="/submissions/{{ submission.id }}/interview" class="btn btn-primary">Complete Interview</a>
+        <a href="/submissions/{{ submission.slug }}/interview" class="btn btn-primary">Complete Interview</a>
         <button class="btn btn-secondary" onclick="generateManuscript()">Generate Manuscript</button>
         <p>Waiting for author interview to generate manuscript draft.</p>
         {% elif submission.status.value == 'review' %}
@@ -257,7 +257,7 @@
 
 {% block scripts %}
 <script>
-const subId = {{ submission.id }};
+const subId = '{{ submission.slug }}';
 
 function showStatus(msg) {
     document.getElementById('action-status').style.display = '';

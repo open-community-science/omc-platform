@@ -48,10 +48,10 @@ def _build_sbatch_script(submission: Submission) -> str:
     """Generate sbatch script for the pipeline."""
     pipeline_path = _get_pipeline_path(submission.pipeline)
 
-    output_dir = f"{settings.results_path}/{submission.id}"
+    output_dir = f"{settings.results_path}/{submission.slug}"
 
     script = f"""#!/bin/bash
-#SBATCH --job-name=omc-{submission.id}
+#SBATCH --job-name=omc-{submission.slug}
 #SBATCH --account={settings.slurm_account}
 #SBATCH --partition={settings.slurm_partition}
 #SBATCH --time=24:00:00
@@ -113,7 +113,7 @@ async def submit_pipeline_job(submission: Submission) -> str:
         raise RuntimeError("SLURM not enabled")
 
     script = _build_sbatch_script(submission)
-    output_dir = f"{settings.results_path}/{submission.id}"
+    output_dir = f"{settings.results_path}/{submission.slug}"
 
     if settings.slurm_host:
         # Remote submission via SSH (ControlMaster for Duo MFA bypass)
@@ -190,9 +190,9 @@ async def check_job_status(job_id: str) -> dict:
         }
 
 
-async def check_completion_marker(submission_id: int) -> dict:
+async def check_completion_marker(slug: str) -> dict:
     """Check for .completed marker file — used by the daily poll."""
-    marker_path = f"{settings.results_path}/{submission_id}/.completed"
+    marker_path = f"{settings.results_path}/{slug}/.completed"
 
     if settings.slurm_host:
         stdout, _, rc = await _run_remote(f"cat {marker_path} 2>/dev/null")
@@ -248,7 +248,7 @@ async def poll_all_running_jobs(db_session) -> list:
 
     completed = []
     for sub in running:
-        status = await check_completion_marker(sub.id)
+        status = await check_completion_marker(sub.slug)
         if status["completed"]:
             if status["success"]:
                 sub.status = SubmissionStatus.PROCESSING

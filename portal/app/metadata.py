@@ -17,9 +17,9 @@ class MetadataMessage(BaseModel):
     message: str = ""
 
 
-@router.post("/{submission_id}/chat")
+@router.post("/{slug}/chat")
 async def metadata_chat(
-    submission_id: int,
+    slug: str,
     body: MetadataMessage,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
@@ -33,7 +33,7 @@ async def metadata_chat(
     from ai.metadata_assistant import interactive_metadata_help
 
     stmt = select(Submission).where(
-        Submission.id == submission_id,
+        Submission.slug == slug,
         Submission.user_id == user.id,
     )
     result = await db.execute(stmt)
@@ -69,9 +69,9 @@ async def metadata_chat(
     }
 
 
-@router.get("/{submission_id}/validate")
+@router.get("/{slug}/validate")
 async def validate_metadata(
-    submission_id: int,
+    slug: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
@@ -79,7 +79,7 @@ async def validate_metadata(
     from ai.metadata_assistant import validate_metadata as validate
 
     stmt = select(Submission).where(
-        Submission.id == submission_id,
+        Submission.slug == slug,
         Submission.user_id == user.id,
     )
     result = await db.execute(stmt)

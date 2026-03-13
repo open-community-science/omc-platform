@@ -16,6 +16,19 @@ router = APIRouter(prefix="/submissions", tags=["submissions"])
 settings = get_settings()
 
 
+async def _get_submission(slug: str, user: User, db: AsyncSession) -> Submission:
+    """Look up a submission by slug, scoped to the current user."""
+    stmt = select(Submission).where(
+        Submission.slug == slug,
+        Submission.user_id == user.id,
+    )
+    result = await db.execute(stmt)
+    submission = result.scalar_one_or_none()
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    return submission
+
+
 @router.post("/create")
 async def create_submission(
     request: Request,
@@ -77,7 +90,7 @@ async def create_submission(
     await db.commit()
     await db.refresh(submission)
 
-    return RedirectResponse(url=f"/submissions/{submission.id}", status_code=302)
+    return RedirectResponse(url=f"/submissions/{submission.slug}", status_code=302)
 
 
 @router.get("/lookup/{accession}")
@@ -143,24 +156,15 @@ async def list_samples(accession: str):
     }
 
 
-@router.post("/{submission_id}/submit")
+@router.post("/{slug}/submit")
 async def submit_to_hpc(
-    submission_id: int,
+    slug: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
     """Submit the job to HPC for processing."""
-    # Get submission
-    stmt = select(Submission).where(
-        Submission.id == submission_id,
-        Submission.user_id == user.id,
-    )
-    result = await db.execute(stmt)
-    submission = result.scalar_one_or_none()
-
-    if not submission:
-        raise HTTPException(status_code=404, detail="Submission not found")
+    submission = await _get_submission(slug, user, db)
 
     if submission.status != SubmissionStatus.DRAFT:
         raise HTTPException(status_code=400, detail="Submission already submitted")
@@ -181,28 +185,20 @@ async def submit_to_hpc(
     submission.submitted_at = datetime.utcnow()
     await db.commit()
 
-    return RedirectResponse(url=f"/submissions/{submission_id}", status_code=302)
+    return RedirectResponse(url=f"/submissions/{slug}", status_code=302)
 
 
-@router.get("/{submission_id}/status")
+@router.get("/{slug}/status")
 async def get_status(
-    submission_id: int,
+    slug: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
     """Get current submission status (for polling)."""
-    stmt = select(Submission).where(
-        Submission.id == submission_id,
-        Submission.user_id == user.id,
-    )
-    result = await db.execute(stmt)
-    submission = result.scalar_one_or_none()
-
-    if not submission:
-        raise HTTPException(status_code=404, detail="Submission not found")
+    submission = await _get_submission(slug, user, db)
 
     return {
-        "id": submission.id,
+        "slug": submission.slug,
         "status": submission.status.value,
         "slurm_job_id": submission.slurm_job_id,
         "github_repo": submission.github_repo,
@@ -210,22 +206,14 @@ async def get_status(
     }
 
 
-@router.post("/{submission_id}/delete")
+@router.post("/{slug}/delete")
 async def delete_submission(
-    submission_id: int,
+    slug: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
     """Delete a submission."""
-    stmt = select(Submission).where(
-        Submission.id == submission_id,
-        Submission.user_id == user.id,
-    )
-    result = await db.execute(stmt)
-    submission = result.scalar_one_or_none()
-
-    if not submission:
-        raise HTTPException(status_code=404, detail="Submission not found")
+    submission = await _get_submission(slug, user, db)
 
     await db.delete(submission)
     await db.commit()
@@ -245,7 +233,7 @@ async def list_submissions(
 
     return [
         {
-            "id": s.id,
+            "slug": s.slug,
             "bioproject_accession": s.bioproject_accession,
             "sra_accession": s.sra_accession,
             "pipeline": s.pipeline.value,

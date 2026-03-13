@@ -27,7 +27,7 @@
 
         <div id="interview-complete" class="interview-complete" style="display:none;">
             <p>Interview complete. Your responses will help generate the manuscript draft.</p>
-            <a href="/submissions/{{ submission.id }}" class="btn btn-primary">Back to Submission</a>
+            <a href="/submissions/{{ submission.slug }}" class="btn btn-primary">Back to Submission</a>
         </div>
     </div>
 
@@ -42,7 +42,7 @@
 
 {% block scripts %}
 <script>
-const submissionId = {{ submission.id }};
+const submissionId = '{{ submission.slug }}';
 let currentQuestion = null;
 let mode = 'guided';  // 'guided' or 'ai'
 

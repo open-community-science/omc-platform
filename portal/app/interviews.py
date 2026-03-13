@@ -54,22 +54,27 @@ INTERVIEW_QUESTIONS = [
 ]
 
 
-@router.get("/{submission_id}")
-async def get_interview(
-    submission_id: int,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    """Get current interview state."""
+async def _get_submission(slug: str, user: User, db: AsyncSession) -> Submission:
+    """Look up a submission by slug, scoped to the current user."""
     stmt = select(Submission).where(
-        Submission.id == submission_id,
+        Submission.slug == slug,
         Submission.user_id == user.id,
     )
     result = await db.execute(stmt)
     submission = result.scalar_one_or_none()
-
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
+    return submission
+
+
+@router.get("/{slug}")
+async def get_interview(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Get current interview state."""
+    submission = await _get_submission(slug, user, db)
 
     interview_data = submission.interview_data or {}
     answered = set(interview_data.keys())
@@ -82,7 +87,7 @@ async def get_interview(
             break
 
     return {
-        "submission_id": submission_id,
+        "slug": slug,
         "questions": INTERVIEW_QUESTIONS,
         "answers": interview_data,
         "next_question": next_question,
@@ -91,23 +96,15 @@ async def get_interview(
     }
 
 
-@router.post("/{submission_id}/answer")
+@router.post("/{slug}/answer")
 async def submit_answer(
-    submission_id: int,
+    slug: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
     """Submit an answer to an interview question."""
-    stmt = select(Submission).where(
-        Submission.id == submission_id,
-        Submission.user_id == user.id,
-    )
-    result = await db.execute(stmt)
-    submission = result.scalar_one_or_none()
-
-    if not submission:
-        raise HTTPException(status_code=404, detail="Submission not found")
+    submission = await _get_submission(slug, user, db)
 
     body = await request.json()
     question_id = body.get("question_id")
@@ -145,9 +142,9 @@ async def submit_answer(
     }
 
 
-@router.post("/{submission_id}/chat")
+@router.post("/{slug}/chat")
 async def ai_interview_chat(
-    submission_id: int,
+    slug: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
@@ -160,14 +157,7 @@ async def ai_interview_chat(
     """
     from ai.author_interview import conduct_interview_turn, start_interview
 
-    stmt = select(Submission).where(
-        Submission.id == submission_id,
-        Submission.user_id == user.id,
-    )
-    result = await db.execute(stmt)
-    submission = result.scalar_one_or_none()
-    if not submission:
-        raise HTTPException(status_code=404, detail="Submission not found")
+    submission = await _get_submission(slug, user, db)
 
     body = await request.json()
     user_message = body.get("message", "").strip()
@@ -237,22 +227,14 @@ async def ai_interview_chat(
     }
 
 
-@router.post("/{submission_id}/reset")
+@router.post("/{slug}/reset")
 async def reset_interview(
-    submission_id: int,
+    slug: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
     """Reset interview answers."""
-    stmt = select(Submission).where(
-        Submission.id == submission_id,
-        Submission.user_id == user.id,
-    )
-    result = await db.execute(stmt)
-    submission = result.scalar_one_or_none()
-
-    if not submission:
-        raise HTTPException(status_code=404, detail="Submission not found")
+    submission = await _get_submission(slug, user, db)
 
     submission.interview_data = {}
     await db.commit()

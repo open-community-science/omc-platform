@@ -24,7 +24,7 @@ async def create_paper_repo_from_files(submission: Submission, files: dict) -> s
     files: dict of {filepath: content_string}
     Returns the repo URL.
     """
-    repo_name = f"micro-{submission.id:04d}"
+    repo_name = f"micro-{submission.slug}"
     full_name = f"{settings.github_org}/{repo_name}"
 
     async with httpx.AsyncClient(timeout=30.0) as client:

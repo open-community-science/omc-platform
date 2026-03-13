@@ -40,7 +40,7 @@ def render_manuscript_template(
         "abstract": sections.get("abstract", "*Abstract pending.*"),
         "sra_accession": submission.bioproject_accession,
         "pipeline": submission.pipeline.value,
-        "paper_id": f"paper-{submission.id:04d}",
+        "paper_id": f"micro-{submission.slug}",
         "introduction": sections.get("introduction", "*Introduction pending.*"),
         "methods_detail": sections.get("methods", ""),
         "results": sections.get("results", "*Results pending.*"),
@@ -114,7 +114,7 @@ def build_paper_repo_files(
         "author": [{"@type": "Person", "name": author_name}] if author_name else [],
         "dateCreated": datetime.utcnow().isoformat(),
         "license": "https://creativecommons.org/licenses/by/4.0/",
-        "url": f"https://papers.opencommunity.science/paper-{submission.id:04d}",
+        "url": f"https://github.com/{settings.github_org}/micro-{submission.slug}",
     }
     files["paper.yaml"] = yaml.dump(paper_meta)
 
