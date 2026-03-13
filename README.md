@@ -39,7 +39,7 @@ portal/              # FastAPI web application
 │   ├── interviews.py        # Author interview flow
 │   ├── metadata.py          # AI metadata assistant endpoints
 │   ├── sra_metadata.py      # NCBI Entrez: accession resolution + metadata
-│   ├── slurm.py             # asyncssh SLURM job submission
+│   ├── slurm.py             # SLURM job submission via OpenSSH ControlMaster
 │   ├── pipeline_processing.py  # Post-pipeline: AI draft → GitHub repo
 │   ├── github_integration.py   # Repo creation, file commits, review PRs
 │   └── github_app_auth.py  # GitHub App JWT auth with PAT fallback
@@ -79,7 +79,7 @@ tests/                  # pytest test suite
 ## GitHub Architecture
 
 - **Org:** [`open-community-science`](https://github.com/open-community-science)
-- **Bot auth:** GitHub App "OMC Platform" (JWT → installation tokens)
+- **GitHub App:** "OMC Platform" — handles both bot operations (JWT → installation tokens) and user OAuth login
   - Falls back to PAT if App not configured
 - **Paper repos:** `micro-NNNN` — org-owned, authors fork if desired
 - **Reviews:** Each review type (statistical, methodological, clarity) creates its own PR
@@ -108,6 +108,9 @@ All settings via environment variables or `portal/.env`:
 | `GITHUB_APP_PRIVATE_KEY` | | PEM file path or content |
 | `GITHUB_ORG` | `open-community-science` | GitHub org for paper repos |
 | `SLURM_ENABLED` | `false` | Enable HPC job submission |
+| `SLURM_HOST` | | HPC cluster hostname (e.g. `fir.alliancecan.ca`) |
+| `SLURM_USER` | | HPC username |
+| `SLURM_ACCOUNT` | | SLURM account (e.g. `def-rec3141_cpu`) |
 
 See `portal/app/config.py` for the full list.
 
@@ -130,9 +133,26 @@ python -m pytest tests/test_e2e_workflow.py -v --timeout=300
 - **Frontend**: Jinja2 templates + htmx + vanilla JS
 - **AI**: OpenAI-compatible API (LM Studio locally, Claude in production)
 - **Metadata**: NCBI Entrez (Biopython) + PubMed E-utilities
-- **HPC**: asyncssh → SLURM → Nextflow (Alliance Canada / Arbutus cloud)
+- **HPC**: OpenSSH ControlMaster → SLURM → Nextflow on Fir (Alliance Canada)
+- **Hosting**: Arbutus cloud VM (Alliance Canada OpenStack)
 - **Papers**: Quarto → GitHub Pages
-- **GitHub**: GitHub App (bot ops) + OAuth App (user login, planned)
+- **GitHub**: GitHub App (bot ops + OAuth login)
+
+## Deployment
+
+**Production:** https://microbial.opencommunity.science (Arbutus cloud VM)
+
+```bash
+./deploy.sh              # deploy to Arbutus VM
+# After DNS setup:
+ssh ubuntu@206.12.96.115 sudo certbot --nginx -d microbial.opencommunity.science
+```
+
+**SLURM:** Uses OpenSSH ControlMaster for Duo MFA bypass on Alliance clusters. Authenticate once:
+```bash
+ssh ubuntu@<arbutus-ip>
+ssh fir                  # triggers Duo MFA, opens persistent connection
+```
 
 ## License
 
