@@ -95,8 +95,11 @@ FAILED_RUNS=0
             for acc in run_accessions
         )
     else:
-        # Download all runs for the BioProject
+        # Fallback: no explicit run accessions — download all runs for the BioProject
+        # WARNING: this does not filter by platform, so mixed projects will download everything
+        logger.warning(f"No run_accessions in selected_runs for {submission.slug} — downloading all runs")
         download_cmd = f"""{download_fn}
+echo "WARNING: No explicit run accessions — downloading ALL runs for {accession}"
 echo "Resolving runs for {accession}..."
 module load gcc/12 edirect/20.9.20231210 2>/dev/null || true
 esearch -db sra -query "{accession}" | efetch -format runinfo | \\

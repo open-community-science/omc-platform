@@ -296,6 +296,7 @@ def _summarize_sra_esummary(sra_ids: list[str]) -> dict:
     combo_samples = defaultdict(set)
     combo_bases = defaultdict(int)
     combo_spots = defaultdict(int)
+    combo_accessions = defaultdict(list)  # actual SRR/ERR run accessions
 
     organisms = set()
     all_samples = set()
@@ -367,12 +368,16 @@ def _summarize_sra_esummary(sra_ids: list[str]) -> dict:
             # Run data
             run_bases = 0
             run_spots = 0
+            run_accs = []
             for run_el in frag.iter("Run"):
                 try:
                     run_spots += int(run_el.get("total_spots", "0"))
                     run_bases += int(run_el.get("total_bases", "0"))
                 except ValueError:
                     pass
+                acc = run_el.get("acc", "")
+                if acc:
+                    run_accs.append(acc)
 
             total_bases += run_bases
             total_spots += run_spots
@@ -384,6 +389,7 @@ def _summarize_sra_esummary(sra_ids: list[str]) -> dict:
                 combo_samples[key].add(sample_acc)
             combo_bases[key] += run_bases
             combo_spots[key] += run_spots
+            combo_accessions[key].extend(run_accs)
 
     # Build breakdown table (list of dicts, sorted by run count desc)
     breakdown = []
@@ -399,6 +405,7 @@ def _summarize_sra_esummary(sra_ids: list[str]) -> dict:
             "samples": len(combo_samples[key]),
             "bases": combo_bases[key],
             "spots": combo_spots[key],
+            "run_accessions": combo_accessions[key],
         })
 
     summary = {
