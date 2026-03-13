@@ -116,6 +116,17 @@ set -uo pipefail
 INPUT_DIR="{input_dir}"
 OUTPUT_DIR="{output_dir}"
 
+# Trap: if the script dies for any reason, mark download as failed
+cleanup_on_failure() {{
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo "Download wrapper died with exit code $exit_code at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "download_failed" > ${{OUTPUT_DIR}}/.status
+        echo "$exit_code" > ${{OUTPUT_DIR}}/.completed
+    fi
+}}
+trap cleanup_on_failure EXIT
+
 # Load SRA toolkit + Entrez Direct
 module load gcc/12 sra-toolkit/3.0.9 edirect/20.9.20231210 2>/dev/null || true
 
@@ -135,11 +146,15 @@ ls -lh ${{INPUT_DIR}}/fastq/
 NUM_FILES=$(ls ${{INPUT_DIR}}/fastq/*.fastq* 2>/dev/null | wc -l)
 echo "Total: $NUM_FILES fastq files ($FAILED_RUNS failed)"
 
-if [ "$FAILED_RUNS" -gt 0 ] || [ "$NUM_FILES" -eq 0 ]; then
-    echo "ERROR: $FAILED_RUNS run(s) failed to download"
+if [ "$NUM_FILES" -eq 0 ]; then
+    echo "ERROR: No files downloaded at all"
     echo "download_failed" > ${{OUTPUT_DIR}}/.status
     echo 1 > ${{OUTPUT_DIR}}/.completed
     exit 1
+fi
+
+if [ "$FAILED_RUNS" -gt 0 ]; then
+    echo "WARNING: $FAILED_RUNS run(s) failed but $NUM_FILES files downloaded — proceeding with partial data"
 fi
 
 echo "Download finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -151,6 +166,9 @@ PIPELINE_JOB_ID=$(echo "$SBATCH_OUT" | awk '{{print $NF}}')
 echo "pipeline=$PIPELINE_JOB_ID" > ${{OUTPUT_DIR}}/job_ids.txt
 echo "pipeline_queued" > ${{OUTPUT_DIR}}/.status
 echo "Pipeline job submitted: $PIPELINE_JOB_ID"
+
+# Clear trap on successful exit
+trap - EXIT
 """
 
 
