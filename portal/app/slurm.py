@@ -1,6 +1,9 @@
-"""SLURM job submission and monitoring via asyncssh."""
+"""SLURM job submission and monitoring.
+
+Uses OpenSSH CLI (not asyncssh) to leverage ControlMaster sockets,
+which is required for Alliance Canada clusters with Duo MFA.
+"""
 import asyncio
-import asyncssh
 import logging
 from typing import Optional
 from pathlib import Path
@@ -78,25 +81,30 @@ echo $? > {output_dir}/.completed
     return script
 
 
-async def _get_ssh_connection() -> asyncssh.SSHClientConnection:
-    """Create SSH connection to HPC cluster."""
-    connect_kwargs = {
-        "host": settings.slurm_host,
-        "username": settings.slurm_user,
-        "known_hosts": None,  # TODO: use known_hosts file in production
-    }
-
+def _ssh_cmd(remote_cmd: str) -> list[str]:
+    """Build an SSH command that uses ControlMaster sockets."""
+    cmd = [
+        "ssh",
+        "-o", "ControlMaster=auto",
+        "-o", "ControlPath=~/.ssh/sockets/%r@%h-%p",
+        "-o", "ConnectTimeout=10",
+        "-o", "StrictHostKeyChecking=no",
+    ]
     if settings.slurm_ssh_key:
-        connect_kwargs["client_keys"] = [settings.slurm_ssh_key]
-
-    return await asyncssh.connect(**connect_kwargs)
+        cmd += ["-i", settings.slurm_ssh_key]
+    cmd += [f"{settings.slurm_user}@{settings.slurm_host}", remote_cmd]
+    return cmd
 
 
 async def _run_remote(cmd: str) -> tuple[str, str, int]:
-    """Run a command on the remote HPC and return (stdout, stderr, exit_code)."""
-    async with await _get_ssh_connection() as conn:
-        result = await conn.run(cmd)
-        return result.stdout or "", result.stderr or "", result.exit_status or 0
+    """Run a command on the remote HPC via OpenSSH (uses ControlMaster)."""
+    proc = await asyncio.create_subprocess_exec(
+        *_ssh_cmd(cmd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    return stdout.decode(), stderr.decode(), proc.returncode or 0
 
 
 async def submit_pipeline_job(submission: Submission) -> str:
@@ -108,26 +116,25 @@ async def submit_pipeline_job(submission: Submission) -> str:
     output_dir = f"{settings.results_path}/{submission.id}"
 
     if settings.slurm_host:
-        # Remote submission via asyncssh
-        async with await _get_ssh_connection() as conn:
-            # Create output directory
-            await conn.run(f"mkdir -p {output_dir}")
+        # Remote submission via SSH (ControlMaster for Duo MFA bypass)
+        stdout, stderr, rc = await _run_remote(f"mkdir -p {output_dir}")
 
-            # Write sbatch script
-            script_path = f"{output_dir}/submit.sh"
-            await conn.run(f"cat > {script_path} << 'SBATCH_EOF'\n{script}\nSBATCH_EOF")
+        # Write sbatch script
+        script_path = f"{output_dir}/submit.sh"
+        stdout, stderr, rc = await _run_remote(
+            f"cat > {script_path} << 'SBATCH_EOF'\n{script}\nSBATCH_EOF"
+        )
 
-            # Submit
-            result = await conn.run(f"sbatch {script_path}")
+        # Submit
+        stdout, stderr, rc = await _run_remote(f"sbatch {script_path}")
 
-            if result.exit_status != 0:
-                raise RuntimeError(f"sbatch failed: {result.stderr}")
+        if rc != 0:
+            raise RuntimeError(f"sbatch failed: {stderr}")
 
-            # Parse job ID from "Submitted batch job 12345"
-            output = (result.stdout or "").strip()
-            job_id = output.split()[-1]
-            logger.info(f"Submitted job {job_id} for submission {submission.id}")
-            return job_id
+        # Parse job ID from "Submitted batch job 12345"
+        job_id = stdout.strip().split()[-1]
+        logger.info(f"Submitted job {job_id} for submission {submission.id}")
+        return job_id
     else:
         # Local submission (when portal runs on HPC login node)
         proc = await asyncio.create_subprocess_exec(
