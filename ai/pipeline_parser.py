@@ -96,7 +96,7 @@ def parse_gtdbtk(results_dir: Path) -> dict:
 
 def parse_assembly(results_dir: Path) -> dict:
     """Parse Flye assembly stats."""
-    info_path = results_dir / "assembly/flye_assemble/flye_out/assembly_info.txt"
+    info_path = results_dir / "assembly/assembly_info.txt"
     rows = _read_tsv(info_path)
     if not rows:
         return {}
@@ -158,6 +158,108 @@ def parse_mge(results_dir: Path) -> dict:
     return result
 
 
+def parse_rrna(results_dir: Path) -> dict:
+    """Parse rRNA/tRNA gene detection results."""
+    genes = _read_tsv(results_dir / "taxonomy/rrna/rrna_genes.tsv")
+    trna = _read_tsv(results_dir / "taxonomy/rrna/trna_genes.tsv")
+    if not genes and not trna:
+        return {}
+    result = {}
+    if genes:
+        types = {}
+        for r in genes:
+            t = r.get("rrna_type", "unknown")
+            types[t] = types.get(t, 0) + 1
+        result["rrna_genes"] = len(genes)
+        result["rrna_types"] = types
+    if trna:
+        result["trna_genes"] = len(trna)
+    return result
+
+
+def parse_contig_taxonomy(results_dir: Path) -> dict:
+    """Parse contig-level taxonomy from kaiju and kraken2."""
+    result = {}
+    # Kaiju
+    kaiju = _read_tsv(results_dir / "taxonomy/kaiju/kaiju_contigs.tsv")
+    if kaiju:
+        classified = [r for r in kaiju if r.get("status") == "C"]
+        lineages = {}
+        for r in classified:
+            # Extract phylum from lineage
+            lin = r.get("lineage", "")
+            parts = [p.strip() for p in lin.split(";")]
+            phylum = parts[1] if len(parts) > 1 else "Unknown"
+            lineages[phylum] = lineages.get(phylum, 0) + 1
+        result["kaiju"] = {
+            "total_contigs": len(kaiju),
+            "classified": len(classified),
+            "phyla": dict(sorted(lineages.items(), key=lambda x: -x[1])),
+        }
+    # Kraken2
+    kraken = _read_tsv(results_dir / "taxonomy/kraken2/kraken2_contigs.tsv")
+    if kraken:
+        classified = [r for r in kraken if r.get("status") == "C"]
+        result["kraken2"] = {
+            "total_contigs": len(kraken),
+            "classified": len(classified),
+        }
+    return result
+
+
+def parse_annotation(results_dir: Path) -> dict:
+    """Parse gene annotation summary."""
+    # Try bakta basic first, then extra
+    for subdir in ["bakta/basic", "bakta/extra"]:
+        path = results_dir / f"annotation/{subdir}/annotation.tsv"
+        if path.exists():
+            rows = _read_tsv(path)
+            if rows:
+                # Count feature types from the Type column
+                types = {}
+                for r in rows:
+                    t = r.get("Type", r.get("type", ""))
+                    if t:
+                        types[t] = types.get(t, 0) + 1
+                return {
+                    "method": "Bakta",
+                    "total_features": len(rows),
+                    "feature_types": types,
+                }
+    return {}
+
+
+def parse_eukaryotic(results_dir: Path) -> dict:
+    """Parse eukaryotic detection results (tiara, whokaryote)."""
+    result = {}
+    euk_dir = results_dir / "eukaryotic"
+    if not euk_dir.exists():
+        return {}
+
+    # Tiara classification
+    tiara = _read_tsv(euk_dir / "tiara/tiara_output.tsv")
+    if tiara:
+        classes = {}
+        for r in tiara:
+            c = r.get("class_fst_stage", "unknown")
+            classes[c] = classes.get(c, 0) + 1
+        result["tiara"] = {
+            "total_contigs": len(tiara),
+            "classifications": classes,
+        }
+
+    # MarFERReT
+    marferret = _read_tsv(euk_dir / "marferret/marferret_contigs.tsv")
+    if marferret:
+        classified = [r for r in marferret if r.get("n_classified", "0") != "0"]
+        result["marferret"] = {
+            "total_contigs": len(marferret),
+            "with_eukaryotic_hits": len(classified),
+        }
+
+    return result
+
+
 def parse_pipeline_timing(results_dir: Path) -> dict:
     """Parse pipeline timing information."""
     path = results_dir / "pipeline_info/pipeline_timing.tsv"
@@ -201,9 +303,21 @@ def parse_nanopore_mag(results_dir: Path) -> dict:
     if gtdbtk:
         outputs["taxonomy_summary"] = gtdbtk
 
+    contig_tax = parse_contig_taxonomy(results_dir)
+    if contig_tax:
+        outputs["contig_taxonomy"] = contig_tax
+
+    rrna = parse_rrna(results_dir)
+    if rrna:
+        outputs["rrna_trna"] = rrna
+
     assembly = parse_assembly(results_dir)
     if assembly:
         outputs["assembly_stats"] = assembly
+
+    annotation = parse_annotation(results_dir)
+    if annotation:
+        outputs["annotation"] = annotation
 
     metabolism = parse_metabolism(results_dir)
     if metabolism:
@@ -212,6 +326,10 @@ def parse_nanopore_mag(results_dir: Path) -> dict:
     mge = parse_mge(results_dir)
     if mge:
         outputs["mobile_genetic_elements"] = mge
+
+    eukaryotic = parse_eukaryotic(results_dir)
+    if eukaryotic:
+        outputs["eukaryotic"] = eukaryotic
 
     timing = parse_pipeline_timing(results_dir)
     if timing:

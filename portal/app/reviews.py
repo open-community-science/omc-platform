@@ -78,7 +78,7 @@ async def run_reviews(
     # Parse pipeline outputs for statistical review
     pipeline_outputs = {}
     try:
-        results_path = Path(settings.results_path) / submission.bioproject_accession
+        results_path = Path(settings.results_path) / submission.slug
         pipeline_outputs = parse_pipeline_outputs(
             submission.pipeline.value, results_path
         )
@@ -164,7 +164,7 @@ async def generate_manuscript(
     # Parse pipeline outputs
     pipeline_outputs = {}
     try:
-        results_path = Path(settings.results_path) / submission.bioproject_accession
+        results_path = Path(settings.results_path) / submission.slug
         pipeline_outputs = parse_pipeline_outputs(
             submission.pipeline.value, results_path
         )

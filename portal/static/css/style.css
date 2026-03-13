@@ -780,6 +780,7 @@ body {
 .wf-step-badge.ready   { background: #dbeafe; color: #1e40af; }
 .wf-step-badge.running { background: #fef3c7; color: #92400e; }
 .wf-step-badge.locked  { background: #f1f5f9; color: #64748b; }
+.wf-step-badge.failed  { background: #fee2e2; color: #991b1b; }
 
 /* Step description */
 .wf-step-desc {
@@ -1118,6 +1119,15 @@ body {
     color: var(--color-primary-dark);
 }
 
+.dt-label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-muted);
+    margin-right: 0.125rem;
+}
+
 .dt-card-stats {
     font-size: 0.75rem;
     color: var(--color-text-muted);
@@ -1180,4 +1190,14 @@ body {
 
 .pipe-link:hover {
     text-decoration: underline;
+}
+
+.pipe-warning {
+    margin-top: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #991b1b;
+    background: #fee2e2;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
 }

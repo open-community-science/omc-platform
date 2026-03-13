@@ -152,6 +152,9 @@ async def submit_to_hpc(
     if not submission.bioproject_accession:
         raise HTTPException(status_code=400, detail="No accession linked yet")
 
+    if not submission.selected_runs:
+        raise HTTPException(status_code=400, detail="No data types selected")
+
     # Submit to SLURM
     if settings.slurm_enabled:
         try:
@@ -177,16 +180,93 @@ async def get_status(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
-    """Get current submission status (for polling)."""
-    submission = await _get_submission(slug, user, db)
+    """Get current submission status (for htmx polling).
 
-    return {
-        "slug": submission.slug,
-        "status": submission.status.value,
-        "slurm_job_id": submission.slurm_job_id,
-        "github_repo": submission.github_repo,
-        "error_message": submission.error_message,
-    }
+    Checks HPC marker files for real-time status, updates DB, returns HTML.
+    """
+    from fastapi.responses import HTMLResponse
+    from .slurm import get_submission_status
+
+    submission = await _get_submission(slug, user, db)
+    s = submission.status.value
+
+    # For active jobs, check HPC for real status
+    if s in ("queued", "submitted", "running") and settings.slurm_enabled:
+        try:
+            hpc_status = await get_submission_status(submission.slug)
+            phase = hpc_status.get("phase", "unknown")
+            job_id = hpc_status.get("job_id")
+
+            # Update DB job ID if we got a real one from the download wrapper
+            if job_id and submission.slurm_job_id != job_id:
+                submission.slurm_job_id = job_id
+                await db.commit()
+
+            # Update DB status based on HPC phase
+            if phase == "running" and s != "running":
+                submission.status = SubmissionStatus.RUNNING
+                await db.commit()
+                s = "running"
+            elif phase == "completed":
+                submission.status = SubmissionStatus.PROCESSING
+                await db.commit()
+                s = "processing"
+            elif phase == "failed":
+                submission.status = SubmissionStatus.FAILED
+                submission.error_message = hpc_status.get("reason", f"Exit code {hpc_status.get('exit_code', '?')}")
+                await db.commit()
+                s = "failed"
+
+            if phase == "downloading":
+                html = '<p class="status-polling">Downloading SRA data on login node... checking automatically.</p>'
+            elif phase == "queued":
+                html = f'<p class="status-polling">Download complete. Pipeline job <strong>queued</strong>'
+                if job_id:
+                    html += f" (SLURM {job_id})"
+                html += "... checking automatically.</p>"
+            elif phase == "running":
+                html = f'<p class="status-polling">Pipeline is <strong>running</strong>'
+                if job_id:
+                    html += f" (SLURM {job_id})"
+                html += "... checking automatically.</p>"
+            elif phase == "completed":
+                html = '<p class="status-polling">Pipeline complete. Ready for manuscript generation.</p>'
+                html += '<script>setTimeout(() => location.reload(), 1000);</script>'
+            elif phase == "failed":
+                reason = hpc_status.get("reason", f"Exit code {hpc_status.get('exit_code', '?')}")
+                html = f'<p class="status-polling" style="color:var(--color-error)"><strong>Failed:</strong> {reason}</p>'
+                html += '<script>setTimeout(() => location.reload(), 1000);</script>'
+            else:
+                html = '<p class="status-polling">Initializing... checking automatically.</p>'
+
+            return HTMLResponse(html)
+        except Exception as e:
+            logger.warning(f"HPC status check failed for {slug}: {e}")
+
+    # Fallback for non-HPC or check failure
+    job_id = submission.slurm_job_id
+    if s in ("queued", "submitted"):
+        html = f'<p class="status-polling">Job is <strong>queued</strong>'
+        if job_id:
+            html += f" (SLURM {job_id})"
+        html += "... checking automatically.</p>"
+    elif s == "running":
+        html = f'<p class="status-polling">Job is <strong>running</strong>'
+        if job_id:
+            html += f" (SLURM {job_id})"
+        html += "... checking automatically.</p>"
+    elif s == "failed":
+        msg = submission.error_message or "Unknown error"
+        html = f'<p class="status-polling" style="color:var(--color-error)"><strong>Failed:</strong> {msg}</p>'
+    elif s == "processing":
+        html = '<p class="status-polling">Pipeline complete. Ready for manuscript generation.</p>'
+    else:
+        html = f'<p class="status-polling">Status: <strong>{s}</strong></p>'
+
+    if s not in ("queued", "submitted", "running"):
+        html += '<script>setTimeout(() => location.reload(), 1000);</script>'
+
+    return HTMLResponse(html)
 
 
 @router.post("/{slug}/update")
@@ -240,11 +320,11 @@ async def update_submission(
             )
             submission.title = new_title
 
-            # Re-select all breakdown rows by default
-            breakdown = project_metadata.get("breakdown", [])
-            submission.selected_runs = breakdown if breakdown else None
+            # Start with nothing selected — user picks data types
+            submission.selected_runs = None
 
-            # Auto-pick pipeline for new accession
+            # Auto-pick pipeline from full breakdown (user can change later)
+            breakdown = project_metadata.get("breakdown", [])
             submission.pipeline = _auto_pipeline(breakdown)
 
         if "selected_runs" in body:

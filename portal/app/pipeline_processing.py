@@ -168,7 +168,7 @@ async def process_completed_submission(submission: Submission, db_session) -> st
         pipeline_outputs = {}
         try:
             from ai.pipeline_parser import parse_pipeline_outputs
-            results_path = Path(settings.results_path) / f"{submission.bioproject_accession}"
+            results_path = Path(settings.results_path) / submission.slug
             pipeline_outputs = parse_pipeline_outputs(
                 submission.pipeline.value, results_path
             )

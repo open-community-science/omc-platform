@@ -44,15 +44,21 @@ class Settings(BaseSettings):
     slurm_partition: str = "def-alloc"
     slurm_account: str = ""
 
-    # Pipeline paths on HPC
-    pipeline_nanopore_mag: str = "/project/def-alloc/pipelines/nanopore_mag"
-    pipeline_microscape: str = "/project/def-alloc/pipelines/microscape"
-    pipeline_illumina_mag: str = "/project/def-alloc/pipelines/illumina_mag"
-    pipeline_rnaseq: str = "/project/def-alloc/pipelines/rnaseq"
-    pipeline_isolate_genome: str = "/project/def-alloc/pipelines/isolate_genome"
+    # Download host (specific login node for faster downloads, optional)
+    slurm_download_host: str = ""
 
-    # Shared filesystem mount (for results)
-    results_path: str = "/project/def-alloc/omc/results"
+    # Pipeline paths on HPC
+    pipeline_base: str = "/home/rec3141/GENICE/danaSeq"
+    pipeline_nanopore_mag: str = "/home/rec3141/GENICE/danaSeq/nanopore_mag/nextflow"
+    pipeline_microscape: str = "/home/rec3141/GENICE/danaSeq/microscape"
+    pipeline_illumina_mag: str = ""
+    pipeline_rnaseq: str = ""
+    pipeline_isolate_genome: str = ""
+
+    # HPC paths
+    hpc_scratch: str = "/home/rec3141/scratch"
+    hpc_db_dir: str = "/home/rec3141/scratch/databases"
+    results_path: str = "/home/rec3141/scratch/omc_results"
 
     class Config:
         env_file = ".env"

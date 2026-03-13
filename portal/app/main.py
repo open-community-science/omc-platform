@@ -16,9 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from contextlib import asynccontextmanager
 from pathlib import Path
+import asyncio
+import logging
 
 from .config import get_settings
-from .database import init_db, get_db, Submission, User
+from .database import init_db, get_db, async_session, Submission, User
 from .auth import router as auth_router, get_current_user
 from .submissions import router as submissions_router
 from .interviews import router as interviews_router
@@ -26,17 +28,39 @@ from .reviews import router as reviews_router
 from .metadata import router as metadata_router
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 # Setup paths
 BASE_DIR = Path(__file__).parent.parent
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 
+async def _poll_hpc_jobs():
+    """Background task: poll HPC for job status updates every 60s."""
+    from .slurm import poll_all_running_jobs
+
+    while True:
+        await asyncio.sleep(60)
+        try:
+            async with async_session() as db:
+                completed = await poll_all_running_jobs(db)
+                if completed:
+                    logger.info(f"Background poll: {len(completed)} job(s) finished: {completed}")
+        except Exception as e:
+            logger.warning(f"Background poll error: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize database on startup."""
+    """Initialize database on startup, run background poller."""
     await init_db()
+    poll_task = None
+    if settings.slurm_enabled:
+        poll_task = asyncio.create_task(_poll_hpc_jobs())
+        logger.info("Started HPC job poller (60s interval)")
     yield
+    if poll_task:
+        poll_task.cancel()
 
 
 app = FastAPI(

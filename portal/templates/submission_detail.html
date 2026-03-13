@@ -75,7 +75,7 @@
                                placeholder="e.g., PRJNA123456, SRR12345678, or SAMN12345678"
                                class="inline-edit-input" style="flex:1; width:auto;"
                                onkeydown="if(event.key==='Enter')saveAccession();">
-                        <button class="btn btn-primary" onclick="saveAccession()" id="accession-save-btn">Lookup & Save</button>
+                        <button class="btn btn-primary" onclick="saveAccession()" id="accession-save-btn">Search</button>
                     </div>
                     <small>Enter a BioProject, SRA run, BioSample, or experiment accession</small>
                     <span id="accession-status" class="inline-status"></span>
@@ -172,14 +172,17 @@
         </div>
 
         {# ── Step 2: Pipeline Analysis ── #}
+        {% set step2_failed = s == 'failed' %}
         {% set step2_current = s in ['submitted', 'queued', 'running'] or (s == 'draft' and has_accession) %}
         {% set step2_done = s in ['processing', 'drafting', 'review', 'published'] %}
-        {% set step2_state = 'completed' if step2_done else ('current' if step2_current else 'locked') %}
+        {% set step2_state = 'failed' if step2_failed else ('completed' if step2_done else ('current' if step2_current else 'locked')) %}
         <div class="wf-step {{ step2_state }}">
             <div class="wf-step-header">
                 <span class="wf-step-number">2</span>
                 <h2 class="wf-step-title">Pipeline Analysis</h2>
-                {% if step2_done %}
+                {% if step2_failed %}
+                <span class="wf-step-badge failed">Failed</span>
+                {% elif step2_done %}
                 <span class="wf-step-badge done">Done</span>
                 {% elif s == 'draft' and has_accession %}
                 <span class="wf-step-badge ready">Ready</span>
@@ -211,7 +214,7 @@
 
             <div class="wf-step-actions">
                 <form action="/submissions/{{ submission.slug }}/submit" method="POST" style="display:inline;">
-                    <button type="submit" class="btn btn-primary">Submit to HPC</button>
+                    <button type="submit" class="btn btn-primary" id="hpc-submit-btn">Submit to HPC</button>
                 </form>
             </div>
 
@@ -227,6 +230,11 @@
                     Job is <strong>{{ s }}</strong>{% if submission.slurm_job_id %} (SLURM {{ submission.slurm_job_id }}){% endif %}... checking automatically.
                 </p>
             </div>
+
+            {% elif step2_failed %}
+            <p class="wf-step-desc" style="color: var(--color-error, #c00);">
+                <strong>Failed:</strong> {{ submission.error_message or 'Unknown error' }}
+            </p>
 
             {% else %}
             <p class="wf-step-desc">
@@ -360,14 +368,6 @@
         {% if submission.github_repo %}
         <a href="{{ submission.github_repo }}" target="_blank" class="btn btn-secondary">View on GitHub</a>
         {% endif %}
-        <a href="/submissions/{{ submission.slug }}/interview#metadata" class="btn btn-secondary">Metadata Assistant</a>
-        {% if s == 'draft' %}
-        <form action="/submissions/{{ submission.slug }}/delete" method="POST" style="display:inline;"
-              onsubmit="return confirm('Delete this submission? This cannot be undone.')">
-            <button type="submit" class="btn btn-delete">Delete Submission</button>
-        </form>
-        {% endif %}
-        <a href="/dashboard" class="btn btn-secondary">Back to Dashboard</a>
     </div>
 </div>
 {% endblock %}
@@ -383,14 +383,16 @@ const PIPELINES = {
         title: 'Long-read MAG Assembly',
         desc: 'Assembles metagenome-assembled genomes (MAGs) from Oxford Nanopore or PacBio long reads. Produces binned genomes with taxonomic classification and quality metrics.',
         status: 'Implemented',
-        github: 'https://github.com/rec3141/danaSeq',
+        github: 'https://github.com/rec3141/danaSeq/tree/main/nanopore_mag',
+        needs: { platforms: ['OXFORD_NANOPORE', 'PACBIO_SMRT'], sources: ['METAGENOMIC', 'METATRANSCRIPTOMIC'], strategies: ['WGS', 'WGA', 'OTHER'] },
     },
     illumina_mag: {
         name: 'illumina_mag',
         title: 'Short-read MAG Assembly',
         desc: 'Assembles MAGs from Illumina short reads using metaSPAdes or MEGAHIT. Co-assembly and differential coverage binning across samples.',
         status: 'In development',
-        github: 'https://github.com/rec3141/danaSeq',
+        github: 'https://github.com/rec3141/danaSeq/tree/main/illumina_mag',
+        needs: { platforms: ['ILLUMINA', 'BGISEQ'], sources: ['METAGENOMIC', 'METATRANSCRIPTOMIC'], strategies: ['WGS', 'WGA', 'OTHER'] },
     },
     microscape: {
         name: 'microscape',
@@ -398,6 +400,7 @@ const PIPELINES = {
         desc: 'Processes 16S/18S/ITS amplicon data. DADA2 denoising, taxonomy assignment, diversity analysis, and community composition.',
         status: 'Planned',
         github: 'https://github.com/rec3141/microscape',
+        needs: { platforms: null, sources: null, strategies: ['AMPLICON'] },
     },
     rnaseq: {
         name: 'rnaseq',
@@ -405,6 +408,7 @@ const PIPELINES = {
         desc: 'Quantifies gene expression from RNA-Seq data. Alignment, counting, normalization, and differential expression analysis.',
         status: 'In development',
         github: 'https://github.com/rec3141/rnaseq',
+        needs: { platforms: null, sources: null, strategies: ['RNA-SEQ', 'RNA_SEQ'] },
     },
     isolate_genome: {
         name: 'isolate_genome',
@@ -412,8 +416,43 @@ const PIPELINES = {
         desc: 'Assembles and annotates individual microbial isolate genomes. Quality assessment, gene prediction, and functional annotation.',
         status: 'In development',
         github: 'https://github.com/rec3141/isolate_genome',
+        needs: { platforms: null, sources: ['GENOMIC'], strategies: ['WGS', 'WGA'] },
     },
 };
+
+function checkPipelineCompat(pipelineKey) {
+    const info = PIPELINES[pipelineKey];
+    if (!info || !info.needs) return { ok: true };
+
+    // Get selected data (if available), otherwise all breakdown data
+    let rows;
+    if (typeof selected !== 'undefined' && typeof breakdownData !== 'undefined') {
+        rows = selected.size > 0 ? [...selected].map(i => breakdownData[i]) : breakdownData;
+    } else if (typeof breakdownData !== 'undefined') {
+        rows = breakdownData;
+    } else {
+        return { ok: true }; // no data to check against
+    }
+    if (!rows.length) return { ok: true };
+
+    const needs = info.needs;
+    const platforms = rows.map(r => (r.platform || '').toUpperCase());
+    const sources = rows.map(r => (r.source || '').toUpperCase());
+    const strategies = rows.map(r => (r.strategy || '').toUpperCase());
+
+    const reasons = [];
+    if (needs.platforms && !platforms.some(p => needs.platforms.some(n => p.includes(n)))) {
+        reasons.push(`Requires ${needs.platforms.join(' or ')} platform`);
+    }
+    if (needs.sources && !sources.some(s => needs.sources.some(n => s.includes(n)))) {
+        reasons.push(`Requires ${needs.sources.join(' or ')} source`);
+    }
+    if (needs.strategies && !strategies.some(s => needs.strategies.some(n => s.includes(n)))) {
+        reasons.push(`Requires ${needs.strategies.join(' or ')} strategy`);
+    }
+
+    return reasons.length ? { ok: false, reasons } : { ok: true };
+}
 
 function updatePipelineInfo() {
     const box = document.getElementById('pipeline-info');
@@ -423,12 +462,28 @@ function updatePipelineInfo() {
     const info = PIPELINES[sel.value];
     if (!info) { box.innerHTML = ''; return; }
 
+    const compat = checkPipelineCompat(sel.value);
     const statusCls = info.status === 'Implemented' ? 'pipe-ready' : 'pipe-dev';
-    box.innerHTML = `
+    let html = `
         <div class="pipe-title">${info.title} <span class="pipe-status ${statusCls}">${info.status}</span></div>
         <p class="pipe-desc">${info.desc}</p>
         <a href="${info.github}" target="_blank" class="pipe-link">View on GitHub</a>
     `;
+    if (!compat.ok) {
+        html += `<p class="pipe-warning">${compat.reasons.join('. ')}. This pipeline is not compatible with your selected data.</p>`;
+    }
+    box.innerHTML = html;
+
+    // Enable/disable submit button
+    const submitBtn = document.getElementById('hpc-submit-btn');
+    if (submitBtn) {
+        const noData = (typeof selected !== 'undefined') && selected.size === 0;
+        const blocked = !compat.ok || noData;
+        submitBtn.disabled = blocked;
+        if (noData) submitBtn.title = 'Select at least one data type';
+        else if (!compat.ok) submitBtn.title = compat.reasons.join('. ');
+        else submitBtn.title = '';
+    }
 }
 
 function showStatus(msg) {
@@ -553,9 +608,6 @@ let selected = new Set();
             }
         }
     }
-    if (selected.size === 0 && breakdownData.length > 0) {
-        breakdownData.forEach((_, i) => selected.add(i));
-    }
     renderBreakdown();
 })();
 
@@ -577,12 +629,12 @@ function renderBreakdown() {
         const cls = isSel ? 'dt-card selected' : (canSel ? 'dt-card' : 'dt-card disabled');
 
         html += `<div class="${cls}" onclick="${canSel ? `toggleColumn(${i})` : ''}" ${!canSel ? 'title="Incompatible strategy/source/layout"' : ''}>`;
-        html += `<div class="dt-card-platform">${r.platform}</div>`;
-        html += `<div class="dt-card-instrument">${r.instrument}</div>`;
+        html += `<div class="dt-card-platform"><span class="dt-label">Platform:</span> ${r.platform}</div>`;
+        html += `<div class="dt-card-instrument"><span class="dt-label">Instrument:</span> ${r.instrument}</div>`;
         html += `<div class="dt-card-tags">`;
-        html += `<span class="dt-tag">${r.strategy}</span>`;
-        html += `<span class="dt-tag">${r.source}</span>`;
-        html += `<span class="dt-tag">${r.layout}</span>`;
+        html += `<span class="dt-tag"><span class="dt-label">Strategy:</span> ${r.strategy}</span>`;
+        html += `<span class="dt-tag"><span class="dt-label">Source:</span> ${r.source}</span>`;
+        html += `<span class="dt-tag"><span class="dt-label">Layout:</span> ${r.layout}</span>`;
         html += `</div>`;
         html += `<div class="dt-card-stats">${r.runs} runs &middot; ${r.samples} samples`;
         if (r.bases > 0) html += ` &middot; ${fmtBases(r.bases)}`;
@@ -601,6 +653,7 @@ function renderBreakdown() {
         html += '<p class="selection-summary" style="color: var(--color-warning)">No data selected</p>';
     }
     container.innerHTML = html;
+    updatePipelineInfo();
 }
 
 function canSelect(idx) {
