@@ -21,13 +21,21 @@ def _read_tsv(path: Path, **kwargs) -> list[dict]:
     try:
         with open(path) as f:
             lines = list(f)
-        # Keep first line starting with # if it looks like a header (has tab-separated column names)
-        # Strip # prefix from header line
-        if lines and lines[0].startswith("#"):
-            lines[0] = lines[0].lstrip("#")
-        # Skip remaining comment lines
-        lines = [lines[0]] + [l for l in lines[1:] if not l.startswith("#")]
-        return list(csv.DictReader(lines, delimiter="\t", **kwargs))
+        if not lines:
+            return []
+        # Find header among comment lines: last # line with alpha chars (skip separator lines like "# --- ---")
+        header_idx = 0
+        for i, line in enumerate(lines):
+            if not line.startswith("#"):
+                break
+            stripped = line.lstrip("#").strip()
+            if any(c.isalpha() for c in stripped):
+                header_idx = i
+        # Strip only the # prefix from header line (preserve leading whitespace for alignment)
+        header = lines[header_idx].lstrip("#")
+        # Data lines are everything after the header block that doesn't start with #
+        data = [l for l in lines[header_idx + 1:] if not l.startswith("#")]
+        return list(csv.DictReader([header] + data, delimiter="\t", **kwargs))
     except Exception as e:
         log.warning(f"Failed to parse {path}: {e}")
         return []
@@ -114,21 +122,60 @@ def parse_assembly(results_dir: Path) -> dict:
 
 
 def parse_metabolism(results_dir: Path) -> dict:
-    """Parse MinPath metabolic pathway predictions."""
+    """Parse metabolic analysis results from multiple sources."""
+    result = {}
+
+    # MinPath pathway predictions
     rows = _read_tsv(results_dir / "metabolism/minpath/minpath_pathways.tsv")
-    if not rows:
-        return {}
-    # Community-level pathways
-    community = [r for r in rows if r.get("mag_id") == "_community"]
-    active = [r for r in community if r.get("minpath") == "1"]
-    return {
-        "total_pathways_tested": len(community),
-        "active_pathways": len(active),
-        "top_pathways": [{"id": r["pathway_id"], "name": r["pathway_name"],
-                          "families_found": int(r["found_families"]),
-                          "families_total": int(r["total_families"])}
-                         for r in active[:10]],
-    }
+    if rows:
+        community = [r for r in rows if r.get("mag_id") == "_community"]
+        active = [r for r in community if r.get("minpath") == "1"]
+        result["minpath"] = {
+            "total_pathways_tested": len(community),
+            "active_pathways": len(active),
+            "top_pathways": [{"id": r["pathway_id"], "name": r["pathway_name"],
+                              "families_found": int(r["found_families"]),
+                              "families_total": int(r["total_families"])}
+                             for r in active[:10]],
+        }
+
+    # KEGG module completeness
+    rows = _read_tsv(results_dir / "metabolism/modules/module_completeness.tsv")
+    if rows:
+        community_row = next((r for r in rows if r.get("mag_id") == "_community"), None)
+        if community_row:
+            # Columns are module IDs like "M00001:Glycolysis..."
+            active_modules = []
+            for col, val in community_row.items():
+                if col == "mag_id":
+                    continue
+                try:
+                    completeness = float(val)
+                except (ValueError, TypeError):
+                    continue
+                if completeness > 0:
+                    active_modules.append({"module": col, "completeness": completeness})
+            active_modules.sort(key=lambda x: -x["completeness"])
+            result["module_completeness"] = {
+                "total_modules": len([c for c in community_row if c != "mag_id"]),
+                "active_modules": len(active_modules),
+                "top_modules": active_modules[:15],
+            }
+
+    # KOfam scan results
+    rows = _read_tsv(results_dir / "metabolism/kofamscan/kofamscan_results.tsv")
+    if rows:
+        kos = {}
+        for r in rows:
+            ko = r.get("KO", "")
+            if ko:
+                kos[ko] = kos.get(ko, 0) + 1
+        result["kofamscan"] = {
+            "total_annotations": len(rows),
+            "unique_kos": len(kos),
+        }
+
+    return result
 
 
 def parse_mge(results_dir: Path) -> dict:
