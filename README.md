@@ -2,7 +2,7 @@
 
 Open Microbial Community — git-native, AI-assisted scientific publishing for microbial ecology.
 
-**How it works:** Point at an SRA accession → select analyses → pipelines run on HPC → AI drafts manuscript → peer review via GitHub PRs. Per-paper cost: $5-48 vs. $2,000-$11,000 traditional APCs.
+**How it works:** Point at an SRA accession → select analyses → pipelines run on HPC → AI drafts manuscript → peer review via GitHub PRs.
 
 ## Quick Start (Development)
 
