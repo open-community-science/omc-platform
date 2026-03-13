@@ -4,6 +4,7 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import Column, Integer, String, DateTime, Text, Enum, ForeignKey, JSON, text
 from datetime import datetime
 import enum
+import logging
 import uuid
 
 from .config import get_settings
