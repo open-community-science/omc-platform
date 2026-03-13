@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     github_token: str = ""
     github_org: str = "open-community-science"
 
+    # GitHub App (preferred over PAT for bot operations)
+    github_app_id: str = ""
+    github_app_private_key: str = ""  # PEM content or file path
+
     # LLM settings (OpenAI-compatible — works with LM Studio, OpenAI, etc.)
     llm_base_url: str = "http://10.151.49.182:1234/v1"
     llm_api_key: str = "lm-studio"

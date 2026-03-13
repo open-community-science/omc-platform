@@ -1,4 +1,7 @@
-"""GitHub integration for paper repo creation and management."""
+"""GitHub integration for paper repo creation and management.
+
+Uses GitHub App authentication (preferred) or PAT fallback.
+"""
 import httpx
 import base64
 import logging
@@ -6,6 +9,7 @@ from typing import Optional
 
 from .config import get_settings
 from .database import Submission
+from .github_app_auth import get_github_headers
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -20,17 +24,11 @@ async def create_paper_repo_from_files(submission: Submission, files: dict) -> s
     files: dict of {filepath: content_string}
     Returns the repo URL.
     """
-    if not settings.github_token:
-        raise RuntimeError("GitHub token not configured")
-
     repo_name = f"micro-{submission.id:04d}"
     full_name = f"{settings.github_org}/{repo_name}"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        headers = {
-            "Authorization": f"token {settings.github_token}",
-            "Accept": "application/vnd.github.v3+json",
-        }
+        headers = await get_github_headers()
 
         # Create repository
         resp = await client.post(
@@ -120,14 +118,8 @@ async def create_review_pr(
     review_comments: list of {"file": "path", "line": N, "body": "comment"}
     Returns the PR URL.
     """
-    if not settings.github_token:
-        raise RuntimeError("GitHub token not configured")
-
     async with httpx.AsyncClient(timeout=30.0) as client:
-        headers = {
-            "Authorization": f"token {settings.github_token}",
-            "Accept": "application/vnd.github.v3+json",
-        }
+        headers = await get_github_headers()
 
         # Get default branch SHA
         repo_resp = await client.get(
