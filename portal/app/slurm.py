@@ -236,12 +236,14 @@ download_run() {{
         return 1
     fi
 
-    fasterq-dump "${{LOCAL_DIR}}/${{acc}}/${{acc}}.sra" -O ${{LOCAL_DIR}}/fastq -e 2 && \\
+    fasterq-dump "${{LOCAL_DIR}}/${{acc}}/${{acc}}.sra" -O ${{LOCAL_DIR}}/fastq -t ${{LOCAL_DIR}}/tmp -e 2 && \\
     pigz -p 2 ${{LOCAL_DIR}}/fastq/${{acc}}*.fastq
     if [ $? -ne 0 ]; then
         echo "  FAILED: fasterq-dump/pigz for $acc" | tee -a ${{LOCAL_DIR}}/failed_runs.txt
         return 1
     fi
+    # Clean up .sra file to save disk (fastq.gz is what we need)
+    rm -rf "${{LOCAL_DIR}}/${{acc}}"
     return 0
 }}
 export -f download_run
@@ -290,7 +292,7 @@ cleanup_on_failure() {{
 }}
 trap cleanup_on_failure EXIT
 
-mkdir -p "${{LOCAL_DIR}}/fastq"
+mkdir -p "${{LOCAL_DIR}}/fastq" "${{LOCAL_DIR}}/tmp"
 
 echo "=== OMC Local Download: {accession} ==="
 echo "Slug: {submission.slug}"
