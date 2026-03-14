@@ -1,17 +1,26 @@
 #!/bin/bash
 # OMC Cleanup Cron — removes staging files for soft-deleted submissions
-# Run hourly: */60 * * * * /opt/omc-platform/scripts/omc-cleanup.sh
+# Run hourly: 0 * * * * /opt/omc-platform/scripts/omc-cleanup.sh
 #
 # Cleans up:
-#   1. Staging dirs for deleted submissions (deleted_at > 1 hour ago)
+#   1. Staging dirs for deleted submissions (deleted_at > 24h ago)
 #   2. Kills orphaned download processes for deleted submissions
 #   3. Removes staging dirs with no matching DB submission (orphans)
+#
+# If the staging volume is >90% full, grace period drops to 0 (immediate cleanup).
 
 set -euo pipefail
 
 DB_PATH="${OMC_DB_PATH:-/opt/omc-platform/portal/omc.db}"
 STAGING_DIR="${OMC_STAGING_DIR:-/data/sra_downloads}"
-GRACE_PERIOD=3600  # seconds — don't clean up until 1 hour after delete
+GRACE_PERIOD=86400  # 24 hours — don't clean up until 24h after delete
+
+# If disk is >90% full, skip the grace period
+DISK_USE=$(df "$STAGING_DIR" --output=pcent 2>/dev/null | tail -1 | tr -d '% ')
+if [ -n "$DISK_USE" ] && [ "$DISK_USE" -ge 90 ]; then
+    echo "WARNING: Staging volume ${DISK_USE}% full — skipping grace period"
+    GRACE_PERIOD=0
+fi
 
 if [ ! -f "$DB_PATH" ]; then
     echo "DB not found: $DB_PATH"
