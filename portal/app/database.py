@@ -86,6 +86,9 @@ class Submission(Base):
     # Error tracking
     error_message = Column(Text)
 
+    # Soft delete
+    deleted_at = Column(DateTime)
+
 
 class Review(Base):
     """Review assignment model."""

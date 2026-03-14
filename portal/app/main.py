@@ -107,7 +107,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         )
 
     # Get user's submissions
-    stmt = select(Submission).where(Submission.user_id == user.id).order_by(Submission.created_at.desc())
+    stmt = select(Submission).where(Submission.user_id == user.id, Submission.deleted_at.is_(None)).order_by(Submission.created_at.desc())
     result = await db.execute(stmt)
     submissions = result.scalars().all()
 
@@ -134,6 +134,7 @@ async def submission_detail(
     stmt = select(Submission).where(
         Submission.slug == slug,
         Submission.user_id == user.id,
+        Submission.deleted_at.is_(None),
     )
     result = await db.execute(stmt)
     submission = result.scalar_one_or_none()
@@ -168,6 +169,7 @@ async def interview_page(
     stmt = select(Submission).where(
         Submission.slug == slug,
         Submission.user_id == user.id,
+        Submission.deleted_at.is_(None),
     )
     result = await db.execute(stmt)
     submission = result.scalar_one_or_none()

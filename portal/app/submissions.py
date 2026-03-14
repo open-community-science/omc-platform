@@ -21,6 +21,7 @@ async def _get_submission(slug: str, user: User, db: AsyncSession) -> Submission
     stmt = select(Submission).where(
         Submission.slug == slug,
         Submission.user_id == user.id,
+        Submission.deleted_at.is_(None),
     )
     result = await db.execute(stmt)
     submission = result.scalar_one_or_none()
@@ -140,11 +141,11 @@ async def _launch_download(slug: str):
     """Background task: launch the local download and update DB with job ID."""
     from .database import async_session
     async with async_session() as db:
-        stmt = select(Submission).where(Submission.slug == slug)
+        stmt = select(Submission).where(Submission.slug == slug, Submission.deleted_at.is_(None))
         result = await db.execute(stmt)
         submission = result.scalar_one_or_none()
         if not submission:
-            return
+            return  # deleted before download started
         try:
             job_id = await submit_local_download_job(submission)
             submission.slurm_job_id = job_id
@@ -367,10 +368,10 @@ async def delete_submission(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
-    """Delete a submission."""
+    """Soft-delete a submission. Cleanup cron removes files later."""
     submission = await _get_submission(slug, user, db)
 
-    await db.delete(submission)
+    submission.deleted_at = datetime.utcnow()
     await db.commit()
 
     return RedirectResponse(url="/dashboard", status_code=302)
@@ -382,7 +383,7 @@ async def list_submissions(
     user: User = Depends(require_user),
 ):
     """List all submissions for current user."""
-    stmt = select(Submission).where(Submission.user_id == user.id).order_by(Submission.created_at.desc())
+    stmt = select(Submission).where(Submission.user_id == user.id, Submission.deleted_at.is_(None)).order_by(Submission.created_at.desc())
     result = await db.execute(stmt)
     submissions = result.scalars().all()
 
