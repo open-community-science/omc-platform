@@ -103,8 +103,8 @@ async def download_file(slug: str, file_path: str, authorization: str = Header(d
     _check_staging_key(authorization)
 
     slug_dir = Path(settings.local_download_path) / slug
-    if not slug_dir.exists() or not (slug_dir / ".ready").exists():
-        raise HTTPException(404, "Slug not found or not ready")
+    if not slug_dir.exists():
+        raise HTTPException(404, "Slug not found")
 
     target = (slug_dir / file_path).resolve()
     # Prevent path traversal
@@ -130,6 +130,97 @@ async def mark_picked_up(slug: str, authorization: str = Header(default="")):
     logger.info(f"Staging cleaned up for {slug}")
 
     return {"ok": True, "slug": slug}
+
+
+# ── Per-run streaming pickup ────────────────────────────────────────────
+
+
+@router.get("/ready-runs")
+async def list_ready_runs(authorization: str = Header(default="")):
+    """List individual runs that have finished downloading and are ready for pickup.
+
+    Returns runs grouped by slug. Fir can pick up runs incrementally
+    as they complete, rather than waiting for the entire job to finish.
+    """
+    _check_staging_key(authorization)
+
+    staging_root = Path(settings.local_download_path)
+    if not staging_root.exists():
+        return {"ready_runs": []}
+
+    ready_runs = []
+    for slug_dir in staging_root.iterdir():
+        if not slug_dir.is_dir() or slug_dir.name.startswith("."):
+            continue
+
+        run_ready_dir = slug_dir / ".run-ready"
+        if not run_ready_dir.exists():
+            continue
+
+        runs = []
+        for marker in run_ready_dir.iterdir():
+            if not marker.is_file():
+                continue
+            acc = marker.name
+            # Check the run hasn't already been picked up
+            picked_up_dir = slug_dir / ".run-picked-up"
+            if (picked_up_dir / acc).exists():
+                continue
+            # Find matching fastq files
+            fastq_dir = slug_dir / "fastq"
+            files = []
+            if fastq_dir.exists():
+                files = [f.name for f in fastq_dir.iterdir()
+                         if f.is_file() and f.name.startswith(acc)]
+            if files:
+                runs.append({
+                    "accession": acc,
+                    "files": sorted(files),
+                    "ready_at": marker.read_text().strip(),
+                })
+
+        if runs:
+            # Also report whether the whole job is done
+            all_done = (slug_dir / ".ready").exists()
+            has_pipeline = (slug_dir / "pipeline.sh").exists()
+            ready_runs.append({
+                "slug": slug_dir.name,
+                "runs": runs,
+                "all_done": all_done,
+                "has_pipeline": has_pipeline,
+            })
+
+    return {"ready_runs": ready_runs}
+
+
+@router.post("/{slug}/run-picked-up/{accession}")
+async def mark_run_picked_up(slug: str, accession: str, authorization: str = Header(default="")):
+    """Mark a single run as picked up by fir. Deletes local fastq files for that run."""
+    _check_staging_key(authorization)
+
+    slug_dir = Path(settings.local_download_path) / slug
+    if not slug_dir.exists():
+        raise HTTPException(404, "Slug not found")
+
+    # Mark as picked up
+    picked_up_dir = slug_dir / ".run-picked-up"
+    picked_up_dir.mkdir(exist_ok=True)
+    (picked_up_dir / accession).write_text(
+        __import__("datetime").datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
+
+    # Delete local fastq files for this run to free disk
+    fastq_dir = slug_dir / "fastq"
+    if fastq_dir.exists():
+        deleted = []
+        for f in fastq_dir.iterdir():
+            if f.is_file() and f.name.startswith(accession):
+                f.unlink()
+                deleted.append(f.name)
+        if deleted:
+            logger.info(f"Freed {len(deleted)} files for {slug}/{accession}: {deleted}")
+
+    return {"ok": True, "slug": slug, "accession": accession}
 
 
 # ── Status push (fir → arbutus) ─────────────────────────────────────────

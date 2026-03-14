@@ -258,6 +258,10 @@ download_run() {{
     fi
     # Clean up .sra file to save disk (fastq.gz is what we need)
     rm -rf "${{LOCAL_DIR}}/${{acc}}"
+    # Mark this run as ready for pickup by fir
+    mkdir -p "${{LOCAL_DIR}}/.run-ready"
+    date -u +%Y-%m-%dT%H:%M:%SZ > "${{LOCAL_DIR}}/.run-ready/${{acc}}"
+    echo "  Run $acc staged for pickup"
     return 0
 }}
 export -f check_disk download_run
