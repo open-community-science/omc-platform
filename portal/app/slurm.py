@@ -180,14 +180,28 @@ def _build_local_download_wrapper(submission: Submission) -> str:
 
     # Helper function: prefetch with retries + backoff, then fasterq-dump
     download_fn = f"""
+check_disk() {{
+    # Returns available GB on the staging volume
+    local avail_kb=$(df --output=avail "${{LOCAL_DIR}}" 2>/dev/null | tail -1)
+    echo $(( ${{avail_kb:-0}} / 1048576 ))
+}}
+
 download_run() {{
     local acc="$1"
     local STALL_TIMEOUT=600  # kill if no new bytes for 10 min
     local STALL_CHECK=30     # check every 30s
     local MAX_RETRIES=3
     local RETRY_DELAY=30     # seconds between retries
+    local MIN_DISK_GB=50     # pause if less than 50GB free
 
-    echo "Downloading $acc..."
+    # Check disk before starting this run
+    local avail=$(check_disk)
+    if [ "$avail" -lt "$MIN_DISK_GB" ]; then
+        echo "  SKIPPED: $acc — only ${{avail}}GB free (need ${{MIN_DISK_GB}}GB)" | tee -a ${{LOCAL_DIR}}/failed_runs.txt
+        return 1
+    fi
+
+    echo "Downloading $acc... (${{avail}}GB free)"
     local attempt=1
     while [ $attempt -le $MAX_RETRIES ]; do
         # Run prefetch in background with stall detection
@@ -246,7 +260,7 @@ download_run() {{
     rm -rf "${{LOCAL_DIR}}/${{acc}}"
     return 0
 }}
-export -f download_run
+export -f check_disk download_run
 export LOCAL_DIR
 
 PARALLEL_JOBS=3  # concurrent downloads (network-bound, so 3 is safe)
@@ -298,6 +312,16 @@ echo "=== OMC Local Download: {accession} ==="
 echo "Slug: {submission.slug}"
 echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# Pre-flight disk check
+AVAIL_GB=$(df --output=avail "${{LOCAL_DIR}}" 2>/dev/null | tail -1)
+AVAIL_GB=$(( ${{AVAIL_GB:-0}} / 1048576 ))
+echo "Disk available: ${{AVAIL_GB}}GB"
+if [ "$AVAIL_GB" -lt 50 ]; then
+    echo "ERROR: Not enough disk space (${{AVAIL_GB}}GB free, need at least 50GB)"
+    echo "failed" > ${{LOCAL_DIR}}/.status
+    exit 1
+fi
+
 echo "downloading" > ${{LOCAL_DIR}}/.status
 
 {download_cmd}
@@ -322,6 +346,9 @@ if [ "$FAILED_RUNS" -gt 0 ]; then
 fi
 
 echo "Download finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Clean up temp dir
+rm -rf "${{LOCAL_DIR}}/tmp"
 
 # Mark as ready for pickup by fir cron
 date -u +%Y-%m-%dT%H:%M:%SZ > ${{LOCAL_DIR}}/.ready
