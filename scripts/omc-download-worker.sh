@@ -9,7 +9,7 @@
 #   OMC_MAX_JOBS       — max concurrent downloads (default: 3)
 #   OMC_POLL_INTERVAL  — seconds between queue checks (default: 10)
 
-set -uo pipefail
+set -o pipefail
 
 STAGING_DIR="${OMC_STAGING_DIR:-/data/sra_downloads}"
 MAX_JOBS="${OMC_MAX_JOBS:-3}"
