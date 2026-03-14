@@ -19,11 +19,12 @@ async def resolve_to_bioproject(accession: str) -> dict:
     """
     accession = accession.strip().upper()
 
-    if accession.startswith("PRJNA"):
+    # BioProject accessions (NCBI, EBI, DDBJ)
+    if accession.startswith(("PRJNA", "PRJEB", "PRJDB")):
         return await _fetch_bioproject(accession)
 
-    # For SRA accessions, fetch the record and extract the BioProject link
-    if accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP")):
+    # SRA/ENA run, experiment, study, or EBI sample accessions
+    if accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "ERS")):
         sra_meta = await _fetch_sra(accession)
         if "error" in sra_meta:
             return sra_meta
@@ -42,8 +43,8 @@ async def resolve_to_bioproject(accession: str) -> dict:
                 return bp_meta
             return {"error": f"Could not resolve {accession} to a BioProject", "accession": accession}
 
-    # For BioSample accessions, fetch XML and parse the BioProject link
-    if accession.startswith(("SAMN", "SAME", "SAMD")):
+    # BioSample accessions (NCBI, EBI, DDBJ)
+    if accession.startswith(("SAMN", "SAME", "SAMD", "SAMEA")):
         bioproject_id = await _resolve_bioproject_from_biosample(accession)
         if bioproject_id:
             bp_meta = await _fetch_bioproject(bioproject_id)
@@ -55,7 +56,12 @@ async def resolve_to_bioproject(accession: str) -> dict:
 
 
 async def _resolve_bioproject_from_biosample(accession: str) -> Optional[str]:
-    """Parse the BioProject accession from BioSample XML Link elements."""
+    """Resolve a BioSample accession to its parent BioProject.
+
+    Tries two strategies:
+      1. Parse BioProject link directly from BioSample XML
+      2. Find linked SRA accession and resolve through SRA path
+    """
     try:
         search_handle = Entrez.esearch(db="biosample", term=accession)
         search_results = Entrez.read(search_handle)
@@ -73,11 +79,23 @@ async def _resolve_bioproject_from_biosample(accession: str) -> Optional[str]:
             xml_data = xml_data.encode()
 
         root = ElementTree.fromstring(xml_data)
+
+        # Strategy 1: direct BioProject link
         for link in root.iter("Link"):
             if link.get("target") == "bioproject":
                 label = link.get("label", "")
-                if label.startswith("PRJNA"):
+                if label.startswith(("PRJNA", "PRJEB", "PRJDB")):
                     return label
+
+        # Strategy 2: find linked SRA accession (EBI samples store ERS in Ids)
+        for id_el in root.iter("Id"):
+            if id_el.get("db") == "SRA" and id_el.text:
+                sra_acc = id_el.text
+                sra_meta = await _fetch_sra(sra_acc)
+                bp = sra_meta.get("bioproject_accession")
+                if bp:
+                    return bp
+
         return None
     except Exception:
         return None
@@ -96,9 +114,9 @@ async def fetch_sra_metadata(accession: str) -> dict:
     accession = accession.strip().upper()
 
     # Determine which database to query
-    if accession.startswith("PRJNA"):
+    if accession.startswith(("PRJNA", "PRJEB", "PRJDB")):
         return await _fetch_bioproject(accession)
-    elif accession.startswith(("SAMN", "SAME", "SAMD")):
+    elif accession.startswith(("SAMN", "SAME", "SAMD", "SAMEA")):
         return await _fetch_biosample(accession)
     else:
         return await _fetch_sra(accession)

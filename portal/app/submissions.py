@@ -77,7 +77,7 @@ async def create_submission(
 async def lookup_accession(accession: str):
     """Live lookup — resolves any accession to its parent BioProject."""
     accession = accession.strip().upper()
-    if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA", "SAMN", "SAME", "SAMD")):
+    if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "ERS", "PRJNA", "PRJEB", "PRJDB", "SAMN", "SAME", "SAMD", "SAMEA")):
         return {"error": "Invalid accession format"}
 
     metadata = await resolve_to_bioproject(accession)
@@ -100,7 +100,7 @@ async def list_samples(accession: str):
         suggested_pipeline: auto-selected pipeline based on data types
     """
     accession = accession.strip().upper()
-    if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA", "SAMN", "SAME", "SAMD")):
+    if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "ERS", "PRJNA", "PRJEB", "PRJDB", "SAMN", "SAME", "SAMD", "SAMEA")):
         return {"error": "Invalid accession format"}
 
     metadata = await resolve_to_bioproject(accession)
@@ -308,7 +308,7 @@ async def update_submission(
 
         if "sra_accession" in body:
             accession = body["sra_accession"].strip().upper()
-            if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "PRJNA", "SAMN", "SAME", "SAMD")):
+            if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "ERS", "PRJNA", "PRJEB", "PRJDB", "SAMN", "SAME", "SAMD", "SAMEA")):
                 return JSONResponse({"error": "Invalid accession format"}, status_code=400)
 
             project_metadata = await resolve_to_bioproject(accession)
