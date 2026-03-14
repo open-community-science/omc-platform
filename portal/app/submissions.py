@@ -233,7 +233,9 @@ async def get_status(
 
             if phase == "downloading":
                 detail = hpc_status.get("detail", "")
-                if detail == "Waiting for HPC pickup":
+                if detail == "Queued for download":
+                    html = '<p class="status-polling">Queued for download... checking automatically.</p>'
+                elif detail == "Waiting for HPC pickup":
                     html = '<p class="status-polling">Download complete. Waiting for HPC to pick up data... checking automatically.</p>'
                 elif detail == "Transferring to HPC":
                     html = '<p class="status-polling">Transferring data to HPC... checking automatically.</p>'

@@ -9,6 +9,7 @@ Job flow:
 import asyncio
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 
 from .config import get_settings
@@ -330,13 +331,14 @@ trap - EXIT
 
 
 async def submit_local_download_job(submission: Submission) -> str:
-    """Download SRA data locally on arbutus and stage for HTTP pickup.
+    """Stage scripts for download and mark as queued for the worker.
 
-    No SSH required — pipeline.sh is written locally alongside the fastq
-    files. The fir cron job polls /staging/ready, downloads everything
-    over HTTP, and submits sbatch.
+    No SSH required — pipeline.sh and download.sh are written locally.
+    The omc-download-worker picks them up (via .queued marker) and runs
+    them with concurrency control. After download, fir cron picks up
+    the files over HTTP.
 
-    Returns 'local-{pid}' as a placeholder.
+    Returns 'queued' as a placeholder.
     """
     if not settings.slurm_enabled:
         raise RuntimeError("SLURM not enabled")
@@ -351,28 +353,19 @@ async def submit_local_download_job(submission: Submission) -> str:
     with open(f"{local_dir}/pipeline.sh", "w") as f:
         f.write(pipeline_script)
 
-    # Write and run download wrapper
+    # Write download wrapper (worker will execute it)
     dl_path = f"{local_dir}/download.sh"
     with open(dl_path, "w") as f:
         f.write(local_wrapper)
     os.chmod(dl_path, 0o755)
 
-    log_path = f"{local_dir}/download.log"
-    proc = await asyncio.create_subprocess_shell(
-        f"nohup bash {dl_path} > {log_path} 2>&1 & echo $!",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        raise RuntimeError(f"Failed to start local download: {stderr.decode()}")
+    # Mark as queued for the download worker to pick up
+    with open(f"{local_dir}/.queued", "w") as f:
+        f.write(datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"))
 
-    dl_pid = stdout.decode().strip()
-    logger.info(
-        f"Started local download (PID {dl_pid}) on arbutus for {submission.slug}"
-    )
+    logger.info(f"Queued download for {submission.slug}")
 
-    return f"local-{dl_pid}"
+    return "queued"
 
 
 async def get_submission_status(slug: str) -> dict:
@@ -389,6 +382,7 @@ async def get_submission_status(slug: str) -> dict:
     if local_dir.exists():
         local_ready = local_dir / ".ready"
         local_status = local_dir / ".status"
+        local_queued = local_dir / ".queued"
         if local_ready.exists():
             return {"phase": "downloading", "detail": "Waiting for HPC pickup"}
         if local_status.exists():
@@ -397,6 +391,8 @@ async def get_submission_status(slug: str) -> dict:
                 return {"phase": "downloading"}
             elif status == "failed":
                 return {"phase": "failed", "reason": "Local download failed"}
+        if local_queued.exists():
+            return {"phase": "downloading", "detail": "Queued for download"}
 
     # Check pushed HPC status (fir → arbutus over HTTP)
     hpc = get_hpc_status(slug)
