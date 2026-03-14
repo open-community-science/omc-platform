@@ -5,6 +5,8 @@ import pytest
 sys.path.insert(0, "/data/omc/omc-platform")
 from ai.author_interview import start_interview, conduct_interview_turn
 
+pytestmark = pytest.mark.ai
+
 MOCK_METADATA = {
     "accession": "PRJNA656268",
     "title": "Marine metagenome study",

@@ -9,7 +9,7 @@ from typing import Optional
 from .config import get_settings
 from .database import get_db, Submission, User, SubmissionStatus, PipelineType
 from .auth import require_user
-from .slurm import submit_pipeline_job
+from .slurm import submit_local_download_job
 from .sra_metadata import fetch_sra_metadata, resolve_to_bioproject
 
 router = APIRouter(prefix="/submissions", tags=["submissions"])
@@ -158,7 +158,7 @@ async def submit_to_hpc(
     # Submit to SLURM
     if settings.slurm_enabled:
         try:
-            job_id = await submit_pipeline_job(submission)
+            job_id = await submit_local_download_job(submission)
             submission.slurm_job_id = job_id
             submission.status = SubmissionStatus.QUEUED
         except Exception as e:
@@ -218,7 +218,13 @@ async def get_status(
                 s = "failed"
 
             if phase == "downloading":
-                html = '<p class="status-polling">Downloading SRA data on login node... checking automatically.</p>'
+                detail = hpc_status.get("detail", "")
+                if detail == "Waiting for HPC pickup":
+                    html = '<p class="status-polling">Download complete. Waiting for HPC to pick up data... checking automatically.</p>'
+                elif detail == "Transferring to HPC":
+                    html = '<p class="status-polling">Transferring data to HPC... checking automatically.</p>'
+                else:
+                    html = '<p class="status-polling">Downloading SRA data... checking automatically.</p>'
             elif phase == "queued":
                 html = f'<p class="status-polling">Download complete. Pipeline job <strong>queued</strong>'
                 if job_id:

@@ -38,14 +38,13 @@ class Settings(BaseSettings):
 
     # SLURM settings (Alliance Canada HPC)
     slurm_enabled: bool = False
-    slurm_host: str = ""
-    slurm_user: str = ""
-    slurm_ssh_key: str = ""
-    slurm_partition: str = "def-alloc"
     slurm_account: str = ""
 
-    # Download host (specific login node for faster downloads, optional)
-    slurm_download_host: str = ""
+    # Local SRA download staging (arbutus → fir over HTTP, no SSH)
+    local_download_path: str = "/data/sra_downloads"
+
+    # Staging API key (fir cron uses this to pull downloads + push status)
+    staging_api_key: str = ""
 
     # Pipeline paths on HPC
     pipeline_base: str = "/home/rec3141/GENICE/danaSeq"

@@ -26,6 +26,7 @@ from .submissions import router as submissions_router
 from .interviews import router as interviews_router
 from .reviews import router as reviews_router
 from .metadata import router as metadata_router
+from .staging import router as staging_router
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -82,6 +83,7 @@ app.include_router(submissions_router)
 app.include_router(interviews_router)
 app.include_router(reviews_router)
 app.include_router(metadata_router)
+app.include_router(staging_router)
 
 
 @app.get("/", response_class=HTMLResponse)

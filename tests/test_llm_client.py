@@ -5,6 +5,8 @@ import pytest
 sys.path.insert(0, "/data/omc/omc-platform")
 from ai.llm_client import get_client, chat, multi_turn, _strip_think
 
+pytestmark = pytest.mark.ai
+
 
 def test_strip_think():
     assert _strip_think("<think>reasoning here</think>Hello!") == "Hello!"

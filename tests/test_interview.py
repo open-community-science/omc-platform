@@ -5,6 +5,8 @@ import pytest
 
 BASE = "http://127.0.0.1:8002"
 
+pytestmark = pytest.mark.ai
+
 ANSWERS = {
     "research_question": "Investigating marine microbial community structure across environmental gradients.",
     "study_context": "Ocean samples from tropical to polar waters, 0-4000m depth, 2018-2020.",

@@ -12,6 +12,8 @@ from pathlib import Path
 sys.path.insert(0, "/data/omc/omc-platform")
 from ai.llm_client import get_client, chat, _strip_think
 
+pytestmark = pytest.mark.ai
+
 NOTES_PATH = Path(__file__).parent / "model_notes.md"
 
 # Models to test (subset of what's in LM Studio)

@@ -5,6 +5,8 @@ import pytest
 sys.path.insert(0, "/data/omc/omc-platform")
 from ai.manuscript_generator import generate_manuscript_draft
 
+pytestmark = pytest.mark.ai
+
 INTERVIEW_DATA = {
     "research_question": "How do temperature gradients shape marine microbial community diversity across ocean basins?",
     "study_context": "Samples from tropical to polar waters, 0-4000m depth, coastal and open ocean sites.",

@@ -1,15 +1,14 @@
-"""SLURM job submission and monitoring.
-
-Uses OpenSSH CLI (not asyncssh) to leverage ControlMaster sockets,
-which is required for Alliance Canada clusters with Duo MFA.
+"""SLURM job submission and monitoring — SSH-free.
 
 Job flow:
-  1. Download runs on login node (fast internet) via nohup background process
-  2. On success, download script submits pipeline sbatch job automatically
-  3. Portal polls for status via marker files + squeue
+  1. Portal downloads SRA data locally on arbutus, stages for HTTP pickup
+  2. Cron on fir polls /staging/ready, downloads files, submits sbatch
+  3. Fir pushes status updates back to /staging/{slug}/status over HTTP
+  4. Portal reads local staging markers + pushed HPC status (no SSH)
 """
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 from .config import get_settings
@@ -37,146 +36,12 @@ def _get_pipeline_path(pipeline: PipelineType) -> str:
     return path
 
 
-def _build_download_wrapper(submission: Submission) -> str:
-    """Generate a wrapper script that runs on the login node.
-
-    Downloads SRA data, then submits the pipeline sbatch job on success.
-    Designed to run via `nohup ... &` on the login node.
-    """
-    scratch = settings.hpc_scratch
-    output_dir = f"{settings.results_path}/{submission.slug}"
-    input_dir = f"{scratch}/sra_downloads/{submission.slug}"
-    accession = submission.bioproject_accession
-
-    # Extract run accessions from selected_runs if available
-    run_accessions = []
-    if submission.selected_runs:
-        for row in submission.selected_runs:
-            if isinstance(row, dict) and row.get("run_accessions"):
-                run_accessions.extend(row["run_accessions"])
-
-    # Helper function: prefetch with timeout + single retry, then fasterq-dump
-    download_fn = """
-download_run() {
-    local acc="$1"
-    local TIMEOUT=1800  # 30 min per run
-
-    echo "Downloading $acc..."
-    if timeout $TIMEOUT prefetch "$acc" -O ${INPUT_DIR}; then
-        echo "  prefetch OK for $acc"
-    else
-        echo "  prefetch failed or timed out for $acc — retrying once..."
-        rm -rf "${INPUT_DIR}/${acc}" 2>/dev/null
-        if timeout $TIMEOUT prefetch "$acc" -O ${INPUT_DIR}; then
-            echo "  prefetch OK on retry for $acc"
-        else
-            echo "  FAILED: $acc (giving up after 1 retry)" | tee -a ${OUTPUT_DIR}/failed_runs.txt
-            FAILED_RUNS=$((FAILED_RUNS + 1))
-            return 1
-        fi
-    fi
-
-    fasterq-dump "${INPUT_DIR}/${acc}/${acc}.sra" -O ${INPUT_DIR}/fastq -e 4 && \
-    pigz -p 4 ${INPUT_DIR}/fastq/${acc}*.fastq
-    if [ $? -ne 0 ]; then
-        echo "  FAILED: fasterq-dump for $acc" | tee -a ${OUTPUT_DIR}/failed_runs.txt
-        FAILED_RUNS=$((FAILED_RUNS + 1))
-        return 1
-    fi
-    return 0
-}
-
-FAILED_RUNS=0
-"""
-
-    if run_accessions:
-        download_cmd = download_fn + "\n".join(
-            f'download_run "{acc}" || true'
-            for acc in run_accessions
-        )
-    else:
-        # Fallback: no explicit run accessions — download all runs for the BioProject
-        # WARNING: this does not filter by platform, so mixed projects will download everything
-        logger.warning(f"No run_accessions in selected_runs for {submission.slug} — downloading all runs")
-        download_cmd = f"""{download_fn}
-echo "WARNING: No explicit run accessions — downloading ALL runs for {accession}"
-echo "Resolving runs for {accession}..."
-module load gcc/12 edirect/20.9.20231210 2>/dev/null || true
-esearch -db sra -query "{accession}" | efetch -format runinfo | \\
-    awk -F',' 'NR>1 && $1 != "" {{print $1}}' > ${{INPUT_DIR}}/run_list.txt
-
-NUM_RUNS=$(wc -l < ${{INPUT_DIR}}/run_list.txt)
-echo "Found $NUM_RUNS runs to download"
-
-while IFS= read -r acc; do
-    download_run "$acc" || true
-done < ${{INPUT_DIR}}/run_list.txt"""
-
-    return f"""#!/bin/bash
-# OMC Download Wrapper — runs on login node, submits pipeline on success
-set -uo pipefail
-
-INPUT_DIR="{input_dir}"
-OUTPUT_DIR="{output_dir}"
-
-# Trap: if the script dies for any reason, mark download as failed
-cleanup_on_failure() {{
-    local exit_code=$?
-    if [ $exit_code -ne 0 ]; then
-        echo "Download wrapper died with exit code $exit_code at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        echo "download_failed" > ${{OUTPUT_DIR}}/.status
-        echo "$exit_code" > ${{OUTPUT_DIR}}/.completed
-    fi
-}}
-trap cleanup_on_failure EXIT
-
-# Load SRA toolkit + Entrez Direct
-module load gcc/12 sra-toolkit/3.0.9 edirect/20.9.20231210 2>/dev/null || true
-
-mkdir -p "${{INPUT_DIR}}/fastq" "${{OUTPUT_DIR}}"
-
-echo "=== OMC Download: {accession} ==="
-echo "Slug: {submission.slug}"
-echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-# Mark download in progress
-echo "downloading" > ${{OUTPUT_DIR}}/.status
-
-{download_cmd}
-
-echo "Download complete. Files:"
-ls -lh ${{INPUT_DIR}}/fastq/
-NUM_FILES=$(ls ${{INPUT_DIR}}/fastq/*.fastq* 2>/dev/null | wc -l)
-echo "Total: $NUM_FILES fastq files ($FAILED_RUNS failed)"
-
-if [ "$NUM_FILES" -eq 0 ]; then
-    echo "ERROR: No files downloaded at all"
-    echo "download_failed" > ${{OUTPUT_DIR}}/.status
-    echo 1 > ${{OUTPUT_DIR}}/.completed
-    exit 1
-fi
-
-if [ "$FAILED_RUNS" -gt 0 ]; then
-    echo "WARNING: $FAILED_RUNS run(s) failed but $NUM_FILES files downloaded — proceeding with partial data"
-fi
-
-echo "Download finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-# Submit pipeline job
-echo "Submitting pipeline job..."
-SBATCH_OUT=$(sbatch ${{OUTPUT_DIR}}/pipeline.sh)
-PIPELINE_JOB_ID=$(echo "$SBATCH_OUT" | awk '{{print $NF}}')
-echo "pipeline=$PIPELINE_JOB_ID" > ${{OUTPUT_DIR}}/job_ids.txt
-echo "pipeline_queued" > ${{OUTPUT_DIR}}/.status
-echo "Pipeline job submitted: $PIPELINE_JOB_ID"
-
-# Clear trap on successful exit
-trap - EXIT
-"""
-
-
 def _build_pipeline_script(submission: Submission) -> str:
-    """Generate sbatch script for pipeline execution (heavy job)."""
+    """Generate sbatch script for pipeline execution (heavy job).
+
+    The pipeline script also pushes status updates back to arbutus
+    via the staging API so the portal can track progress without SSH.
+    """
     pipeline_path = _get_pipeline_path(submission.pipeline)
     scratch = settings.hpc_scratch
     db_dir = settings.hpc_db_dir
@@ -223,11 +88,29 @@ INPUT_DIR="{input_dir}"
 OUTPUT_DIR="{output_dir}"
 WORK_DIR="{work_dir}"
 
+# Status reporting — push updates to arbutus over HTTP
+# These env vars are set by omc-pickup.sh before sbatch
+OMC_STAGING_URL="${{OMC_STAGING_URL:-}}"
+OMC_STAGING_KEY="${{OMC_STAGING_KEY:-}}"
+SLUG="{submission.slug}"
+
+push_status() {{
+    local phase="$1"
+    local extra="${{2:-}}"
+    if [ -n "$OMC_STAGING_URL" ] && [ -n "$OMC_STAGING_KEY" ]; then
+        curl -sf -X POST "${{OMC_STAGING_URL}}/staging/${{SLUG}}/status" \\
+            -H "Authorization: Bearer ${{OMC_STAGING_KEY}}" \\
+            -H "Content-Type: application/json" \\
+            --data-raw "{{\\"phase\\":\\"$phase\\"$extra}}" >/dev/null 2>&1 || true
+    fi
+}}
+
 # Trap SLURM signals (timeout/cancel) to write status markers
 cleanup() {{
     echo "Signal caught — marking job as failed"
     echo "failed" > ${{OUTPUT_DIR}}/.status
     echo 1 > ${{OUTPUT_DIR}}/.completed
+    push_status "failed" ',\\"reason\\":\\"Signal caught\\"'
     exit 1
 }}
 trap cleanup SIGTERM SIGUSR1 SIGUSR2
@@ -246,10 +129,12 @@ if [ "$NUM_FILES" -eq 0 ]; then
     echo "ERROR: No fastq files found in ${{INPUT_DIR}}/fastq/"
     echo "failed" > ${{OUTPUT_DIR}}/.status
     echo 1 > ${{OUTPUT_DIR}}/.completed
+    push_status "failed" ',\\"reason\\":\\"No fastq files\\"'
     exit 1
 fi
 
 echo "running" > ${{OUTPUT_DIR}}/.status
+push_status "running" ',\\"job_id\\":\\"'$SLURM_JOB_ID'\\",\\"slurm_state\\":\\"RUNNING\\"'
 
 echo "=== OMC Pipeline: {submission.pipeline.value} (--all) ==="
 echo "Accession: {accession}"
@@ -267,255 +152,262 @@ echo "Completed: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo $PIPELINE_EXIT > ${{OUTPUT_DIR}}/.completed
 if [ $PIPELINE_EXIT -eq 0 ]; then
     echo "completed" > ${{OUTPUT_DIR}}/.status
+    push_status "completed" ',\\"exit_code\\":\\"0\\"'
 else
     echo "failed" > ${{OUTPUT_DIR}}/.status
+    push_status "failed" ',\\"exit_code\\":\\"'$PIPELINE_EXIT'\\",\\"reason\\":\\"Pipeline exited with code '$PIPELINE_EXIT'\\"'
 fi
 """
 
 
-def _ssh_cmd(remote_cmd: str, host: str = "") -> list[str]:
-    """Build an SSH command using host config (ControlMaster via ~/.ssh/config)."""
-    target_host = host or settings.slurm_host
-    cmd = [
-        "ssh",
-        "-o", "ConnectTimeout=10",
-        "-o", "StrictHostKeyChecking=no",
-    ]
-    if settings.slurm_ssh_key:
-        cmd += ["-i", settings.slurm_ssh_key]
-    cmd += [f"{settings.slurm_user}@{target_host}", remote_cmd]
-    return cmd
+def _build_local_download_wrapper(submission: Submission) -> str:
+    """Generate a wrapper script that runs locally on arbutus.
+
+    Downloads SRA data to local staging, writes .ready marker.
+    A cron job on fir polls the staging API over HTTP to pick up files
+    and submit the pipeline — no SSH required.
+    """
+    local_dir = f"{settings.local_download_path}/{submission.slug}"
+    accession = submission.bioproject_accession
+
+    # Extract run accessions from selected_runs if available
+    run_accessions = []
+    if submission.selected_runs:
+        for row in submission.selected_runs:
+            if isinstance(row, dict) and row.get("run_accessions"):
+                run_accessions.extend(row["run_accessions"])
+
+    # Helper function: prefetch with timeout + single retry, then fasterq-dump
+    download_fn = f"""
+download_run() {{
+    local acc="$1"
+    local TIMEOUT=1800  # 30 min per run
+
+    echo "Downloading $acc..."
+    if timeout $TIMEOUT prefetch "$acc" -O ${{LOCAL_DIR}}; then
+        echo "  prefetch OK for $acc"
+    else
+        echo "  prefetch failed or timed out for $acc — retrying once..."
+        rm -rf "${{LOCAL_DIR}}/${{acc}}" 2>/dev/null
+        if timeout $TIMEOUT prefetch "$acc" -O ${{LOCAL_DIR}}; then
+            echo "  prefetch OK on retry for $acc"
+        else
+            echo "  FAILED: $acc (giving up after 1 retry)" | tee -a ${{LOCAL_DIR}}/failed_runs.txt
+            FAILED_RUNS=$((FAILED_RUNS + 1))
+            return 1
+        fi
+    fi
+
+    fasterq-dump "${{LOCAL_DIR}}/${{acc}}/${{acc}}.sra" -O ${{LOCAL_DIR}}/fastq -e 4 && \\
+    pigz -p 4 ${{LOCAL_DIR}}/fastq/${{acc}}*.fastq
+    if [ $? -ne 0 ]; then
+        echo "  FAILED: fasterq-dump for $acc" | tee -a ${{LOCAL_DIR}}/failed_runs.txt
+        FAILED_RUNS=$((FAILED_RUNS + 1))
+        return 1
+    fi
+    return 0
+}}
+
+FAILED_RUNS=0
+"""
+
+    if run_accessions:
+        download_cmd = download_fn + "\n".join(
+            f'download_run "{acc}" || true'
+            for acc in run_accessions
+        )
+    else:
+        logger.warning(f"No run_accessions in selected_runs for {submission.slug} — downloading all runs (local mode)")
+        download_cmd = f"""{download_fn}
+echo "WARNING: No explicit run accessions — downloading ALL runs for {accession}"
+echo "Resolving runs for {accession}..."
+esearch -db sra -query "{accession}" | efetch -format runinfo | \\
+    awk -F',' 'NR>1 && $1 != "" {{print $1}}' > ${{LOCAL_DIR}}/run_list.txt
+
+NUM_RUNS=$(wc -l < ${{LOCAL_DIR}}/run_list.txt)
+echo "Found $NUM_RUNS runs to download"
+
+while IFS= read -r acc; do
+    download_run "$acc" || true
+done < ${{LOCAL_DIR}}/run_list.txt"""
+
+    return f"""#!/bin/bash
+# OMC Local Download Wrapper — runs on arbutus, stages for HTTP pickup by fir
+set -uo pipefail
+
+LOCAL_DIR="{local_dir}"
+
+# Trap: if the script dies, write a failure marker
+cleanup_on_failure() {{
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo "Local download wrapper died with exit code $exit_code at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "failed" > ${{LOCAL_DIR}}/.status
+    fi
+}}
+trap cleanup_on_failure EXIT
+
+mkdir -p "${{LOCAL_DIR}}/fastq"
+
+echo "=== OMC Local Download: {accession} ==="
+echo "Slug: {submission.slug}"
+echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+echo "downloading" > ${{LOCAL_DIR}}/.status
+
+{download_cmd}
+
+echo "Download complete. Files:"
+ls -lh ${{LOCAL_DIR}}/fastq/
+NUM_FILES=$(ls ${{LOCAL_DIR}}/fastq/*.fastq* 2>/dev/null | wc -l)
+echo "Total: $NUM_FILES fastq files ($FAILED_RUNS failed)"
+
+if [ "$NUM_FILES" -eq 0 ]; then
+    echo "ERROR: No files downloaded at all"
+    echo "failed" > ${{LOCAL_DIR}}/.status
+    exit 1
+fi
+
+if [ "$FAILED_RUNS" -gt 0 ]; then
+    echo "WARNING: $FAILED_RUNS run(s) failed but $NUM_FILES files downloaded — proceeding with partial data"
+fi
+
+echo "Download finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Mark as ready for pickup by fir cron
+date -u +%Y-%m-%dT%H:%M:%SZ > ${{LOCAL_DIR}}/.ready
+echo "Staged and ready for pickup."
+
+# Clear trap on successful exit
+trap - EXIT
+"""
 
 
-async def _run_remote(cmd: str, host: str = "") -> tuple[str, str, int]:
-    """Run a command on the remote HPC via OpenSSH (uses ControlMaster)."""
-    proc = await asyncio.create_subprocess_exec(
-        *_ssh_cmd(cmd, host=host),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-    return stdout.decode(), stderr.decode(), proc.returncode or 0
+async def submit_local_download_job(submission: Submission) -> str:
+    """Download SRA data locally on arbutus and stage for HTTP pickup.
 
+    No SSH required — pipeline.sh is written locally alongside the fastq
+    files. The fir cron job polls /staging/ready, downloads everything
+    over HTTP, and submits sbatch.
 
-async def submit_pipeline_job(submission: Submission) -> str:
-    """Submit download (login node) + pipeline (sbatch) job chain.
-
-    Returns 'downloading' as a placeholder — the real SLURM job ID
-    is written to job_ids.txt by the download wrapper when it submits
-    the pipeline job.
+    Returns 'local-{pid}' as a placeholder.
     """
     if not settings.slurm_enabled:
         raise RuntimeError("SLURM not enabled")
 
-    download_wrapper = _build_download_wrapper(submission)
+    local_wrapper = _build_local_download_wrapper(submission)
     pipeline_script = _build_pipeline_script(submission)
-    output_dir = f"{settings.results_path}/{submission.slug}"
+    local_dir = f"{settings.local_download_path}/{submission.slug}"
 
-    if not settings.slurm_host:
-        raise RuntimeError("Remote SLURM host required for job submission")
+    os.makedirs(local_dir, exist_ok=True)
 
-    # Create output directory
-    await _run_remote(f"mkdir -p {output_dir}")
+    # Write pipeline.sh locally — fir cron will download it via HTTP
+    with open(f"{local_dir}/pipeline.sh", "w") as f:
+        f.write(pipeline_script)
 
-    # Write pipeline sbatch script (submitted by download wrapper on success)
-    run_path = f"{output_dir}/pipeline.sh"
-    await _run_remote(
-        f"cat > {run_path} << 'SBATCH_EOF'\n{pipeline_script}\nSBATCH_EOF"
+    # Write and run download wrapper
+    dl_path = f"{local_dir}/download.sh"
+    with open(dl_path, "w") as f:
+        f.write(local_wrapper)
+    os.chmod(dl_path, 0o755)
+
+    log_path = f"{local_dir}/download.log"
+    proc = await asyncio.create_subprocess_shell(
+        f"nohup bash {dl_path} > {log_path} 2>&1 & echo $!",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(f"Failed to start local download: {stderr.decode()}")
 
-    # Write download wrapper
-    dl_path = f"{output_dir}/download.sh"
-    await _run_remote(
-        f"cat > {dl_path} << 'SBATCH_EOF'\n{download_wrapper}\nSBATCH_EOF"
-    )
-    await _run_remote(f"chmod +x {dl_path}")
-
-    # Run download on login node (use dedicated download host if configured)
-    dl_host = settings.slurm_download_host or ""
-    stdout, stderr, rc = await _run_remote(
-        f"nohup bash {dl_path} > {output_dir}/download.log 2>&1 &"
-        f" echo $!",
-        host=dl_host,
-    )
-    if rc != 0:
-        raise RuntimeError(f"Failed to start download: {stderr}")
-
-    dl_pid = stdout.strip()
+    dl_pid = stdout.decode().strip()
     logger.info(
-        f"Started download (PID {dl_pid}) on login node for {submission.slug}"
+        f"Started local download (PID {dl_pid}) on arbutus for {submission.slug}"
     )
 
-    # Return a placeholder — real job ID comes later via job_ids.txt
-    return f"dl-{dl_pid}"
+    return f"local-{dl_pid}"
 
 
 async def get_submission_status(slug: str) -> dict:
-    """Get detailed status by reading marker files on HPC.
+    """Get submission status from local staging markers + pushed HPC status.
 
-    Status flow:
-      downloading → pipeline_queued → running → completed/failed
+    No SSH required. Status sources (checked in order):
+      1. Local staging dir (.status / .ready) — download phase
+      2. Pushed HPC status via /staging/{slug}/status — pipeline phase
     """
-    output_dir = f"{settings.results_path}/{slug}"
+    from .staging import get_hpc_status
 
-    # Check .completed first (terminal state)
-    stdout, _, rc = await _run_remote(f"cat {output_dir}/.completed 2>/dev/null")
-    if rc == 0:
-        exit_code = stdout.strip()
-        return {
-            "phase": "completed" if exit_code == "0" else "failed",
-            "exit_code": exit_code,
-        }
+    # Check local staging first (download still in progress on arbutus)
+    local_dir = Path(settings.local_download_path) / slug
+    if local_dir.exists():
+        local_ready = local_dir / ".ready"
+        local_status = local_dir / ".status"
+        if local_ready.exists():
+            return {"phase": "downloading", "detail": "Waiting for HPC pickup"}
+        if local_status.exists():
+            status = local_status.read_text().strip()
+            if status == "downloading":
+                return {"phase": "downloading"}
+            elif status == "failed":
+                return {"phase": "failed", "reason": "Local download failed"}
 
-    # Check .status marker
-    stdout, _, rc = await _run_remote(f"cat {output_dir}/.status 2>/dev/null")
-    status = stdout.strip() if rc == 0 else ""
+    # Check pushed HPC status (fir → arbutus over HTTP)
+    hpc = get_hpc_status(slug)
+    if hpc:
+        return hpc
 
-    # Check for pipeline job ID
-    stdout, _, rc = await _run_remote(f"cat {output_dir}/job_ids.txt 2>/dev/null")
-    job_info = {}
-    if rc == 0:
-        for part in stdout.strip().split():
-            if "=" in part:
-                k, v = part.split("=", 1)
-                job_info[k] = v
-
-    pipeline_job_id = job_info.get("pipeline")
-
-    if pipeline_job_id:
-        # Check SLURM job status
-        stdout, _, rc = await _run_remote(
-            f"squeue -j {pipeline_job_id} -h -o '%T' 2>/dev/null"
-        )
-        slurm_state = stdout.strip().strip("'") if rc == 0 else ""
-
-        if slurm_state:
-            return {
-                "phase": "running" if slurm_state == "RUNNING" else "queued",
-                "slurm_state": slurm_state,
-                "job_id": pipeline_job_id,
-            }
-        else:
-            # Job finished but no .completed marker yet — check sacct
-            stdout, _, _ = await _run_remote(
-                f"sacct -j {pipeline_job_id} -n -o State -P 2>/dev/null"
-            )
-            sacct_state = stdout.strip().split("\n")[0] if stdout.strip() else ""
-            if sacct_state in ("COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"):
-                return {
-                    "phase": "failed" if sacct_state != "COMPLETED" else "completed",
-                    "slurm_state": sacct_state,
-                    "job_id": pipeline_job_id,
-                }
-
-    if status == "downloading":
-        return {"phase": "downloading"}
-    elif status == "download_failed":
-        return {"phase": "failed", "reason": "Download failed"}
-    elif status == "pipeline_queued":
-        return {"phase": "queued", "job_id": pipeline_job_id}
-
-    return {"phase": "unknown", "status_marker": status}
+    # No info available yet
+    return {"phase": "unknown"}
 
 
 async def check_job_status(job_id: str) -> dict:
-    """Check SLURM job status via SSH (legacy interface)."""
-    if settings.slurm_host:
-        # Handle download placeholder IDs
-        if job_id.startswith("dl-"):
-            return {"job_id": job_id, "state": "DOWNLOADING", "running": True}
-
-        stdout, _, rc = await _run_remote(
-            f"squeue -j {job_id} -h -o '%T' 2>/dev/null"
-        )
-        state = stdout.strip().strip("'") if rc == 0 else ""
-
-        if not state:
-            stdout2, _, _ = await _run_remote(
-                f"sacct -j {job_id} -n -o State -P 2>/dev/null"
-            )
-            state = stdout2.strip().split("\n")[0] if stdout2.strip() else "UNKNOWN"
-            return {"job_id": job_id, "state": state, "running": False}
-
-        return {
-            "job_id": job_id,
-            "state": state,
-            "running": state in ("PENDING", "RUNNING", "CONFIGURING"),
-        }
-    else:
-        proc = await asyncio.create_subprocess_exec(
-            "squeue", "-j", job_id, "-h", "-o", "%T",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate()
-        state = stdout.decode().strip()
-
-        if not state:
-            return {"job_id": job_id, "state": "COMPLETED", "running": False}
-
-        return {
-            "job_id": job_id,
-            "state": state,
-            "running": state in ("PENDING", "RUNNING", "CONFIGURING"),
-        }
+    """Check job status (placeholder-aware)."""
+    if job_id.startswith("local-"):
+        return {"job_id": job_id, "state": "DOWNLOADING", "running": True}
+    # For real SLURM job IDs, check pushed status
+    return {"job_id": job_id, "state": "UNKNOWN", "running": True}
 
 
 async def check_completion_marker(slug: str) -> dict:
-    """Check for .completed marker file — used by the daily poll."""
-    marker_path = f"{settings.results_path}/{slug}/.completed"
+    """Check for completion via pushed HPC status."""
+    from .staging import get_hpc_status
 
-    if settings.slurm_host:
-        stdout, _, rc = await _run_remote(f"cat {marker_path} 2>/dev/null")
-        if rc == 0:
-            exit_code = stdout.strip()
+    hpc = get_hpc_status(slug)
+    if hpc:
+        phase = hpc.get("phase", "")
+        if phase in ("completed", "failed"):
+            exit_code = hpc.get("exit_code", "1" if phase == "failed" else "0")
             return {
                 "completed": True,
-                "success": exit_code == "0",
+                "success": phase == "completed",
                 "exit_code": exit_code,
             }
-        return {"completed": False}
-    else:
-        marker = Path(marker_path)
-        if marker.exists():
-            exit_code = marker.read_text().strip()
-            return {
-                "completed": True,
-                "success": exit_code == "0",
-                "exit_code": exit_code,
-            }
-        return {"completed": False}
+    return {"completed": False}
 
 
 async def cancel_job(job_id: str) -> bool:
-    """Cancel a SLURM job."""
-    if job_id.startswith("dl-"):
-        # Kill login node download process
-        pid = job_id[3:]
-        _, _, rc = await _run_remote(f"kill {pid} 2>/dev/null")
-        return rc == 0
-
-    if settings.slurm_host:
-        _, _, rc = await _run_remote(f"scancel {job_id}")
-        return rc == 0
-    else:
-        proc = await asyncio.create_subprocess_exec(
-            "scancel", job_id,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await proc.communicate()
-        return proc.returncode == 0
+    """Cancel a job."""
+    if job_id.startswith("local-"):
+        pid = job_id[6:]
+        try:
+            os.kill(int(pid), 15)  # SIGTERM
+            return True
+        except (ProcessLookupError, ValueError):
+            return False
+    # Can't cancel remote SLURM jobs without SSH
+    logger.warning(f"Cannot cancel remote job {job_id} — no SSH available")
+    return False
 
 
 async def poll_all_running_jobs(db_session) -> list:
-    """
-    Poll: check all running submissions for completion markers.
-    Also updates job IDs from download wrapper when pipeline job is submitted.
-    Returns list of newly completed submission slugs.
+    """Poll for completed submissions using pushed HPC status.
+
+    No SSH required — reads status files pushed by fir over HTTP.
     """
     from sqlalchemy import select
     from .database import Submission, SubmissionStatus
+    from .staging import get_hpc_status
 
     stmt = select(Submission).where(
         Submission.status.in_([SubmissionStatus.QUEUED, SubmissionStatus.RUNNING])
@@ -525,34 +417,32 @@ async def poll_all_running_jobs(db_session) -> list:
 
     completed = []
     for sub in running:
-        # Try to pick up the real SLURM job ID if we only have a download placeholder
-        if sub.slurm_job_id and sub.slurm_job_id.startswith("dl-"):
-            output_dir = f"{settings.results_path}/{sub.slug}"
-            stdout, _, rc = await _run_remote(
-                f"cat {output_dir}/job_ids.txt 2>/dev/null"
-            )
-            if rc == 0 and "pipeline=" in stdout:
-                for part in stdout.strip().split():
-                    if part.startswith("pipeline="):
-                        sub.slurm_job_id = part.split("=", 1)[1]
-                        sub.status = SubmissionStatus.QUEUED
-                        await db_session.commit()
-                        break
+        hpc = get_hpc_status(sub.slug)
+        if not hpc:
+            continue
 
-        status = await check_completion_marker(sub.slug)
-        if status["completed"]:
-            if status["success"]:
-                sub.status = SubmissionStatus.PROCESSING
-                logger.info(f"Submission {sub.slug} completed successfully")
-            else:
-                sub.status = SubmissionStatus.FAILED
-                sub.error_message = f"Pipeline exited with code {status['exit_code']}"
-                logger.warning(
-                    f"Submission {sub.slug} failed with exit code {status['exit_code']}"
-                )
+        phase = hpc.get("phase", "")
+        job_id = hpc.get("job_id")
+
+        # Update job ID if we got a real one
+        if job_id and sub.slurm_job_id != job_id:
+            sub.slurm_job_id = job_id
+
+        # Update status based on phase
+        if phase == "running" and sub.status != SubmissionStatus.RUNNING:
+            sub.status = SubmissionStatus.RUNNING
+        elif phase == "completed":
+            sub.status = SubmissionStatus.PROCESSING
+            logger.info(f"Submission {sub.slug} completed successfully")
             completed.append(sub.slug)
+        elif phase == "failed":
+            sub.status = SubmissionStatus.FAILED
+            sub.error_message = hpc.get("reason", f"Exit code {hpc.get('exit_code', '?')}")
+            logger.warning(f"Submission {sub.slug} failed: {sub.error_message}")
+            completed.append(sub.slug)
+        elif phase == "queued" and sub.status != SubmissionStatus.QUEUED:
+            sub.status = SubmissionStatus.QUEUED
 
-    if completed:
-        await db_session.commit()
+    await db_session.commit()
 
     return completed

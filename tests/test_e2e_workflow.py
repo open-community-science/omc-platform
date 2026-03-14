@@ -9,6 +9,8 @@ import pytest
 
 sys.path.insert(0, "/data/omc/omc-platform")
 
+pytestmark = pytest.mark.ai
+
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)

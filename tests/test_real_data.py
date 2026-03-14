@@ -11,6 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, "/data/omc/omc-platform")
 
+pytestmark = pytest.mark.ai
+
 RESULTS = Path("/data/project_cyanomag/results/nanopore_mag_microcystis")
 
 

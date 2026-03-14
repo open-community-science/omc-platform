@@ -5,6 +5,8 @@ import pytest
 sys.path.insert(0, "/data/omc/omc-platform")
 from ai.review_agents import statistical_review, methodological_review, clarity_review, run_all_reviews
 
+pytestmark = pytest.mark.ai
+
 # Minimal manuscript for review
 MANUSCRIPT = {
     "introduction": "Marine microbial communities drive global biogeochemical cycles. We investigated how temperature gradients shape diversity across 486 ocean samples using 16S rRNA amplicon sequencing.",

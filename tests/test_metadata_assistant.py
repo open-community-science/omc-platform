@@ -5,6 +5,8 @@ import pytest
 sys.path.insert(0, "/data/omc/omc-platform")
 from ai.metadata_assistant import interactive_metadata_help, validate_metadata
 
+pytestmark = pytest.mark.ai
+
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(120)
