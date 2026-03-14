@@ -155,21 +155,22 @@ async def submit_to_hpc(
     if not submission.selected_runs:
         raise HTTPException(status_code=400, detail="No data types selected")
 
-    # Submit to SLURM
+    # Mark as queued and commit BEFORE launching download,
+    # so the redirected page always sees the right status.
+    submission.status = SubmissionStatus.QUEUED if settings.slurm_enabled else SubmissionStatus.SUBMITTED
+    submission.submitted_at = datetime.utcnow()
+    await db.commit()
+
+    # Now launch the download in the background
     if settings.slurm_enabled:
         try:
             job_id = await submit_local_download_job(submission)
             submission.slurm_job_id = job_id
-            submission.status = SubmissionStatus.QUEUED
+            await db.commit()
         except Exception as e:
             submission.status = SubmissionStatus.FAILED
             submission.error_message = str(e)
-    else:
-        # Dev mode - skip SLURM
-        submission.status = SubmissionStatus.SUBMITTED
-
-    submission.submitted_at = datetime.utcnow()
-    await db.commit()
+            await db.commit()
 
     return RedirectResponse(url=f"/submissions/{slug}", status_code=302)
 
