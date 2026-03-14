@@ -1,5 +1,5 @@
 """Submission routes and logic."""
-from fastapi import APIRouter, Request, Depends, HTTPException, Form
+from fastapi import APIRouter, Request, Depends, HTTPException, Form, BackgroundTasks
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -136,33 +136,15 @@ async def list_samples(accession: str):
     }
 
 
-@router.post("/{slug}/submit")
-async def submit_to_hpc(
-    slug: str,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    """Submit the job to HPC for processing."""
-    submission = await _get_submission(slug, user, db)
-
-    if submission.status != SubmissionStatus.DRAFT:
-        raise HTTPException(status_code=400, detail="Submission already submitted")
-
-    if not submission.bioproject_accession:
-        raise HTTPException(status_code=400, detail="No accession linked yet")
-
-    if not submission.selected_runs:
-        raise HTTPException(status_code=400, detail="No data types selected")
-
-    # Mark as queued and commit BEFORE launching download,
-    # so the redirected page always sees the right status.
-    submission.status = SubmissionStatus.QUEUED if settings.slurm_enabled else SubmissionStatus.SUBMITTED
-    submission.submitted_at = datetime.utcnow()
-    await db.commit()
-
-    # Now launch the download in the background
-    if settings.slurm_enabled:
+async def _launch_download(slug: str):
+    """Background task: launch the local download and update DB with job ID."""
+    from .database import async_session
+    async with async_session() as db:
+        stmt = select(Submission).where(Submission.slug == slug)
+        result = await db.execute(stmt)
+        submission = result.scalar_one_or_none()
+        if not submission:
+            return
         try:
             job_id = await submit_local_download_job(submission)
             submission.slurm_job_id = job_id
@@ -171,6 +153,36 @@ async def submit_to_hpc(
             submission.status = SubmissionStatus.FAILED
             submission.error_message = str(e)
             await db.commit()
+
+
+@router.post("/{slug}/submit")
+async def submit_to_hpc(
+    slug: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Submit the job to HPC for processing."""
+    submission = await _get_submission(slug, user, db)
+
+    if submission.status != SubmissionStatus.DRAFT:
+        return RedirectResponse(url=f"/submissions/{slug}", status_code=302)
+
+    if not submission.bioproject_accession:
+        raise HTTPException(status_code=400, detail="No accession linked yet")
+
+    if not submission.selected_runs:
+        raise HTTPException(status_code=400, detail="No data types selected")
+
+    # Mark as queued and commit immediately so the redirect shows the right status
+    submission.status = SubmissionStatus.QUEUED if settings.slurm_enabled else SubmissionStatus.SUBMITTED
+    submission.submitted_at = datetime.utcnow()
+    await db.commit()
+
+    # Launch download in the background — response returns instantly
+    if settings.slurm_enabled:
+        background_tasks.add_task(_launch_download, slug)
 
     return RedirectResponse(url=f"/submissions/{slug}", status_code=302)
 
