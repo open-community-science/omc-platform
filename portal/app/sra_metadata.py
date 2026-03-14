@@ -166,12 +166,19 @@ async def _fetch_bioproject(accession: str) -> dict:
         project_data = summary.get("DocumentSummarySet", {}).get("DocumentSummary", [{}])[0]
 
         # Find all linked SRA runs via esearch
-        sra_search = Entrez.esearch(db="sra", term=accession, retmax=500)
-        sra_results = Entrez.read(sra_search)
-        sra_search.close()
+        # First get the count, then fetch all IDs
+        sra_count_search = Entrez.esearch(db="sra", term=accession, retmax=0)
+        sra_count_results = Entrez.read(sra_count_search)
+        sra_count_search.close()
+        total_runs = int(sra_count_results.get("Count", 0))
 
-        sra_ids = sra_results.get("IdList", [])
-        total_runs = int(sra_results.get("Count", 0))
+        sra_ids = []
+        # Fetch IDs in batches of 10000 (NCBI esearch max)
+        for start in range(0, total_runs, 10000):
+            sra_search = Entrez.esearch(db="sra", term=accession, retmax=10000, retstart=start)
+            sra_results = Entrez.read(sra_search)
+            sra_search.close()
+            sra_ids.extend(sra_results.get("IdList", []))
 
         metadata = {
             "accession": accession,
