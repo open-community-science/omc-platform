@@ -181,18 +181,46 @@ def _build_local_download_wrapper(submission: Submission) -> str:
     download_fn = f"""
 download_run() {{
     local acc="$1"
-    local TIMEOUT=3600   # 60 min per run (arbutus has stable connection)
+    local STALL_TIMEOUT=600  # kill if no new bytes for 10 min
+    local STALL_CHECK=30     # check every 30s
     local MAX_RETRIES=3
-    local RETRY_DELAY=30 # seconds between retries
+    local RETRY_DELAY=30     # seconds between retries
 
     echo "Downloading $acc..."
     local attempt=1
     while [ $attempt -le $MAX_RETRIES ]; do
-        if timeout $TIMEOUT prefetch "$acc" -O ${{LOCAL_DIR}}; then
+        # Run prefetch in background with stall detection
+        prefetch "$acc" -O ${{LOCAL_DIR}} &
+        local pid=$!
+        local last_size=0
+        local stall_seconds=0
+
+        while kill -0 $pid 2>/dev/null; do
+            sleep $STALL_CHECK
+            local cur_size=$(du -sb "${{LOCAL_DIR}}/${{acc}}" 2>/dev/null | cut -f1)
+            cur_size=${{cur_size:-0}}
+            if [ "$cur_size" -eq "$last_size" ]; then
+                stall_seconds=$((stall_seconds + STALL_CHECK))
+                if [ $stall_seconds -ge $STALL_TIMEOUT ]; then
+                    echo "  prefetch stalled for $acc (no new bytes for ${{STALL_TIMEOUT}}s) — killing"
+                    kill $pid 2>/dev/null; wait $pid 2>/dev/null
+                    break
+                fi
+            else
+                stall_seconds=0
+                last_size=$cur_size
+            fi
+        done
+
+        # Check if prefetch succeeded
+        wait $pid 2>/dev/null
+        local exit_code=$?
+        if [ $exit_code -eq 0 ]; then
             echo "  prefetch OK for $acc (attempt $attempt)"
             break
         fi
-        echo "  prefetch failed (attempt $attempt/$MAX_RETRIES)"
+
+        echo "  prefetch failed (attempt $attempt/$MAX_RETRIES, exit $exit_code)"
         rm -rf "${{LOCAL_DIR}}/${{acc}}" 2>/dev/null
         if [ $attempt -lt $MAX_RETRIES ]; then
             echo "  waiting ${{RETRY_DELAY}}s before retry..."
@@ -204,7 +232,6 @@ download_run() {{
 
     if [ $attempt -gt $MAX_RETRIES ]; then
         echo "  FAILED: $acc (gave up after $MAX_RETRIES attempts)" | tee -a ${{LOCAL_DIR}}/failed_runs.txt
-
         return 1
     fi
 
@@ -212,7 +239,6 @@ download_run() {{
     pigz -p 2 ${{LOCAL_DIR}}/fastq/${{acc}}*.fastq
     if [ $? -ne 0 ]; then
         echo "  FAILED: fasterq-dump/pigz for $acc" | tee -a ${{LOCAL_DIR}}/failed_runs.txt
-
         return 1
     fi
     return 0
