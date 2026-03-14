@@ -177,45 +177,62 @@ def _build_local_download_wrapper(submission: Submission) -> str:
             if isinstance(row, dict) and row.get("run_accessions"):
                 run_accessions.extend(row["run_accessions"])
 
-    # Helper function: prefetch with timeout + single retry, then fasterq-dump
+    # Helper function: prefetch with retries + backoff, then fasterq-dump
     download_fn = f"""
 download_run() {{
     local acc="$1"
-    local TIMEOUT=1800  # 30 min per run
+    local TIMEOUT=3600   # 60 min per run (arbutus has stable connection)
+    local MAX_RETRIES=3
+    local RETRY_DELAY=30 # seconds between retries
 
     echo "Downloading $acc..."
-    if timeout $TIMEOUT prefetch "$acc" -O ${{LOCAL_DIR}}; then
-        echo "  prefetch OK for $acc"
-    else
-        echo "  prefetch failed or timed out for $acc — retrying once..."
-        rm -rf "${{LOCAL_DIR}}/${{acc}}" 2>/dev/null
+    local attempt=1
+    while [ $attempt -le $MAX_RETRIES ]; do
         if timeout $TIMEOUT prefetch "$acc" -O ${{LOCAL_DIR}}; then
-            echo "  prefetch OK on retry for $acc"
-        else
-            echo "  FAILED: $acc (giving up after 1 retry)" | tee -a ${{LOCAL_DIR}}/failed_runs.txt
-            FAILED_RUNS=$((FAILED_RUNS + 1))
-            return 1
+            echo "  prefetch OK for $acc (attempt $attempt)"
+            break
         fi
+        echo "  prefetch failed (attempt $attempt/$MAX_RETRIES)"
+        rm -rf "${{LOCAL_DIR}}/${{acc}}" 2>/dev/null
+        if [ $attempt -lt $MAX_RETRIES ]; then
+            echo "  waiting ${{RETRY_DELAY}}s before retry..."
+            sleep $RETRY_DELAY
+            RETRY_DELAY=$((RETRY_DELAY * 2))
+        fi
+        attempt=$((attempt + 1))
+    done
+
+    if [ $attempt -gt $MAX_RETRIES ]; then
+        echo "  FAILED: $acc (gave up after $MAX_RETRIES attempts)" | tee -a ${{LOCAL_DIR}}/failed_runs.txt
+
+        return 1
     fi
 
-    fasterq-dump "${{LOCAL_DIR}}/${{acc}}/${{acc}}.sra" -O ${{LOCAL_DIR}}/fastq -e 4 && \\
-    pigz -p 4 ${{LOCAL_DIR}}/fastq/${{acc}}*.fastq
+    fasterq-dump "${{LOCAL_DIR}}/${{acc}}/${{acc}}.sra" -O ${{LOCAL_DIR}}/fastq -e 2 && \\
+    pigz -p 2 ${{LOCAL_DIR}}/fastq/${{acc}}*.fastq
     if [ $? -ne 0 ]; then
-        echo "  FAILED: fasterq-dump for $acc" | tee -a ${{LOCAL_DIR}}/failed_runs.txt
-        FAILED_RUNS=$((FAILED_RUNS + 1))
+        echo "  FAILED: fasterq-dump/pigz for $acc" | tee -a ${{LOCAL_DIR}}/failed_runs.txt
+
         return 1
     fi
     return 0
 }}
+export -f download_run
+export LOCAL_DIR
 
-FAILED_RUNS=0
+PARALLEL_JOBS=3  # concurrent downloads (network-bound, so 3 is safe)
 """
 
     if run_accessions:
-        download_cmd = download_fn + "\n".join(
-            f'download_run "{acc}" || true'
-            for acc in run_accessions
-        )
+        # Write accessions to a file and process in parallel
+        acc_lines = "\n".join(run_accessions)
+        download_cmd = download_fn + f"""
+cat > ${{LOCAL_DIR}}/run_list.txt << 'ACCLIST'
+{acc_lines}
+ACCLIST
+echo "Downloading $(wc -l < ${{LOCAL_DIR}}/run_list.txt) runs ($PARALLEL_JOBS in parallel)..."
+cat ${{LOCAL_DIR}}/run_list.txt | xargs -P $PARALLEL_JOBS -I {{}} bash -c 'download_run "$@" || true' _ {{}}
+"""
     else:
         logger.warning(f"No run_accessions in selected_runs for {submission.slug} — downloading all runs (local mode)")
         download_cmd = f"""{download_fn}
@@ -225,11 +242,10 @@ esearch -db sra -query "{accession}" | efetch -format runinfo | \\
     awk -F',' 'NR>1 && $1 != "" {{print $1}}' > ${{LOCAL_DIR}}/run_list.txt
 
 NUM_RUNS=$(wc -l < ${{LOCAL_DIR}}/run_list.txt)
-echo "Found $NUM_RUNS runs to download"
+echo "Found $NUM_RUNS runs to download ($PARALLEL_JOBS in parallel)"
 
-while IFS= read -r acc; do
-    download_run "$acc" || true
-done < ${{LOCAL_DIR}}/run_list.txt"""
+cat ${{LOCAL_DIR}}/run_list.txt | xargs -P $PARALLEL_JOBS -I {{}} bash -c 'download_run "$@" || true' _ {{}}
+"""
 
     return f"""#!/bin/bash
 # OMC Local Download Wrapper — runs on arbutus, stages for HTTP pickup by fir
@@ -260,6 +276,10 @@ echo "downloading" > ${{LOCAL_DIR}}/.status
 echo "Download complete. Files:"
 ls -lh ${{LOCAL_DIR}}/fastq/
 NUM_FILES=$(ls ${{LOCAL_DIR}}/fastq/*.fastq* 2>/dev/null | wc -l)
+FAILED_RUNS=0
+if [ -f "${{LOCAL_DIR}}/failed_runs.txt" ]; then
+    FAILED_RUNS=$(wc -l < ${{LOCAL_DIR}}/failed_runs.txt)
+fi
 echo "Total: $NUM_FILES fastq files ($FAILED_RUNS failed)"
 
 if [ "$NUM_FILES" -eq 0 ]; then
