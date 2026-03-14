@@ -267,7 +267,7 @@ download_run() {{
 export -f check_disk download_run
 export LOCAL_DIR
 
-PARALLEL_JOBS=3  # concurrent downloads (network-bound, so 3 is safe)
+PARALLEL_JOBS=4  # concurrent downloads per job (network-bound)
 """
 
     if run_accessions:

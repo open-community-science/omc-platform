@@ -10,7 +10,7 @@ Restart=always
 RestartSec=10
 
 Environment=OMC_STAGING_DIR=/data/sra_downloads
-Environment=OMC_MAX_JOBS=2
+Environment=OMC_MAX_JOBS=3
 Environment=OMC_POLL_INTERVAL=10
 
 [Install]
