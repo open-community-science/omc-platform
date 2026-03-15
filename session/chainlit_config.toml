@@ -1,0 +1,16 @@
+[project]
+name = "OMC Research Assistant"
+enable_telemetry = false
+
+[features]
+prompt_playground = false
+multi_modal = false
+
+[UI]
+name = "OMC Research Assistant"
+description = "AI-guided research interview and data exploration"
+default_collapse_content = true
+hide_cot = false
+
+[UI.theme]
+layout = "wide"

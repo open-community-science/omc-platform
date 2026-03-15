@@ -2,37 +2,46 @@
 name: relay
 description: Send or check messages via the OMC agent relay (local <-> HPC communication)
 allowed-tools: Bash
-argument-hint: "[message to send, or empty to check messages]"
+argument-hint: "[message, or read/poll/watch/channels]"
 ---
 
 # Agent Relay
 
 Communicate with Claude instances on fir (HPC) via the relay at https://microbial.opencommunity.science/relay/
 
-The relay key is at `~/.config/omc/relay-key`. Always use role `"local"` when sending.
+Uses the CLI at `~/.local/bin/relay`. Auth and JSON escaping handled automatically.
 
-## Behavior
+## Parse $ARGUMENTS
 
-If the user provides a message argument, send it. If no argument (just `/relay`), poll for recent messages.
+- **No args** or `read [N] [channel]`: show recent messages → `relay read 5`
+- **`poll [channel]`**: block waiting for new messages → `relay poll`
+- **`watch [channel]`**: continuous stream → `relay watch`
+- **`channels`**: list active channels → `relay channels`
+- **`send [-c channel] MESSAGE`**: send explicitly → `relay send "MESSAGE"`
+- **`send -c debug MESSAGE`**: send to a specific channel → `relay send -c debug "MESSAGE"`
+- **`that`**: summarize the last thing you told the user and send it over relay → `relay send "SUMMARY"`
+- **Any other text**: treat as a message to send → `relay send "$ARGUMENTS"`
 
-### Check messages
+Default channel is `general`. Use `-c CHANNEL` with send or pass channel as last arg to read/poll/watch.
+
+## Examples
 
 ```bash
-RELAY_KEY="$(cat ~/.config/omc/relay-key)"
-curl -s "https://microbial.opencommunity.science/relay/api/chat?last=5" \
-  -H "Authorization: Bearer $RELAY_KEY" | python3 -m json.tool
+# /relay              → relay read 5
+# /relay poll         → relay poll
+# /relay channels     → relay channels
+# /relay hey fir!     → relay send "hey fir!"
+# /relay read 10 debug → relay read 10 debug
+# /relay that         → summarize last response, then relay send "SUMMARY"
 ```
 
-### Send a message
+## Special: `/relay that`
 
-```bash
-RELAY_KEY="$(cat ~/.config/omc/relay-key)"
-curl -s -X POST "https://microbial.opencommunity.science/relay/api/chat" \
-  -H "Authorization: Bearer $RELAY_KEY" \
-  -H "Content-Type: application/json" \
-  --data-raw '{"role":"local","content":"MESSAGE_HERE"}'
-```
+When the argument is `that`, do NOT send the literal word "that". Instead:
+1. Recall the last substantive thing you told the user in this conversation
+2. Write a concise summary (1-3 sentences) capturing the key finding, status, or action
+3. Send that summary via `relay send "SUMMARY"`
 
-Replace `MESSAGE_HERE` with the user's message. If the message contains quotes or special characters, escape them properly for JSON.
+This is useful for quickly forwarding findings or status to the other side without retyping.
 
 Summarize the response concisely for the user.

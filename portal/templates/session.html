@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMC Research Session — {{ slug }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        body { margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; }
+        .session-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 16px; background: #1a1a2e; color: #e0e0e0;
+            font-family: system-ui, sans-serif; font-size: 14px;
+        }
+        .session-header .brand { font-weight: 600; }
+        .session-header .controls { display: flex; gap: 8px; }
+        .session-header button {
+            padding: 4px 12px; border-radius: 4px; border: 1px solid #444;
+            background: #2a2a3e; color: #e0e0e0; cursor: pointer; font-size: 13px;
+        }
+        .session-header button:hover { background: #3a3a5e; }
+        .session-header .tab-active { background: #4a4aae; border-color: #6a6ade; }
+        .session-content { flex: 1; display: flex; }
+        .panel { flex: 1; border: none; }
+        .panel-hidden { display: none; }
+        .split-view .panel { width: 50%; }
+    </style>
+</head>
+<body>
+    <div class="session-header">
+        <span class="brand">OMC Research Session — {{ slug }}</span>
+        <div class="controls">
+            <button id="btn-chat" class="tab-active" onclick="showPanel('chat')">Chat</button>
+            <button id="btn-notebook" onclick="showPanel('notebook')">Data Explorer</button>
+            <button id="btn-split" onclick="showPanel('split')">Split View</button>
+            <button onclick="stopSession()">Pause Session</button>
+        </div>
+    </div>
+    <div class="session-content" id="content">
+        <iframe id="frame-chat" class="panel" src="http://localhost:{{ chat_port }}"></iframe>
+        <iframe id="frame-notebook" class="panel panel-hidden" src="http://localhost:{{ notebook_port }}"></iframe>
+    </div>
+
+    <script>
+        function showPanel(mode) {
+            const chat = document.getElementById('frame-chat');
+            const nb = document.getElementById('frame-notebook');
+            const content = document.getElementById('content');
+            const btnChat = document.getElementById('btn-chat');
+            const btnNb = document.getElementById('btn-notebook');
+            const btnSplit = document.getElementById('btn-split');
+
+            content.classList.remove('split-view');
+            [btnChat, btnNb, btnSplit].forEach(b => b.classList.remove('tab-active'));
+
+            if (mode === 'chat') {
+                chat.classList.remove('panel-hidden');
+                nb.classList.add('panel-hidden');
+                btnChat.classList.add('tab-active');
+            } else if (mode === 'notebook') {
+                chat.classList.add('panel-hidden');
+                nb.classList.remove('panel-hidden');
+                btnNb.classList.add('tab-active');
+            } else {
+                chat.classList.remove('panel-hidden');
+                nb.classList.remove('panel-hidden');
+                content.classList.add('split-view');
+                btnSplit.classList.add('tab-active');
+            }
+        }
+
+        async function stopSession() {
+            if (!confirm('Pause this session? You can resume it later.')) return;
+            await fetch('/sessions/{{ slug }}/stop', { method: 'POST' });
+            window.location.href = '/dashboard';
+        }
+    </script>
+</body>
+</html>

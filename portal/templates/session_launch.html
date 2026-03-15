@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Launch Session — {{ slug }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .launch-container {
+            max-width: 500px; margin: 80px auto; text-align: center;
+            font-family: system-ui, sans-serif; padding: 20px;
+        }
+        .launch-btn {
+            padding: 16px 48px; font-size: 18px; border-radius: 8px;
+            border: none; background: #4a4aae; color: white; cursor: pointer;
+            margin-top: 24px;
+        }
+        .launch-btn:hover { background: #5a5abe; }
+        .launch-btn:disabled { background: #888; cursor: wait; }
+        .status { margin-top: 16px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="launch-container">
+        <h1>Research Session</h1>
+        <p>Launch an interactive session to explore your results and work on your manuscript with the AI research assistant.</p>
+        <button class="launch-btn" id="launch-btn" onclick="launchSession()">
+            Start Session
+        </button>
+        <p class="status" id="status"></p>
+    </div>
+
+    <script>
+        async function launchSession() {
+            const btn = document.getElementById('launch-btn');
+            const status = document.getElementById('status');
+            btn.disabled = true;
+            btn.textContent = 'Launching...';
+            status.textContent = 'Starting your isolated research environment...';
+
+            try {
+                const resp = await fetch('/sessions/{{ slug }}/launch', { method: 'POST' });
+                const data = await resp.json();
+                if (resp.ok) {
+                    status.textContent = 'Session ready! Redirecting...';
+                    window.location.href = data.chat_url;
+                } else {
+                    status.textContent = 'Error: ' + (data.detail || 'Failed to launch');
+                    btn.disabled = false;
+                    btn.textContent = 'Retry';
+                }
+            } catch (e) {
+                status.textContent = 'Connection error: ' + e.message;
+                btn.disabled = false;
+                btn.textContent = 'Retry';
+            }
+        }
+    </script>
+</body>
+</html>
