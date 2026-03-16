@@ -16,28 +16,9 @@ Entrez.email = "omc@opencommunity.science"
 # EBI/ENA portal API — returns per-run metadata as TSV, including MIxS fields
 ENA_API = "https://www.ebi.ac.uk/ena/portal/api/filereport"
 
-# Fields to request from ENA — covers MIxS/MIMARKS plus sequencing metadata
-ENA_FIELDS = ",".join([
-    # Run / experiment
-    "run_accession", "experiment_accession", "experiment_title",
-    "sample_accession", "sample_title", "sample_alias", "sample_description",
-    # Sequencing
-    "library_name", "library_strategy", "library_source", "library_selection",
-    "library_layout", "instrument_platform", "instrument_model",
-    "base_count", "read_count",
-    # Study
-    "study_accession", "study_title", "center_name",
-    # Taxonomy
-    "tax_id", "scientific_name",
-    # MIxS / MIMARKS environmental
-    "collection_date", "country", "description",
-    "environment_biome", "environment_feature", "environment_material",
-    "host", "investigation_type",
-    "lat", "lon",
-    "project_name", "sample_collection", "sequencing_method",
-    # BioSample
-    "broker_name", "nominal_length", "nominal_sdev",
-])
+# Request all fields from ENA — let the data speak for itself.
+# Empty columns are stripped on parsing.
+ENA_FIELDS = "all"
 
 
 async def resolve_to_bioproject(accession: str) -> dict:
@@ -634,9 +615,20 @@ async def _fetch_ena_metadata(bioproject: str) -> list[dict]:
 
             reader = csv.DictReader(io.StringIO(text), delimiter="\t")
             samples = []
+            # Columns to exclude — download URLs, hashes, and file paths
+            # that bloat storage without adding scientific value
+            _skip = {
+                "fastq_ftp", "fastq_aspera", "fastq_galaxy", "fastq_md5", "fastq_bytes",
+                "submitted_ftp", "submitted_aspera", "submitted_galaxy", "submitted_md5", "submitted_bytes",
+                "sra_ftp", "sra_aspera", "sra_galaxy", "sra_md5", "sra_bytes",
+                "bam_ftp", "bam_aspera", "bam_galaxy", "bam_md5", "bam_bytes", "bam_file_role",
+                "cram_index_aspera", "cram_index_ftp", "cram_index_galaxy",
+            }
+
             for row in reader:
-                # Clean up empty strings
-                clean = {k: v for k, v in row.items() if v and v.strip()}
+                # Strip empty values and skip download/hash columns
+                clean = {k: v for k, v in row.items()
+                         if v and v.strip() and k not in _skip}
                 if clean:
                     samples.append(clean)
 

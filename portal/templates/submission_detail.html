@@ -711,6 +711,7 @@ async function savePipeline() {
 const breakdownData = {{ submission.sample_metadata.breakdown | tojson }};
 const sampleRecords = {{ (submission.sample_metadata.get('sample_records', []) or []) | tojson }};
 const selectedRunsData = {{ (submission.selected_runs or []) | tojson }};
+const savedRunAccessions = {{ ((submission.interview_data or {}).get('_selected_run_accessions', []) or []) | tojson }};
 
 // Type selection (breakdown cards)
 let selected = new Set();
@@ -816,7 +817,11 @@ function toggleViewMode() {
             }
         }
     }
-    // Restore run selection (if saved as accession strings)
+    // Restore run selection from AI-driven or manual saves
+    for (const acc of savedRunAccessions) {
+        if (typeof acc === 'string') selectedRuns.add(acc);
+    }
+    // Also check selectedRunsData for string accessions (legacy)
     for (const sr of selectedRunsData) {
         if (typeof sr === 'string') selectedRuns.add(sr);
     }
