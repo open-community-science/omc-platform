@@ -8,11 +8,17 @@ app = marimo.App(width="full", app_title="OMC Data Explorer")
 def _():
     import marimo as mo
     import os
+    import json
     from pathlib import Path
     import pandas as pd
 
     data_dir = Path(os.environ.get("DATA_DIR", "/data"))
-    return data_dir, mo, os, pd, Path
+
+    # Load submission metadata (round-trips with the data)
+    _meta_file = data_dir / "metadata.json"
+    submission_meta = json.loads(_meta_file.read_text()) if _meta_file.exists() else {}
+
+    return data_dir, json, mo, os, pd, Path, submission_meta
 
 
 @app.cell
@@ -26,6 +32,26 @@ def _(mo):
         The AI assistant in the chat panel can help interpret what you see.
         """
     )
+    return
+
+
+@app.cell
+def _(mo, pd, submission_meta):
+    """Show sample metadata from ENA/NCBI if available."""
+    _records = submission_meta.get("sample_metadata", {}).get("sample_records", [])
+    if _records:
+        _df = pd.DataFrame(_records)
+        # Show key columns first
+        _priority = ["run_accession", "sample_alias", "collection_date", "country",
+                      "host", "scientific_name", "instrument_platform", "library_strategy",
+                      "environment_biome", "lat", "lon", "base_count"]
+        _cols = [c for c in _priority if c in _df.columns]
+        _cols += [c for c in _df.columns if c not in _cols]
+        _df = _df[_cols]
+        mo.vstack([
+            mo.md(f"### Sample Metadata ({len(_records)} runs)"),
+            mo.ui.table(_df),
+        ])
     return
 
 

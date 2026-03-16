@@ -21,7 +21,7 @@ from sqlalchemy import select
 from pathlib import Path
 
 from .config import get_settings
-from .database import get_db, Submission, User
+from .database import get_db, async_session, Submission, User
 from .auth import require_user
 from .llm_proxy import create_session_token, revoke_session_token
 from .staging import get_results_path
@@ -318,12 +318,11 @@ async def launch(
     if not submission:
         raise HTTPException(404, "Submission not found")
 
+    # Light metadata for env var — full metadata is in /data/metadata.json
     metadata = {
         "accession": submission.bioproject_accession,
         "pipeline": submission.pipeline.value,
         "title": submission.title or "",
-        "sample_metadata": submission.sample_metadata or {},
-        "interview": submission.interview_data or {},
     }
 
     session = await launch_session(slug, metadata)
@@ -420,3 +419,55 @@ async def list_sessions(user: User = Depends(require_user)):
         }
         for slug, s in _sessions.items()
     }
+
+
+@router.post("/dev/launch/{slug}")
+async def dev_launch(slug: str, request: Request):
+    """DEV ONLY: Launch a session without auth. Remove in production."""
+    if not settings.debug:
+        raise HTTPException(403, "Only available in debug mode")
+
+    metadata = {"accession": "dev-test", "pipeline": "nanopore_mag", "title": "Dev test session"}
+
+    # Try to get real metadata from DB
+    async with async_session() as db:
+        stmt = select(Submission).where(Submission.slug == slug)
+        result = await db.execute(stmt)
+        submission = result.scalar_one_or_none()
+        if submission:
+            metadata = {
+                "accession": submission.bioproject_accession,
+                "pipeline": submission.pipeline.value,
+                "title": submission.title or "",
+                "sample_metadata": submission.sample_metadata or {},
+                "interview": submission.interview_data or {},
+            }
+
+    session = await launch_session(slug, metadata)
+    return {
+        "slug": slug,
+        "status": session.status,
+        "chat_port": session.chat_port,
+        "notebook_port": session.notebook_port,
+        "chat_url": f"/sessions/{slug}/chat",
+        "chat_proxy": f"/session-proxy/{session.chat_port}/",
+        "notebook_proxy": f"/session-proxy/{session.notebook_port}/",
+    }
+
+
+@router.post("/dev/stop/{slug}")
+async def dev_stop(slug: str):
+    """DEV ONLY: Stop a session without auth."""
+    if not settings.debug:
+        raise HTTPException(403, "Only available in debug mode")
+    await stop_session(slug)
+    return {"slug": slug, "status": "stopped"}
+
+
+@router.post("/dev/remove/{slug}")
+async def dev_remove(slug: str):
+    """DEV ONLY: Remove a session without auth."""
+    if not settings.debug:
+        raise HTTPException(403, "Only available in debug mode")
+    await remove_session(slug)
+    return {"slug": slug, "status": "removed"}

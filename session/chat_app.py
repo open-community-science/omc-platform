@@ -21,7 +21,14 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "not-needed")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3-coder-30b-a3b-instruct")
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 MARIMO_URL = os.environ.get("MARIMO_URL", "http://localhost:8081")
-SUBMISSION_META = os.environ.get("SUBMISSION_META", "{}")
+
+# Load metadata from file (round-trips with the data through the pipeline)
+# Falls back to SUBMISSION_META env var for backwards compat
+_meta_file = DATA_DIR / "metadata.json"
+if _meta_file.exists():
+    SUBMISSION_META = _meta_file.read_text()
+else:
+    SUBMISSION_META = os.environ.get("SUBMISSION_META", "{}")
 
 # ── Phases ───────────────────────────────────────────────────────────────────
 

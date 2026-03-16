@@ -427,6 +427,21 @@ async def submit_local_download_job(submission: Submission) -> str:
 
     os.makedirs(local_dir, exist_ok=True)
 
+    # Write submission metadata — travels with the data through the pipeline,
+    # gets squashed into the results .sqsh, read by session containers at /data/metadata.json
+    import json
+    meta = {
+        "slug": submission.slug,
+        "accession": submission.bioproject_accession,
+        "pipeline": submission.pipeline.value,
+        "title": submission.title or "",
+        "sample_metadata": submission.sample_metadata or {},
+        "interview_data": submission.interview_data or {},
+        "selected_runs": submission.selected_runs or [],
+    }
+    with open(f"{local_dir}/metadata.json", "w") as f:
+        json.dump(meta, f, indent=2, default=str)
+
     # Write pipeline.sh locally — fir cron will download it via HTTP
     with open(f"{local_dir}/pipeline.sh", "w") as f:
         f.write(pipeline_script)
