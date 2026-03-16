@@ -243,7 +243,7 @@
             {% endif %}
         </div>
 
-        {# ── Step 3: Author Interview ── #}
+        {# ── Step 3: Author Interview & Manuscript ── #}
         {% set step3_available = has_pipeline_results or s == 'draft' %}
         {% set step3_current = s == 'drafting' %}
         {% set step3_done = s in ['review', 'published'] or has_manuscript %}
@@ -263,22 +263,21 @@
                 {% endif %}
             </div>
             <p class="wf-step-desc">
-                Answer questions about your study so the AI can draft a manuscript. Then generate the paper and push it to GitHub.
+                The AI research assistant will guide you through reviewing your results, creating figures, and drafting your manuscript.
             </p>
 
             {% if step3_state != 'locked' %}
             <div class="wf-step-actions">
-                {% if has_interview %}
-                <a href="/submissions/{{ submission.slug }}/interview" class="btn btn-secondary">Continue Interview</a>
-                {% else %}
-                <a href="/submissions/{{ submission.slug }}/interview" class="btn {% if step3_current %}btn-primary{% else %}btn-secondary{% endif %}">Start Interview</a>
-                {% endif %}
+                <button class="btn btn-primary" onclick="launchSession()" id="session-launch-btn">
+                    {% if has_interview %}Resume Research Session{% else %}Start Research Session{% endif %}
+                </button>
 
-                <button class="btn {% if step3_current and has_interview %}btn-primary{% else %}btn-secondary{% endif %}" onclick="generateManuscript()"
-                    {% if not has_interview %}title="Complete the author interview first" disabled{% endif %}>
+                <button class="btn btn-secondary" onclick="generateManuscript()"
+                    {% if not has_interview %}title="Complete the research session first" disabled{% endif %}>
                     Generate Manuscript
                 </button>
             </div>
+            <p id="session-status" class="wf-step-desc" style="display:none; margin-top: 0.5rem;"></p>
             {% endif %}
         </div>
 
@@ -695,6 +694,32 @@ function saveSelection() {
 
 /* ── Init pipeline info on load ── */
 updatePipelineInfo();
+
+async function launchSession() {
+    const btn = document.getElementById('session-launch-btn');
+    const status = document.getElementById('session-status');
+    btn.disabled = true;
+    btn.textContent = 'Launching...';
+    status.style.display = '';
+    status.textContent = 'Starting your research environment...';
+
+    try {
+        const resp = await fetch(`/sessions/${subId}/launch`, { method: 'POST' });
+        const data = await resp.json();
+        if (resp.ok) {
+            status.textContent = 'Session ready! Redirecting...';
+            window.location.href = data.chat_url;
+        } else {
+            status.textContent = 'Error: ' + (data.detail || 'Failed to launch session');
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+        }
+    } catch (e) {
+        status.textContent = 'Connection error: ' + e.message;
+        btn.disabled = false;
+        btn.textContent = 'Retry';
+    }
+}
 
 async function generateManuscript() {
     showStatus('Generating manuscript... this may take a minute.');
