@@ -5,12 +5,15 @@ enable_telemetry = false
 [features]
 prompt_playground = false
 multi_modal = false
+unsafe_allow_html = true
 
 [UI]
 name = "OMC Research Assistant"
 description = "AI-guided research interview and data exploration"
 default_collapse_content = true
 hide_cot = false
+show_readme_as_default = false
+watermark = ""
 
 [UI.theme]
 layout = "wide"

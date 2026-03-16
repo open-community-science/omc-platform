@@ -55,8 +55,11 @@ async def _poll_hpc_jobs():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize database on startup, run background poller."""
+    """Initialize database on startup, run background poller, recover sessions."""
     await init_db()
+    # Recover any session containers still running from before restart
+    from .sessions import _recover_sessions
+    await _recover_sessions()
     poll_task = None
     if settings.slurm_enabled:
         poll_task = asyncio.create_task(_poll_hpc_jobs())

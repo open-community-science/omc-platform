@@ -79,6 +79,48 @@ def _release_ports(chat_port: int, notebook_port: int):
     _used_ports.discard(notebook_port)
 
 
+async def _recover_sessions():
+    """Recover session state from running Docker containers after portal restart."""
+    try:
+        output = await _run_docker([
+            "ps", "--filter", "name=omc-session-", "--format",
+            "{{.Names}}\t{{.Ports}}\t{{.Status}}",
+        ])
+        if not output.strip():
+            return
+        for line in output.strip().split("\n"):
+            parts = line.split("\t")
+            if len(parts) < 2:
+                continue
+            name = parts[0]  # omc-session-{slug}
+            slug = name.removeprefix("omc-session-")
+            ports_str = parts[1]
+            status = parts[2] if len(parts) > 2 else ""
+
+            # Parse ports like "127.0.0.1:9100->8080/tcp, 127.0.0.1:9101->8081/tcp"
+            chat_port = nb_port = 0
+            for mapping in ports_str.split(", "):
+                if "->8080" in mapping:
+                    chat_port = int(mapping.split(":")[1].split("->")[0])
+                elif "->8081" in mapping:
+                    nb_port = int(mapping.split(":")[1].split("->")[0])
+
+            if chat_port and nb_port:
+                _used_ports.add(chat_port)
+                _used_ports.add(nb_port)
+                is_running = "Up" in status
+                _sessions[slug] = SessionInfo(
+                    slug=slug,
+                    container_id=name,
+                    chat_port=chat_port,
+                    notebook_port=nb_port,
+                    status="running" if is_running else "stopped",
+                )
+                logger.info(f"Recovered session {slug} (chat:{chat_port}, nb:{nb_port}, {'running' if is_running else 'stopped'})")
+    except RuntimeError:
+        pass  # docker not available
+
+
 async def _run_docker(cmd: list[str]) -> str:
     """Run a docker command and return stdout."""
     proc = await asyncio.create_subprocess_exec(

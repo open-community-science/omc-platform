@@ -12,9 +12,10 @@ RUN pip install --no-cache-dir \
     openai \
     httpx
 
-# Generate fresh chainlit config, then copy app code
+# Generate fresh chainlit config, then override with ours
 COPY chat_app.py .
 RUN chainlit init 2>/dev/null || true
+COPY chainlit_config.toml .chainlit/config.toml
 COPY notebooks/ notebooks/
 
 # Chainlit on 8080, marimo on 8081

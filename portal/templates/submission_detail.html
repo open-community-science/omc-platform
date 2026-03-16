@@ -102,53 +102,9 @@
                 </div>
             </div>
 
-            {% if submission.sample_metadata and submission.sample_metadata.get('breakdown') %}
-            <div class="wf-data-selection">
-                <h3 class="wf-section-label">Data Type</h3>
-                <p class="wf-step-desc">Select which data types to include. Types must share the same strategy, source, and layout.</p>
-                <div id="breakdown-container"></div>
-            </div>
-
-            <style>
-                .run-table-wrapper { overflow-x: auto; margin-top: 0.5rem; }
-                .run-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-                .run-table th, .run-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--color-border, #ddd); white-space: nowrap; }
-                .run-table th { cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--color-bg, #fff); }
-                .run-table th:hover { background: var(--color-hover, #f0f0f0); }
-                .run-table th .sort-arrow { margin-left: 4px; opacity: 0.4; }
-                .run-table th.sorted .sort-arrow { opacity: 1; }
-                .run-table tr.selected { background: var(--color-selected, #e8f0fe); }
-                .run-table tr:hover { background: var(--color-hover, #f5f5f5); }
-                .run-table tr.selected:hover { background: var(--color-selected-hover, #d0e0fd); }
-                .run-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-                .run-table input[type="checkbox"] { cursor: pointer; }
-                .run-table-controls { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
-                .run-table-wrapper { max-height: 400px; overflow-y: auto; }
-            </style>
-            <div class="wf-data-selection" id="run-selector-section" style="display:none;">
-                <h3 class="wf-section-label">Run Selection</h3>
-                <p class="wf-step-desc">Select individual runs to include. Click column headers to sort.</p>
-                <div class="run-table-controls">
-                    <button class="btn btn-sm btn-secondary" onclick="selectAllRuns()">Select All</button>
-                    <button class="btn btn-sm btn-secondary" onclick="deselectAllRuns()">Deselect All</button>
-                    <span id="run-selection-summary" class="selection-summary"></span>
-                </div>
-                <div class="run-table-wrapper">
-                    <table class="run-table" id="run-table">
-                        <thead><tr id="run-table-head"></tr></thead>
-                        <tbody id="run-table-body"></tbody>
-                    </table>
-                </div>
-            </div>
-            {% endif %}
-
-            {% else %}
-            <p class="wf-step-desc">Your BioProject data has been linked and a pipeline selected.</p>
-            {% endif %}
-
             {% if has_accession %}
-            <details class="wf-details"{% if is_draft %} open{% endif %}>
-                <summary>{% if is_draft %}Project metadata{% else %}View project metadata{% endif %}</summary>
+            <details class="wf-details" open>
+                <summary>Project metadata</summary>
                 <div class="wf-details-body">
                     {% if submission.sample_metadata %}
                     <dl class="wf-meta-grid">
@@ -186,7 +142,134 @@
             </details>
             {% endif %}
 
-            {% if not is_draft and submission.selected_runs %}
+            {% if submission.sample_metadata and submission.sample_metadata.get('breakdown') %}
+            <div class="wf-data-selection">
+                <h3 class="wf-section-label">Data Type</h3>
+                <p class="wf-step-desc">Select which data types to include. Types must share the same strategy, source, and layout.</p>
+                <div id="breakdown-container"></div>
+            </div>
+
+            <style>
+                .run-table-wrapper { overflow-x: auto; margin-top: 0.5rem; }
+                .run-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+                .run-table th, .run-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--color-border, #ddd); white-space: nowrap; }
+                .run-table th { cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--color-bg, #fff); }
+                .run-table th:hover { background: var(--color-hover, #f0f0f0); }
+                .run-table th .sort-arrow { margin-left: 4px; opacity: 0.4; }
+                .run-table th.sorted .sort-arrow { opacity: 1; }
+                .run-table tr.selected { background: var(--color-selected, #e8f0fe); }
+                .run-table tr:hover { background: var(--color-hover, #f5f5f5); }
+                .run-table tr.selected:hover { background: var(--color-selected-hover, #d0e0fd); }
+                .run-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+                .run-table input[type="checkbox"] { cursor: pointer; }
+                .run-table-controls { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+                .run-table-wrapper { max-height: 400px; overflow-y: auto; }
+            </style>
+            <div class="wf-data-selection" id="run-selector-section" style="display:none;">
+                <h3 class="wf-section-label">Run Selection</h3>
+                <p class="wf-step-desc">Select individual runs to include. Click column headers to sort.</p>
+                <div class="run-table-controls">
+                    <button class="btn btn-sm btn-secondary" id="view-toggle-btn" onclick="toggleViewMode()">Basic</button>
+                    <span id="run-selection-summary" class="selection-summary"></span>
+                </div>
+                <div class="run-table-wrapper">
+                    <table class="run-table" id="run-table">
+                        <thead><tr id="run-table-head"></tr></thead>
+                        <tbody id="run-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
+            {% else %}
+            <p class="wf-step-desc">Your BioProject data has been linked and a pipeline selected.</p>
+            {% endif %}
+
+            {% if not is_draft and has_accession %}
+            {# ── Post-submit: show project metadata + selected runs (read-only) ── #}
+            {% if submission.sample_metadata %}
+            <details class="wf-details" open>
+                <summary>Project metadata</summary>
+                <div class="wf-details-body">
+                    <dl class="wf-meta-grid">
+                        {% if submission.sample_metadata.get('title') %}
+                        <dt>Project Title</dt>
+                        <dd>{{ submission.sample_metadata.title }}</dd>
+                        {% endif %}
+                        {% if submission.sample_metadata.get('organism') %}
+                        <dt>Organism</dt>
+                        <dd>{{ submission.sample_metadata.organism }}</dd>
+                        {% endif %}
+                        {% if submission.sample_metadata.get('organization') %}
+                        <dt>Organization</dt>
+                        <dd>{{ submission.sample_metadata.organization }}</dd>
+                        {% endif %}
+                        {% if submission.sample_metadata.get('num_sra_runs') %}
+                        <dt>SRA Runs</dt>
+                        <dd>{{ submission.sample_metadata.num_sra_runs }}</dd>
+                        {% endif %}
+                        {% if submission.sample_metadata.get('num_samples') %}
+                        <dt>Samples</dt>
+                        <dd>{{ submission.sample_metadata.num_samples }}</dd>
+                        {% endif %}
+                        {% if submission.sample_metadata.get('total_bases') %}
+                        <dt>Data</dt>
+                        <dd>{{ "{:,}".format(submission.sample_metadata.total_spots) }} reads, {{ (submission.sample_metadata.total_bases / 1e9) | round(2) }} Gbp</dd>
+                        {% endif %}
+                        {% if submission.sample_metadata.get('description') %}
+                        <dt>Description</dt>
+                        <dd>{{ submission.sample_metadata.description }}</dd>
+                        {% endif %}
+                    </dl>
+                </div>
+            </details>
+            {% endif %}
+
+            {% set sel_accessions = (submission.interview_data or {}).get('_selected_run_accessions', []) %}
+            {% set sample_records = (submission.sample_metadata or {}).get('sample_records', []) %}
+            {% if sel_accessions and sample_records %}
+            <details class="wf-details" open>
+                <summary>Selected runs ({{ sel_accessions | length }})</summary>
+                <div class="wf-details-body">
+                    <style>
+                        .readonly-run-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+                        .readonly-run-table th, .readonly-run-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--color-border, #ddd); white-space: nowrap; }
+                        .readonly-run-table th { background: var(--color-bg, #f8f8f8); }
+                        .readonly-run-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+                    </style>
+                    <div style="overflow-x: auto; max-height: 300px; overflow-y: auto;">
+                    <table class="readonly-run-table">
+                        <thead>
+                            <tr>
+                                <th>Run</th>
+                                <th>Sample</th>
+                                <th>Platform</th>
+                                <th>Date</th>
+                                <th>Location</th>
+                                <th>Organism</th>
+                                <th>Bases</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for rec in sample_records %}
+                            {% if rec.run_accession in sel_accessions %}
+                            <tr>
+                                <td class="mono">{{ rec.run_accession }}</td>
+                                <td>{{ rec.get('sample_alias', rec.get('sample_title', '')) }}</td>
+                                <td>{{ rec.get('instrument_platform', '') }}</td>
+                                <td>{{ rec.get('collection_date', '') }}</td>
+                                <td>{{ rec.get('country', '') }}</td>
+                                <td>{{ rec.get('scientific_name', '') }}</td>
+                                <td class="num">{% if rec.get('base_count') %}{{ (rec.base_count | int / 1e9) | round(2) }} Gbp{% endif %}</td>
+                            </tr>
+                            {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    </div>
+                </div>
+            </details>
+            {% elif submission.selected_runs %}
             <details class="wf-details">
                 <summary>Selected data types</summary>
                 <div class="wf-details-body">
@@ -200,6 +283,7 @@
                     </table>
                 </div>
             </details>
+            {% endif %}
             {% endif %}
         </div>
 
@@ -276,7 +360,7 @@
         </div>
 
         {# ── Step 3: Author Interview & Manuscript ── #}
-        {% set step3_available = has_pipeline_results or s == 'draft' %}
+        {% set step3_available = has_accession %}
         {% set step3_current = s == 'drafting' %}
         {% set step3_done = s in ['review', 'published'] or has_manuscript %}
         {% set step3_state = 'completed' if step3_done else ('current' if step3_current else ('available' if step3_available else 'locked')) %}
@@ -637,18 +721,85 @@ let sortCol = null;
 let sortAsc = true;
 
 // Columns to show in run table (order matters)
-const runColumns = [
-    { key: 'run_accession', label: 'Run', cls: '' },
-    { key: 'sample_alias', label: 'Sample', cls: '' },
-    { key: 'instrument_platform', label: 'Platform', cls: '' },
-    { key: 'instrument_model', label: 'Instrument', cls: '' },
-    { key: 'library_strategy', label: 'Strategy', cls: '' },
-    { key: 'collection_date', label: 'Date', cls: '' },
-    { key: 'country', label: 'Location', cls: '' },
-    { key: 'scientific_name', label: 'Organism', cls: '' },
-    { key: 'base_count', label: 'Bases', cls: 'num' },
-    { key: 'read_count', label: 'Reads', cls: 'num' },
+// Priority columns shown first, then any other columns with data
+const _priorityKeys = [
+    'run_accession', 'sample_alias', 'sample_title',
+    'instrument_platform', 'instrument_model', 'library_strategy',
+    'collection_date', 'country', 'host', 'scientific_name',
+    'environment_biome', 'environment_feature', 'environment_material',
+    'lat', 'lon', 'depth', 'altitude', 'elevation',
+    'base_count', 'read_count',
 ];
+const _numericKeys = new Set(['base_count', 'read_count', 'nominal_length']);
+// Keys to hide (internal/redundant)
+const _hideKeys = new Set([
+    'study_accession', 'study_title', 'study_alias', 'center_name',
+    'experiment_accession', 'experiment_alias', 'sample_accession',
+    'sample_description', 'description', 'accession',
+    'secondary_study_accession', 'secondary_sample_accession',
+    'submission_accession', 'broker_name', 'checklist',
+    'sra_file_role', 'run_alias', 'fastq_file_role', 'datahub',
+    'tax_lineage', 'status', 'library_construction_protocol',
+]);
+// Nice labels
+const _labels = {
+    run_accession: 'Run', sample_alias: 'Sample', sample_title: 'Sample',
+    instrument_platform: 'Platform', instrument_model: 'Instrument',
+    library_strategy: 'Strategy', library_source: 'Source', library_layout: 'Layout',
+    library_name: 'Library', library_selection: 'Selection',
+    collection_date: 'Date', country: 'Location', host: 'Host',
+    scientific_name: 'Organism', tax_id: 'Tax ID',
+    environment_biome: 'Biome', environment_feature: 'Feature', environment_material: 'Material',
+    lat: 'Lat', lon: 'Lon', depth: 'Depth', altitude: 'Altitude', elevation: 'Elevation',
+    base_count: 'Bases', read_count: 'Reads', nominal_length: 'Insert Size',
+};
+
+// Build columns dynamically from actual data
+function buildRunColumns(runs) {
+    // Collect all keys that have at least one meaningful value
+    const _missingValues = new Set(['missing', 'not provided', 'not collected', 'not applicable', 'n/a', 'na', 'none', 'unknown', '']);
+    const keysWithData = new Set();
+    for (const r of runs) {
+        for (const [k, v] of Object.entries(r)) {
+            if (!_hideKeys.has(k) && !_missingValues.has(String(v).toLowerCase().trim())) {
+                keysWithData.add(k);
+            }
+        }
+    }
+    // Priority keys first (if they have data), then remaining alphabetically
+    const cols = [];
+    const seen = new Set();
+    for (const k of _priorityKeys) {
+        if (keysWithData.has(k) && !seen.has(k)) {
+            // Skip sample_title if sample_alias exists
+            if (k === 'sample_title' && keysWithData.has('sample_alias')) continue;
+            cols.push({ key: k, label: _labels[k] || k.replace(/_/g, ' '), cls: _numericKeys.has(k) ? 'num' : '' });
+            seen.add(k);
+        }
+    }
+    for (const k of [...keysWithData].sort()) {
+        if (!seen.has(k)) {
+            cols.push({ key: k, label: _labels[k] || k.replace(/_/g, ' '), cls: _numericKeys.has(k) ? 'num' : '' });
+            seen.add(k);
+        }
+    }
+    return cols;
+}
+let runColumns = [];
+let viewMode = 'basic'; // 'basic' or 'full'
+
+const _basicKeys = new Set([
+    'run_accession', 'sample_alias', 'sample_title',
+    'instrument_platform', 'library_strategy',
+    'collection_date', 'country', 'host', 'scientific_name',
+    'base_count', 'read_count',
+]);
+
+function toggleViewMode() {
+    viewMode = viewMode === 'basic' ? 'full' : 'basic';
+    document.getElementById('view-toggle-btn').textContent = viewMode === 'basic' ? 'Basic' : 'Full';
+    renderRunTable();
+}
 
 (function initSelection() {
     // Restore type selection
@@ -770,6 +921,10 @@ function renderRunTable() {
     }
     section.style.display = '';
 
+    // Build columns from actual data, filtered by view mode
+    const allCols = buildRunColumns(runs);
+    runColumns = viewMode === 'basic' ? allCols.filter(c => _basicKeys.has(c.key)) : allCols;
+
     // Sort
     let sorted = [...runs];
     if (sortCol) {
@@ -785,9 +940,12 @@ function renderRunTable() {
         });
     }
 
-    // Auto-select all runs if none were previously selected
-    if (selectedRuns.size === 0) {
-        for (const r of sorted) selectedRuns.add(r.run_accession);
+    // Auto-select all runs on first render only
+    if (!renderRunTable._initialized) {
+        renderRunTable._initialized = true;
+        if (selectedRuns.size === 0) {
+            for (const r of sorted) selectedRuns.add(r.run_accession);
+        }
     }
 
     // Header
@@ -809,7 +967,9 @@ function renderRunTable() {
         bhtml += `<td><input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleRun('${acc}')"></td>`;
         for (const col of runColumns) {
             let val = r[col.key] || '';
-            if ((col.key === 'base_count' || col.key === 'read_count') && val) {
+            if (col.key === 'base_count' && val) {
+                val = fmtBases(Number(val));
+            } else if (_numericKeys.has(col.key) && val) {
                 val = fmtNum(val);
             }
             bhtml += `<td class="${col.cls}">${val}</td>`;
