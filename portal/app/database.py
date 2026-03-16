@@ -52,6 +52,8 @@ class User(Base):
     github_name = Column(String(255))
     github_email = Column(String(255))
     github_avatar_url = Column(String(500))
+    openrouter_key = Column(String(500))  # Fernet-encrypted OpenRouter API key
+    openrouter_model = Column(String(255))  # e.g. "anthropic/claude-sonnet-4"
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, default=datetime.utcnow)
 
@@ -152,6 +154,18 @@ async def init_db():
                 "ALTER TABLE submissions ADD COLUMN results_format VARCHAR(20) DEFAULT 'none'"
             ))
             logging.getLogger(__name__).info("Added results_format column to submissions")
+
+        # Migration: add openrouter columns to users
+        try:
+            await conn.execute(text("SELECT openrouter_key FROM users LIMIT 1"))
+        except Exception:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN openrouter_key VARCHAR(500)"))
+            logging.getLogger(__name__).info("Added openrouter_key column to users")
+        try:
+            await conn.execute(text("SELECT openrouter_model FROM users LIMIT 1"))
+        except Exception:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN openrouter_model VARCHAR(255)"))
+            logging.getLogger(__name__).info("Added openrouter_model column to users")
 
         # Migration: make bioproject_accession nullable (SQLite can't ALTER constraints,
         # so recreate the table if the column is NOT NULL)

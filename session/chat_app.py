@@ -12,6 +12,8 @@ from pathlib import Path
 import chainlit as cl
 from openai import OpenAI
 
+from tools import get_tool_schemas, execute_tool
+
 # ── Config from environment (set by portal when launching container) ─────────
 
 # When launched by the portal, LLM_BASE_URL points to the portal's LLM proxy
@@ -19,7 +21,7 @@ from openai import OpenAI
 # The OpenAI SDK appends /chat/completions automatically.
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://host.docker.internal:8002/api/llm")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "not-needed")
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3-coder-30b-a3b-instruct")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3.5-35b-a3b")
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 MARIMO_URL = os.environ.get("MARIMO_URL", "http://localhost:8081")
 
@@ -118,6 +120,13 @@ selection. The researcher can also manually adjust using checkboxes on the submi
 
 {selected_runs_context}
 
+SAMPLE DETAIL LOOKUP:
+You have a browse_samples tool that lets you page through all per-sample metadata.
+It returns shared columns (identical across all records) and varying columns per record.
+Use it when you need specific details — run accessions, read counts, barcodes, etc.
+You can search by keyword and page through results (50 per page).
+Summarize what you find for the researcher — they don't need to see raw JSON.
+
 Guidelines:
 - One question at a time. Let the conversation breathe.
 - Reference specific details from the metadata (locations, dates, organisms, temperatures).
@@ -128,9 +137,6 @@ Guidelines:
 PROJECT METADATA:
 {metadata}
 {sample_summary}
-
-FULL SAMPLE RECORDS (all available metadata per run):
-{sample_records_json}
 """,
 
     "results_review": """You are the OMC Research Assistant helping an author review their
@@ -378,15 +384,22 @@ def get_selected_runs_context():
     selected_records = [r for r in records if r.get("run_accession") in selected_accs]
     unselected = [r for r in records if r.get("run_accession") not in selected_accs]
 
+    MAX_SHOW = 10  # Cap listed runs to keep prompt small
+
     lines = [f"\nSELECTED RUNS ({len(selected_records)} of {len(records)}):"]
-    for r in selected_records:
+    for r in selected_records[:MAX_SHOW]:
         lines.append(f"  ✓ {r.get('run_accession', '?')} — {r.get('sample_alias', '')} "
                      f"({r.get('country', '')} {r.get('collection_date', '')})")
+    if len(selected_records) > MAX_SHOW:
+        lines.append(f"  ... and {len(selected_records) - MAX_SHOW} more selected runs")
+
     if unselected:
-        lines.append(f"\nNOT SELECTED ({len(unselected)}):")
-        for r in unselected:
+        lines.append(f"\nNOT SELECTED ({len(unselected)} runs)")
+        for r in unselected[:MAX_SHOW]:
             lines.append(f"  ✗ {r.get('run_accession', '?')} — {r.get('sample_alias', '')} "
                          f"({r.get('country', '')} {r.get('collection_date', '')})")
+        if len(unselected) > MAX_SHOW:
+            lines.append(f"  ... and {len(unselected) - MAX_SHOW} more")
 
     return "\n".join(lines)
 
@@ -446,15 +459,44 @@ def get_current_step():
 
 
 def build_interview_system():
-    """Build the full interview system prompt with all context."""
+    """Build the full interview system prompt with all context.
+
+    Only includes bioproject-level metadata and a sample summary in the prompt.
+    Full per-sample records are available on-demand via get_sample_records_json().
+    """
     try:
         metadata = json.loads(SUBMISSION_META)
     except (json.JSONDecodeError, TypeError):
         metadata = {}
+
+    # Strip bulky fields — sample records, run lists, and large breakdowns
+    SKIP_KEYS = {"sample_metadata", "selected_runs"}
+    meta_lite = {k: v for k, v in metadata.items() if k not in SKIP_KEYS}
+
+    # Keep sample count but not full records
+    sample_meta = metadata.get("sample_metadata", {})
+    if sample_meta:
+        meta_lite["sample_count"] = len(sample_meta.get("sample_records", []))
+
+    # Strip selected_run_accessions from interview_data (shown separately via selected_runs_context)
+    if "interview_data" in meta_lite and isinstance(meta_lite["interview_data"], dict):
+        meta_lite["interview_data"] = {
+            k: v for k, v in meta_lite["interview_data"].items()
+            if k != "_selected_run_accessions"
+        }
+
+    # Cap the metadata dump to avoid blowing up the prompt
+    meta_json = json.dumps(meta_lite, indent=2, default=str)
+    if len(meta_json) > 10_000:
+        # Keep only the most useful top-level fields
+        PRIORITY_KEYS = {"slug", "accession", "pipeline", "title", "sample_count",
+                         "interview_data", "organism", "description"}
+        meta_lite = {k: v for k, v in meta_lite.items() if k in PRIORITY_KEYS}
+        meta_json = json.dumps(meta_lite, indent=2, default=str)
+
     return SYSTEM_PROMPTS["interview"].format(
-        metadata=json.dumps(metadata, indent=2, default=str),
+        metadata=meta_json,
         sample_summary=get_sample_summary(),
-        sample_records_json=get_sample_records_json(),
         status_context=get_status_context(),
         selected_runs_context=get_selected_runs_context(),
         current_step=get_current_step(),
@@ -519,10 +561,14 @@ async def on_start():
                 {"role": "system", "content": system},
                 {"role": "user", "content": opening_prompt},
             ],
-            max_tokens=300,
+            max_tokens=1000,
             temperature=0.7,
         )
-        greeting = resp.choices[0].message.content
+        greeting = (resp.choices[0].message.content
+                    if resp.choices and resp.choices[0].message
+                    else None)
+        if not greeting:
+            greeting = "Welcome! I'm the OMC Research Assistant. Tell me about your research."
     except Exception as e:
         greeting = (
             f"Welcome to the OMC Research Assistant! I'll help guide you through "
@@ -539,6 +585,62 @@ async def on_start():
 
     _save_state()
     await cl.Message(content=greeting).send()
+
+
+async def _llm_with_tools(client, messages: list, tools: list, msg: cl.Message, max_rounds: int = 5) -> str:
+    """Call the LLM, handle tool calls in a loop, stream the final text response."""
+
+    for _ in range(max_rounds):
+        # Non-streaming call to check for tool use
+        resp = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            tools=tools,
+            max_tokens=10000,
+            temperature=0.7,
+        )
+
+        choice = resp.choices[0] if resp.choices else None
+        if not choice:
+            return "No response from the model."
+
+        # If the model wants to call tools
+        if choice.finish_reason == "tool_calls" or (choice.message and choice.message.tool_calls):
+            tool_calls = choice.message.tool_calls or []
+            # Add the assistant message with tool calls to context
+            messages.append(choice.message)
+
+            # Show a brief status to the user
+            tool_names = [tc.function.name for tc in tool_calls]
+            await msg.stream_token(f"*Looking up {', '.join(tool_names)}...*\n\n")
+
+            # Execute each tool call
+            for tc in tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    args = {}
+                result = await execute_tool(tc.function.name, args)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result,
+                })
+
+            # Continue the loop — the LLM will see the tool results
+            continue
+
+        # No tool calls — stream the text response
+        # We got a non-streaming response, just use its content
+        text = choice.message.content if choice.message else ""
+        if text:
+            await msg.stream_token(text)
+        await msg.update()
+        return text or ""
+
+    # Exhausted rounds
+    await msg.update()
+    return msg.content or ""
 
 
 @cl.on_message
@@ -576,28 +678,16 @@ async def on_message(message: cl.Message):
     else:
         system = "You are a helpful research assistant."
 
-    # Call LLM
+    # Call LLM with tool support
     client = get_llm_client()
-    messages = [{"role": "system", "content": system}] + history[-20:]  # keep last 20 turns
+    llm_messages = [{"role": "system", "content": system}] + history[-20:]
+    tools = get_tool_schemas()
 
     msg = cl.Message(content="")
     await msg.send()
 
     try:
-        stream = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=messages,
-            max_tokens=1000,
-            temperature=0.7,
-            stream=True,
-        )
-        full_response = ""
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content or ""
-            full_response += delta
-            await msg.stream_token(delta)
-
-        await msg.update()
+        full_response = await _llm_with_tools(client, llm_messages, tools, msg)
     except Exception as e:
         full_response = f"I'm having trouble connecting to the AI. Error: {e}"
         msg.content = full_response

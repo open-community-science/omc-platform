@@ -101,7 +101,7 @@ All settings via environment or `.env` (see `portal/app/config.py`):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LLM_BASE_URL` | `http://10.151.49.182:1234/v1` | OpenAI-compatible API |
-| `LLM_MODEL` | `qwen3-coder-30b-a3b-instruct` | Model for AI features |
+| `LLM_MODEL` | `qwen/qwen3.5-35b-a3b` | Model for AI features |
 | `GITHUB_APP_ID` | | GitHub App numeric ID |
 | `GITHUB_APP_PRIVATE_KEY` | | PEM file path or content |
 | `GITHUB_ORG` | `open-community-science` | Org for paper repos |
@@ -402,7 +402,7 @@ The portal's `.env` on arbutus sets `LLM_BASE_URL=http://localhost:1234/v1`. Ses
 ```
 SECRET_KEY=<random>
 LLM_BASE_URL=http://localhost:1234/v1   # via reverse SSH tunnel from concentration
-LLM_MODEL=qwen3-coder-30b-a3b-instruct
+LLM_MODEL=qwen/qwen3.5-35b-a3b
 GITHUB_APP_ID=3078928
 GITHUB_APP_PRIVATE_KEY=<pem path>
 GITHUB_ORG=open-community-science

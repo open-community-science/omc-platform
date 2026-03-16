@@ -303,7 +303,7 @@ async def _commit_chat_to_github(slug: str, state: dict):
                 logger.warning(f"Failed to commit {path} to {repo}: {resp.status_code} {resp.text[:200]}")
 
 
-async def launch_session(slug: str, metadata: dict) -> SessionInfo:
+async def launch_session(slug: str, metadata: dict, user_id: int | None = None) -> SessionInfo:
     """Launch a new session container for a submission."""
     if slug in _sessions and _sessions[slug].status == "running":
         return _sessions[slug]
@@ -331,7 +331,7 @@ async def launch_session(slug: str, metadata: dict) -> SessionInfo:
     data_path = DATA_BASE_PATH / slug
 
     # Generate a session-scoped token for the LLM proxy
-    session_token = create_session_token(slug)
+    session_token = create_session_token(slug, user_id=user_id)
 
     # Container talks to portal at GATEWAY_IP:PORTAL_PORT
     proxy_base_url = f"http://{GATEWAY_IP}:{PORTAL_PORT}/api/llm"
@@ -386,6 +386,7 @@ async def launch_session(slug: str, metadata: dict) -> SessionInfo:
     session_src = Path(__file__).parent.parent.parent / "session"
     if session_src.exists():
         cmd.extend(["-v", f"{session_src / 'chat_app.py'}:/app/chat_app.py:ro"])
+        cmd.extend(["-v", f"{session_src / 'tools.py'}:/app/tools.py:ro"])
         cmd.extend(["-v", f"{session_src / 'notebooks'}:/app/notebooks:ro"])
 
     cmd.append(SESSION_IMAGE)
@@ -510,7 +511,7 @@ async def launch(
         "selected_runs": submission.selected_runs or [],
     }
 
-    session = await launch_session(slug, metadata)
+    session = await launch_session(slug, metadata, user_id=user.id)
 
     # If called from a form (browser), redirect to the chat UI
     # If called from JS/API, return JSON

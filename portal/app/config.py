@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # LLM settings (OpenAI-compatible — works with LM Studio, OpenAI, etc.)
     llm_base_url: str = "http://10.151.49.182:1234/v1"
     llm_api_key: str = "lm-studio"
-    llm_model: str = "qwen3-coder-30b-a3b-instruct"
+    llm_model: str = "qwen/qwen3.5-35b-a3b"
 
     # Claude API (for production — falls back to llm_* settings if empty)
     anthropic_api_key: str = ""

@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - OMC{% endblock %}
+
+{% block content %}
+<style>
+    .model-table-wrap {
+        max-height: 400px;
+        overflow-y: auto;
+        border: 1px solid var(--color-border);
+        border-radius: 0.375rem;
+        margin-top: 0.5rem;
+    }
+    .model-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8125rem;
+    }
+    .model-table th {
+        position: sticky;
+        top: 0;
+        background: var(--color-bg);
+        font-size: 0.6875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: var(--color-secondary);
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid var(--color-border);
+        z-index: 1;
+    }
+    .model-table td {
+        padding: 0.4rem 0.75rem;
+        border-bottom: 1px solid var(--color-border);
+        cursor: pointer;
+    }
+    .model-table tr:hover td {
+        background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+    }
+    .model-table tr.selected td {
+        background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+        font-weight: 500;
+    }
+    .model-table .free-badge {
+        font-size: 0.625rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        padding: 0.1rem 0.4rem;
+        border-radius: 9999px;
+        background: #dcfce7;
+        color: #166534;
+    }
+    .model-table .ctx {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--color-text-muted);
+    }
+    .model-table .price {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--color-text-muted);
+    }
+    .model-filter {
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--color-border);
+        border-radius: 0.375rem;
+        font-size: 0.875rem;
+        font-family: inherit;
+        margin-bottom: 0.5rem;
+    }
+    .model-filter:focus {
+        outline: none;
+        border-color: var(--color-primary);
+    }
+</style>
+
+<div class="dashboard">
+    <h1>Settings</h1>
+
+    <div class="submission-meta" style="max-width: 800px;">
+        <h3 style="margin-bottom: 0.75rem;">LLM Provider</h3>
+        <p>Connect your <a href="https://openrouter.ai" target="_blank">OpenRouter</a> account
+        to use frontier models (Claude, GPT-4, etc.) during author sessions with your own credits.</p>
+        <p style="color: var(--color-text-muted); font-size: 0.9em; margin-top: 0.5rem;">Without OpenRouter, sessions use the platform's
+        local model.</p>
+
+        {% if openrouter_connected %}
+        <p style="color: var(--color-success); font-weight: 600; margin-top: 1rem;">Connected to OpenRouter</p>
+
+        <form action="/settings/openrouter/model" method="POST" style="margin-top: 1rem;">
+            <div class="form-group">
+                <label for="model">Model</label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input type="text" id="model" name="model" value="{{ openrouter_model }}"
+                           list="model-suggestions" autocomplete="off"
+                           placeholder="e.g. anthropic/claude-sonnet-4"
+                           style="flex: 1; font-family: var(--font-mono); font-size: 0.875rem;">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+                <datalist id="model-suggestions">
+                    <option value="anthropic/claude-sonnet-4">
+                    <option value="google/gemini-2.5-flash">
+                    <option value="deepseek/deepseek-chat-v3-0324:free">
+                    <option value="meta-llama/llama-4-maverick:free">
+                    <option value="qwen/qwen3-235b-a22b:free">
+                </datalist>
+            </div>
+        </form>
+
+        <div class="form-group" style="margin-top: 0.5rem;">
+            <label>Available Models <span style="font-weight:400;font-size:0.8em;color:var(--color-text-muted);">(all support tool use) — <a href="https://openrouter.ai/rankings?category=science#categories" target="_blank" style="color:var(--color-primary);">rankings</a></span></label>
+            <input type="text" class="model-filter" id="model-filter" placeholder="Filter models...">
+            <div class="model-table-wrap">
+                <table class="model-table" id="model-table">
+                    <thead>
+                        <tr>
+                            <th>Model</th>
+                            <th>Context</th>
+                            <th>Price</th>
+                        </tr>
+                    </thead>
+                    <tbody id="model-tbody">
+                        <tr><td colspan="3" style="color: var(--color-text-muted); text-align: center; padding: 2rem;">Loading models from OpenRouter...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <small id="model-status" style="display: block; margin-top: 0.25rem;"></small>
+        </div>
+
+        <form action="/settings/openrouter/disconnect" method="POST" style="margin-top: 1.5rem;">
+            <button type="submit" class="btn btn-delete"
+                    onclick="return confirm('Disconnect OpenRouter? Sessions will fall back to the local model.')">
+                Disconnect OpenRouter
+            </button>
+        </form>
+        {% else %}
+        <a href="/settings/openrouter/connect" class="btn btn-primary" style="display: inline-block; margin-top: 1rem;">
+            Connect OpenRouter
+        </a>
+        {% endif %}
+
+        {% if request.query_params.get('error') == 'rate_limited' %}
+        <p class="error-text" style="margin-top: 0.75rem;">Model <code>{{ request.query_params.get('model', '') }}</code> is rate-limited. Try a different model or add credits.</p>
+        {% elif request.query_params.get('error') == 'model_failed' %}
+        <p class="error-text" style="margin-top: 0.75rem;">Model <code>{{ request.query_params.get('model', '') }}</code> failed the test request. Pick a different model.</p>
+        {% elif request.query_params.get('error') %}
+        <p class="error-text" style="margin-top: 0.75rem;">Connection failed. Please try again.</p>
+        {% endif %}
+        {% if request.query_params.get('connected') %}
+        <p style="color: var(--color-success); margin-top: 0.75rem;">Successfully connected to OpenRouter!</p>
+        {% endif %}
+        {% if request.query_params.get('disconnected') %}
+        <p class="text-muted" style="margin-top: 0.75rem;">OpenRouter disconnected.</p>
+        {% endif %}
+        {% if request.query_params.get('model_saved') %}
+        <p style="color: var(--color-success); margin-top: 0.75rem;">Model updated. New sessions will use this model.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if openrouter_connected %}
+<script>
+(async function loadModels() {
+    const input = document.getElementById('model');
+    const tbody = document.getElementById('model-tbody');
+    const filter = document.getElementById('model-filter');
+    const status = document.getElementById('model-status');
+    const currentModel = '{{ openrouter_model }}';
+    let allModels = [];
+
+    function fmtCtx(n) {
+        return n >= 1000000 ? (n / 1000000).toFixed(1) + 'M'
+             : Math.round(n / 1000) + 'K';
+    }
+
+    function fmtPrice(prompt, completion) {
+        const p = parseFloat(prompt), c = parseFloat(completion);
+        if (p === 0 && c === 0) return '<span class="free-badge">Free</span>';
+        // Price per million tokens
+        const pM = (p * 1000000).toFixed(2), cM = (c * 1000000).toFixed(2);
+        return `<span class="price">$${pM} / $${cM}</span>`;
+    }
+
+    function renderTable(models) {
+        if (!models.length) {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--color-text-muted);padding:1rem;">No matching models</td></tr>';
+            return;
+        }
+        tbody.innerHTML = models.map(m => {
+            const sel = m.id === input.value ? ' class="selected"' : '';
+            return `<tr${sel} data-id="${m.id}">
+                <td><strong>${m.name}</strong><br><span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--color-text-muted);">${m.id}</span></td>
+                <td><span class="ctx">${fmtCtx(m.context_length)}</span></td>
+                <td>${fmtPrice(m.prompt_price, m.completion_price)}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    // Click to select
+    tbody.addEventListener('click', (e) => {
+        const row = e.target.closest('tr[data-id]');
+        if (!row) return;
+        input.value = row.dataset.id;
+        tbody.querySelectorAll('tr').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+    });
+
+    // Filter
+    filter.addEventListener('input', () => {
+        const q = filter.value.toLowerCase();
+        const filtered = allModels.filter(m =>
+            m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)
+        );
+        renderTable(filtered);
+    });
+
+    try {
+        const resp = await fetch('/settings/openrouter/models', { credentials: 'same-origin' });
+        if (!resp.ok) throw new Error('Failed to fetch');
+        const data = await resp.json();
+        allModels = data.models;
+        renderTable(allModels);
+        const freeCount = allModels.filter(m => m.free).length;
+        status.textContent = `${allModels.length} models (${freeCount} free). Click to select, or type any OpenRouter model ID above.`;
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--color-text-muted);padding:1rem;">Could not load models. Type a model ID manually above.</td></tr>';
+        status.textContent = '';
+    }
+})();
+</script>
+{% endif %}
+{% endblock %}

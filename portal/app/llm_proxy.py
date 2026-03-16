@@ -34,12 +34,13 @@ RATE_LIMIT = 30
 _rate_windows: dict[str, list[float]] = {}
 
 
-def create_session_token(slug: str) -> str:
+def create_session_token(slug: str, user_id: int | None = None) -> str:
     """Generate a session-scoped token for LLM proxy access."""
     raw = f"{slug}:{settings.secret_key}:{time.time()}"
     token = hashlib.sha256(raw.encode()).hexdigest()[:48]
     _session_tokens[token] = {
         "slug": slug,
+        "user_id": user_id,
         "created_at": datetime.utcnow(),
         "request_count": 0,
     }
@@ -76,6 +77,45 @@ def _check_auth(request: Request) -> dict:
     return info
 
 
+# ── OpenRouter key cache ─────────────────────────────────────────────────────
+
+# user_id → {"key": decrypted_key, "model": model_id} or None.
+# Invalidated by openrouter.py on connect/disconnect/model change.
+_openrouter_cache: dict[int, dict | None] = {}
+
+OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
+OPENROUTER_DEFAULT_MODEL = "anthropic/claude-sonnet-4"
+
+
+async def _get_openrouter_config(user_id: int | None) -> dict | None:
+    """Look up a user's OpenRouter key and model preference, with caching."""
+    if user_id is None:
+        return None
+    if user_id in _openrouter_cache:
+        return _openrouter_cache[user_id]
+
+    from sqlalchemy import select
+    from .database import async_session as db_session_maker, User
+    from .crypto import decrypt_value
+
+    try:
+        async with db_session_maker() as db:
+            user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+            if user and user.openrouter_key:
+                key = decrypt_value(user.openrouter_key)
+                config = {
+                    "key": key,
+                    "model": user.openrouter_model or OPENROUTER_DEFAULT_MODEL,
+                }
+                _openrouter_cache[user_id] = config
+                return config
+    except Exception as e:
+        logger.warning(f"Failed to look up OpenRouter config for user {user_id}: {e}")
+
+    _openrouter_cache[user_id] = None
+    return None
+
+
 # ── Proxy endpoint ───────────────────────────────────────────────────────────
 
 class ChatCompletionRequest(BaseModel):
@@ -96,21 +136,36 @@ async def proxy_completions(request: Request):
     """
     session_info = _check_auth(request)
     slug = session_info["slug"]
+    user_id = session_info.get("user_id")
 
     body = await request.json()
 
-    # Override model if not set or if it doesn't match configured model
-    if not body.get("model"):
-        body["model"] = settings.llm_model
+    # Check if user has OpenRouter connected
+    or_config = await _get_openrouter_config(user_id)
 
-    target_url = f"{settings.llm_base_url}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {settings.llm_api_key}",
-    }
+    if or_config:
+        # Route to OpenRouter
+        body["model"] = or_config["model"]
+        target_url = f"{OPENROUTER_API_BASE}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {or_config['key']}",
+            "HTTP-Referer": "https://microbial.opencommunity.science",
+            "X-Title": "OMC Platform",
+        }
+    else:
+        # Route to local LLM (LM Studio)
+        if not body.get("model"):
+            body["model"] = settings.llm_model
+        target_url = f"{settings.llm_base_url}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {settings.llm_api_key}",
+        }
 
     logger.info(f"LLM proxy [{slug}]: {len(body.get('messages', []))} messages, "
-                f"stream={body.get('stream', False)}")
+                f"stream={body.get('stream', False)}, "
+                f"backend={'openrouter' if or_config else 'local'}")
 
     if body.get("stream"):
         return await _stream_response(target_url, headers, body, slug)
@@ -213,6 +268,79 @@ async def update_run_selection(request: Request):
 
     logger.info(f"Session {slug}: updated selection to {len(accessions)} runs")
     return {"ok": True, "slug": slug, "selected_count": len(accessions)}
+
+
+# ── Sample metadata browsing ─────────────────────────────────────────────────
+
+@router.get("/sample-metadata")
+async def browse_sample_metadata(request: Request, page: int = 1, page_size: int = 50, search: str = ""):
+    """Browse sample metadata with paging and shared-column compression.
+
+    Returns:
+        shared: dict of columns identical across all records
+        varying_columns: list of column names that differ
+        records: list of dicts with only the varying columns
+        total: total record count
+        page/page_size: current page info
+    """
+    from .database import async_session as db_session_maker, Submission
+    from sqlalchemy import select
+
+    session_info = _check_auth(request)
+    slug = session_info["slug"]
+
+    async with db_session_maker() as db:
+        sub = (await db.execute(
+            select(Submission).where(Submission.slug == slug)
+        )).scalar_one_or_none()
+
+    if not sub or not sub.sample_metadata:
+        return {"shared": {}, "varying_columns": [], "records": [], "total": 0, "page": 1, "page_size": page_size}
+
+    sample_meta = sub.sample_metadata
+    records = sample_meta.get("sample_records", [])
+    if not records:
+        return {"shared": {}, "varying_columns": [], "records": [], "total": 0, "page": 1, "page_size": page_size}
+
+    # Find shared vs varying columns
+    all_keys = set()
+    for r in records:
+        all_keys.update(r.keys())
+
+    shared = {}
+    varying_keys = []
+    for key in sorted(all_keys):
+        values = set(str(r.get(key, "")) for r in records)
+        if len(values) == 1:
+            shared[key] = values.pop()
+        else:
+            varying_keys.append(key)
+
+    # Search filter
+    if search:
+        search_lower = search.lower()
+        records = [r for r in records if any(
+            search_lower in str(v).lower() for v in r.values()
+        )]
+
+    total = len(records)
+
+    # Paginate
+    start = (page - 1) * page_size
+    page_records = records[start:start + page_size]
+
+    # Return only varying columns per record
+    compact = [{k: r.get(k, "") for k in varying_keys} for r in page_records]
+
+    return {
+        "shared": shared,
+        "varying_columns": varying_keys,
+        "records": compact,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size,
+    }
 
 
 # ── Health check ─────────────────────────────────────────────────────────────

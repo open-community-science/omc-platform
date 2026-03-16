@@ -29,6 +29,7 @@ from .metadata import router as metadata_router
 from .staging import router as staging_router
 from .sessions import router as sessions_router
 from .llm_proxy import router as llm_proxy_router
+from .openrouter import router as openrouter_router
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -91,6 +92,7 @@ app.include_router(metadata_router)
 app.include_router(staging_router)
 app.include_router(sessions_router)
 app.include_router(llm_proxy_router)
+app.include_router(openrouter_router)
 
 
 @app.get("/", response_class=HTMLResponse)
