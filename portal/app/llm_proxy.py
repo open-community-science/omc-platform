@@ -176,6 +176,45 @@ async def list_models(request: Request):
     }
 
 
+# ── Session data endpoints (called by containers via session token) ──────────
+
+@router.post("/update-selection")
+async def update_run_selection(request: Request):
+    """Update the selected run accessions for a submission.
+
+    Called by the AI chat when the researcher refines their sample selection.
+    Authenticated by session token (same as LLM proxy).
+    Body: {"run_accessions": ["SRR123", "SRR456", ...]}
+    """
+    from .database import async_session as db_session_maker, Submission
+    from sqlalchemy import select
+    from sqlalchemy.orm import attributes
+
+    session_info = _check_auth(request)
+    slug = session_info["slug"]
+    body = await request.json()
+
+    accessions = body.get("run_accessions", [])
+    if not isinstance(accessions, list):
+        raise HTTPException(400, "run_accessions must be a list")
+
+    async with db_session_maker() as db:
+        stmt = select(Submission).where(Submission.slug == slug)
+        result = await db.execute(stmt)
+        submission = result.scalar_one_or_none()
+        if not submission:
+            raise HTTPException(404, "Submission not found")
+
+        interview_data = dict(submission.interview_data or {})
+        interview_data["_selected_run_accessions"] = accessions
+        submission.interview_data = interview_data
+        attributes.flag_modified(submission, "interview_data")
+        await db.commit()
+
+    logger.info(f"Session {slug}: updated selection to {len(accessions)} runs")
+    return {"ok": True, "slug": slug, "selected_count": len(accessions)}
+
+
 # ── Health check ─────────────────────────────────────────────────────────────
 
 @router.get("/health")

@@ -249,6 +249,12 @@ async def launch_session(slug: str, metadata: dict) -> SessionInfo:
     if not data_mount and data_path.exists():
         data_mount = str(data_path)
 
+    # Write metadata.json to host — always available even if no pipeline results yet
+    meta_dir = SQSH_MOUNT_BASE / f"{slug}-meta"
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    meta_file = meta_dir / "metadata.json"
+    meta_file.write_text(json.dumps(metadata, indent=2, default=str))
+
     container_name = f"omc-session-{slug}"
     cmd = [
         "run", "-d",
@@ -260,7 +266,6 @@ async def launch_session(slug: str, metadata: dict) -> SessionInfo:
         "-e", f"LLM_BASE_URL={proxy_base_url}",
         "-e", f"LLM_API_KEY={session_token}",
         "-e", f"LLM_MODEL={settings.llm_model}",
-        "-e", f"SUBMISSION_META={json.dumps(metadata)}",
         "-e", f"MARIMO_URL=http://localhost:{nb_port}",
         "-e", f"CHAT_ROOT_PATH=/session-proxy/{chat_port}",
         "-e", f"NB_ROOT_PATH=/session-proxy/{nb_port}",
@@ -271,6 +276,15 @@ async def launch_session(slug: str, metadata: dict) -> SessionInfo:
     # Mount data (squashfuse mountpoint or loose directory) read-only
     if data_mount:
         cmd.extend(["-v", f"{data_mount}:/data:ro"])
+
+    # Always mount metadata.json (even if /data is empty or read-only)
+    cmd.extend(["-v", f"{meta_file}:/data/metadata.json:ro"])
+
+    # Mount chat_app.py and notebooks from host for live editing (no rebuild needed)
+    session_src = Path(__file__).parent.parent.parent / "session"
+    if session_src.exists():
+        cmd.extend(["-v", f"{session_src / 'chat_app.py'}:/app/chat_app.py:ro"])
+        cmd.extend(["-v", f"{session_src / 'notebooks'}:/app/notebooks:ro"])
 
     cmd.append(SESSION_IMAGE)
 
@@ -360,11 +374,15 @@ async def launch(
     if not submission:
         raise HTTPException(404, "Submission not found")
 
-    # Light metadata for env var — full metadata is in /data/metadata.json
+    # Full metadata — written to host as metadata.json and mounted into container
     metadata = {
+        "slug": submission.slug,
         "accession": submission.bioproject_accession,
         "pipeline": submission.pipeline.value,
         "title": submission.title or "",
+        "sample_metadata": submission.sample_metadata or {},
+        "interview_data": submission.interview_data or {},
+        "selected_runs": submission.selected_runs or [],
     }
 
     session = await launch_session(slug, metadata)

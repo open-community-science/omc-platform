@@ -35,28 +35,73 @@ else:
 PHASES = ["interview", "results_review", "figure_workshop", "manuscript"]
 
 SYSTEM_PROMPTS = {
-    "interview": """You are the OMC Research Assistant, conducting an author interview for a
-scientific manuscript on microbial ecology / metagenomics.
+    "interview": """You are the OMC Research Assistant — an AI collaborator that helps
+researchers turn their sequencing data into published manuscripts on the Open Microbial
+Community platform.
 
-You have the project metadata and per-sample metadata below. Your job is to PULL the author
-through the interview — ask focused questions one at a time, show that you've reviewed their
-data (mention specific details you see in the metadata), and keep things moving.
-Do NOT wait passively. Each message should end with a clear question or next step.
+CURRENT STATUS: {status_context}
 
-Topics to cover (adapt order to the conversation):
-- Research question / hypothesis
-- Why this study matters
-- Sample selection rationale (reference the actual samples, dates, locations you see)
-- Expected vs surprising findings
-- Key references to cite
-- Known limitations
+Your style is warm, curious, and unhurried. Think of this as a conversation over coffee,
+not a form to fill out. You're genuinely interested in their work and who they are.
 
-When you have enough context (6-8 questions max), summarize what you learned and tell
-the author you're ready to move to results review.
+WHAT YOU KNOW:
+You have the researcher's project metadata and per-sample metadata below. You can see
+their sequencing runs, sampling locations, dates, organisms, and environmental context.
+You also know which runs they've selected for analysis (if any).
+
+YOUR ROLE IN THE WORKFLOW:
+The OMC platform takes the researcher through these steps:
+1. Data selection — choose which sequencing runs to analyze
+2. Interview — this conversation! Get to know the researcher and their science
+3. Pipeline analysis — bioinformatics runs on Alliance Canada HPC
+4. Results review — explore and interpret the pipeline outputs together
+5. Figure workshop — create publication-quality figures
+6. Manuscript drafting — write the paper together section by section
+7. Peer review — AI reviewers check the manuscript
+
+Right now you're helping with step {current_step}. Orient the researcher on where they
+are and what comes next.
+
+CONVERSATION APPROACH:
+Start by briefly explaining your role, then get to know the researcher:
+- What's their background? (career stage, field, institution)
+- How were they involved in this project?
+- What got them interested in this system or question?
+
+Then naturally transition to the science:
+- What's the research question or hypothesis?
+- Why does this study matter?
+- What do they expect to find, and what might surprise them?
+
+SAMPLE SELECTION:
+If samples haven't been submitted to the pipeline yet, help the researcher decide
+which runs to include. They might say things like "let's analyze just the hot springs
+samples above 90°C" or "include everything from site A but skip site B."
+
+Use the FULL SAMPLE RECORDS below to identify which runs match their criteria.
+When you and the researcher agree on a selection, update it by including this tag
+in your response (it will be automatically processed):
+
+[SELECT_RUNS: SRR123, SRR456, SRR789]
+
+List the actual run accessions. The submission page will update to reflect the new
+selection. The researcher can also manually adjust using checkboxes on the submission page.
+
+{selected_runs_context}
+
+Guidelines:
+- One question at a time. Let the conversation breathe.
+- Reference specific details from the metadata (locations, dates, organisms, temperatures).
+- Follow up on interesting threads.
+- Don't rush. The manuscript will be better for a thorough conversation.
+- When you feel you have a good understanding, offer to summarize and suggest next steps.
 
 PROJECT METADATA:
 {metadata}
 {sample_summary}
+
+FULL SAMPLE RECORDS (all available metadata per run):
+{sample_records_json}
 """,
 
     "results_review": """You are the OMC Research Assistant helping an author review their
@@ -122,6 +167,21 @@ FULL CONTEXT:
 
 def get_llm_client():
     return OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+
+
+async def update_run_selection(accessions: list[str]) -> dict:
+    """Update the selected runs on the portal via the LLM proxy endpoint."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{LLM_BASE_URL}/update-selection",
+                headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+                json={"run_accessions": accessions},
+            )
+            return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def list_data_files():
@@ -242,6 +302,106 @@ def get_sample_summary():
     return "\n".join(lines)
 
 
+def get_status_context():
+    """Describe where we are in the workflow based on available data."""
+    try:
+        metadata = json.loads(SUBMISSION_META)
+    except (json.JSONDecodeError, TypeError):
+        return "No project data loaded yet."
+
+    has_results = any(DATA_DIR.iterdir()) if DATA_DIR.exists() else False
+    has_pipeline_dirs = any(
+        (DATA_DIR / d).exists()
+        for d in ["assembly", "binning", "taxonomy", "annotation", "metabolism"]
+    ) if DATA_DIR.exists() else False
+    selected = metadata.get("interview_data", {}).get("_selected_run_accessions", [])
+    all_records = metadata.get("sample_metadata", {}).get("sample_records", [])
+
+    if has_pipeline_dirs:
+        return ("Pipeline results are available. The bioinformatics analysis has completed "
+                "and the results are ready for review.")
+    elif selected:
+        return (f"{len(selected)} runs have been selected for analysis. "
+                "The pipeline may be running or queued on Alliance Canada HPC.")
+    elif all_records:
+        return (f"The project has {len(all_records)} sequencing runs available. "
+                "No runs have been submitted to the pipeline yet — help the researcher "
+                "decide which samples to analyze.")
+    else:
+        return "Project metadata has been loaded but no sample details are available yet."
+
+
+def get_selected_runs_context():
+    """Describe current sample selection state."""
+    try:
+        metadata = json.loads(SUBMISSION_META)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+
+    selected_accs = set(metadata.get("interview_data", {}).get("_selected_run_accessions", []))
+    records = metadata.get("sample_metadata", {}).get("sample_records", [])
+    if not records:
+        return ""
+
+    if not selected_accs:
+        return f"\nSELECTED RUNS: None yet — all {len(records)} runs are available for selection."
+
+    selected_records = [r for r in records if r.get("run_accession") in selected_accs]
+    unselected = [r for r in records if r.get("run_accession") not in selected_accs]
+
+    lines = [f"\nSELECTED RUNS ({len(selected_records)} of {len(records)}):"]
+    for r in selected_records:
+        lines.append(f"  ✓ {r.get('run_accession', '?')} — {r.get('sample_alias', '')} "
+                     f"({r.get('country', '')} {r.get('collection_date', '')})")
+    if unselected:
+        lines.append(f"\nNOT SELECTED ({len(unselected)}):")
+        for r in unselected:
+            lines.append(f"  ✗ {r.get('run_accession', '?')} — {r.get('sample_alias', '')} "
+                         f"({r.get('country', '')} {r.get('collection_date', '')})")
+
+    return "\n".join(lines)
+
+
+def get_sample_records_json():
+    """Get full sample records as compact JSON for the AI to reason about."""
+    try:
+        metadata = json.loads(SUBMISSION_META)
+    except (json.JSONDecodeError, TypeError):
+        return "[]"
+    records = metadata.get("sample_metadata", {}).get("sample_records", [])
+    if not records:
+        return "[]"
+    # Compact but readable
+    return json.dumps(records, indent=1, default=str)
+
+
+def get_current_step():
+    """Determine which workflow step we're on."""
+    has_pipeline_dirs = any(
+        (DATA_DIR / d).exists()
+        for d in ["assembly", "binning", "taxonomy", "annotation", "metabolism"]
+    ) if DATA_DIR.exists() else False
+    if has_pipeline_dirs:
+        return "4 (Results Review)"
+    return "1-2 (Data Selection & Interview)"
+
+
+def build_interview_system():
+    """Build the full interview system prompt with all context."""
+    try:
+        metadata = json.loads(SUBMISSION_META)
+    except (json.JSONDecodeError, TypeError):
+        metadata = {}
+    return SYSTEM_PROMPTS["interview"].format(
+        metadata=json.dumps(metadata, indent=2, default=str),
+        sample_summary=get_sample_summary(),
+        sample_records_json=get_sample_records_json(),
+        status_context=get_status_context(),
+        selected_runs_context=get_selected_runs_context(),
+        current_step=get_current_step(),
+    )
+
+
 # ── Session lifecycle ────────────────────────────────────────────────────────
 
 @cl.on_chat_start
@@ -262,16 +422,16 @@ async def on_start():
 
     # Generate opening message
     client = get_llm_client()
-    system = SYSTEM_PROMPTS["interview"].format(
-        metadata=json.dumps(metadata, indent=2, default=str),
-        sample_summary=get_sample_summary(),
-    )
+    system = build_interview_system()
 
     opening_prompt = (
-        "The author just opened their session. "
-        "Introduce yourself warmly, mention something specific from their metadata "
-        "(like the sampling location, date, organism, or number of samples), "
-        "and ask your first interview question. Keep it under 150 words."
+        "The researcher just opened their session. "
+        "Greet them warmly and naturally. Mention something specific you noticed "
+        "in their project metadata (a detail about the sampling site, organism, "
+        "or study design — something that shows you've looked at their data). "
+        "Then ask them to tell you a bit about themselves — what's their role, "
+        "how did they get involved in this project? Keep it conversational and "
+        "under 120 words."
     )
 
     try:
@@ -312,17 +472,12 @@ async def on_message(message: cl.Message):
     history.append({"role": "user", "content": message.content})
 
     # Build system prompt for current phase
-    sample_summary = get_sample_summary()
-
     if phase == "interview":
-        system = SYSTEM_PROMPTS["interview"].format(
-            metadata=json.dumps(metadata, indent=2, default=str),
-            sample_summary=sample_summary,
-        )
+        system = build_interview_system()
     elif phase == "results_review":
         system = SYSTEM_PROMPTS["results_review"].format(
             interview_summary=cl.user_session.get("interview_summary", ""),
-            sample_summary=sample_summary,
+            sample_summary=get_sample_summary(),
             data_files=list_data_files(),
         )
     elif phase == "figure_workshop":
@@ -371,8 +526,38 @@ async def on_message(message: cl.Message):
     history.append({"role": "assistant", "content": full_response})
     cl.user_session.set("history", history)
 
+    # Check for run selection updates
+    await _check_run_selection(full_response)
+
     # Check for phase transitions
     await _check_phase_transition(full_response)
+
+
+async def _check_run_selection(response: str):
+    """Detect and execute run selection updates from the AI response.
+
+    The AI uses [SELECT_RUNS: SRR123, SRR456, ...] to update the selection.
+    """
+    import re
+    match = re.search(r'\[SELECT_RUNS:\s*(.*?)\]', response, re.IGNORECASE)
+    if not match:
+        return
+
+    accessions_str = match.group(1).strip()
+    accessions = [a.strip() for a in accessions_str.split(",") if a.strip()]
+    if not accessions:
+        return
+
+    result = await update_run_selection(accessions)
+    if result.get("ok"):
+        await cl.Message(
+            content=f"*Updated selection: {len(accessions)} runs selected. "
+                    f"The submission page will reflect this change.*",
+        ).send()
+    elif result.get("error"):
+        await cl.Message(
+            content=f"*Could not update selection: {result['error']}*",
+        ).send()
 
 
 async def _check_phase_transition(response: str):
