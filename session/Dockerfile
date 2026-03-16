@@ -12,11 +12,16 @@ RUN pip install --no-cache-dir \
     openai \
     httpx
 
-# Generate fresh chainlit config, then override with ours
+# Copy app code and generate chainlit config
 COPY chat_app.py .
-RUN chainlit init 2>/dev/null || true
-COPY chainlit_config.toml .chainlit/config.toml
 COPY notebooks/ notebooks/
+RUN chainlit init 2>/dev/null || true
+
+# Patch chainlit config and replace readme with blank
+COPY chainlit.md /app/chainlit.md
+RUN sed -i 's/^name = .*/name = "OMC Research Assistant"/' /app/.chainlit/config.toml && \
+    sed -i 's/^enable_telemetry = .*/enable_telemetry = false/' /app/.chainlit/config.toml && \
+    sed -i 's/^cache = .*/cache = false/' /app/.chainlit/config.toml
 
 # Chainlit on 8080, marimo on 8081
 EXPOSE 8080 8081

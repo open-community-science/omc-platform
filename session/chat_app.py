@@ -38,14 +38,15 @@ SYSTEM_PROMPTS = {
     "interview": """You are the OMC Research Assistant, conducting an author interview for a
 scientific manuscript on microbial ecology / metagenomics.
 
-You have the project metadata below. Your job is to PULL the author through the interview —
-ask focused questions one at a time, show that you've reviewed their data, and keep things
-moving. Do NOT wait passively. Each message should end with a clear question or next step.
+You have the project metadata and per-sample metadata below. Your job is to PULL the author
+through the interview — ask focused questions one at a time, show that you've reviewed their
+data (mention specific details you see in the metadata), and keep things moving.
+Do NOT wait passively. Each message should end with a clear question or next step.
 
 Topics to cover (adapt order to the conversation):
 - Research question / hypothesis
 - Why this study matters
-- Sample selection rationale
+- Sample selection rationale (reference the actual samples, dates, locations you see)
 - Expected vs surprising findings
 - Key references to cite
 - Known limitations
@@ -55,22 +56,29 @@ the author you're ready to move to results review.
 
 PROJECT METADATA:
 {metadata}
+{sample_summary}
 """,
 
     "results_review": """You are the OMC Research Assistant helping an author review their
-pipeline results. You have access to the pipeline output files in /data.
+pipeline results. The data is mounted at /data inside the container.
+
+You can READ files to inspect results. For tabular files (.tsv, .csv), tell the author
+what you find — column names, row counts, key statistics. For each result category,
+explain what the analysis produced and what it means.
 
 Your job is to PRESENT findings proactively:
 - Summarize key results (MAG quality, taxonomy, community composition)
+- Read and describe specific output files (e.g., CheckM2 quality, GTDB taxonomy)
 - Highlight interesting or unexpected patterns
 - Ask the author if results match their expectations
 - Suggest which findings deserve emphasis in the manuscript
-- When appropriate, offer to open the interactive data explorer
+- The author can also explore data interactively in the Data Explorer tab
 
 Keep guiding — don't wait for the author to ask what to do next.
 
 INTERVIEW CONTEXT:
 {interview_summary}
+{sample_summary}
 
 AVAILABLE DATA FILES:
 {data_files}
@@ -117,16 +125,121 @@ def get_llm_client():
 
 
 def list_data_files():
-    """List available data files in the mounted data directory."""
+    """List available data files with descriptions of what they contain."""
     if not DATA_DIR.exists():
         return "No data directory mounted."
-    files = []
-    for p in sorted(DATA_DIR.rglob("*")):
-        if p.is_file() and not p.name.startswith("."):
-            size = p.stat().st_size
+
+    # Known pipeline output directories and what they contain
+    DIR_DESCRIPTIONS = {
+        "assembly": "Genome assembly results (contigs, scaffolds, assembly stats)",
+        "binning": "MAG binning results (bins, quality reports from CheckM2/DAS Tool/MAGSCOT)",
+        "taxonomy": "Taxonomic classification (GTDB-Tk, Kaiju, Kraken2 reports)",
+        "annotation": "Gene annotation (Bakta, Prokka, functional annotations)",
+        "metabolism": "Metabolic pathway analysis (DRAM, KEGG, COG assignments)",
+        "mge": "Mobile genetic elements (CARD, Genomad, DefenseFinder, IslandPath)",
+        "eukaryotic": "Eukaryotic content analysis",
+        "viz": "Visualization outputs",
+        "mapping": "Read mapping statistics (coverage, depth per contig/bin)",
+        "pipeline_info": "Nextflow pipeline execution logs and reports",
+    }
+
+    # File type hints
+    FILE_HINTS = {
+        ".tsv": "tab-separated table — read with pandas: pd.read_csv(path, sep='\\t')",
+        ".csv": "comma-separated table — read with pandas: pd.read_csv(path)",
+        ".txt": "text file — may be tabular or freeform",
+        ".json": "JSON data — read with json.load(open(path))",
+        ".html": "HTML report — can be viewed in browser",
+        ".fasta": "FASTA sequences",
+        ".fa": "FASTA sequences",
+        ".fna": "FASTA nucleotide sequences",
+        ".faa": "FASTA protein sequences",
+        ".gff": "GFF3 gene annotations",
+        ".gff3": "GFF3 gene annotations",
+        ".gbk": "GenBank format annotations",
+        ".nwk": "Newick tree format",
+        ".log": "Log file",
+    }
+
+    output = []
+
+    # List directories with descriptions
+    for subdir in sorted(DATA_DIR.iterdir()):
+        if not subdir.is_dir() or subdir.name.startswith("."):
+            continue
+        desc = DIR_DESCRIPTIONS.get(subdir.name, "")
+        files = sorted(f for f in subdir.rglob("*") if f.is_file() and not f.name.startswith("."))
+        if not files:
+            continue
+
+        output.append(f"\n📁 {subdir.name}/ ({len(files)} files){' — ' + desc if desc else ''}")
+        for f in files[:20]:
+            size = f.stat().st_size
             size_str = f"{size / 1024:.0f}K" if size < 1_000_000 else f"{size / 1_000_000:.1f}M"
-            files.append(f"  {p.relative_to(DATA_DIR)} ({size_str})")
-    return "\n".join(files[:50]) if files else "No data files found."
+            rel = f.relative_to(DATA_DIR)
+            hint = FILE_HINTS.get(f.suffix.lower(), "")
+            # Preview first line of small TSV/CSV files
+            preview = ""
+            if f.suffix.lower() in (".tsv", ".csv") and size < 10_000_000:
+                try:
+                    first_line = f.read_text().split("\n")[0][:200]
+                    preview = f"  columns: {first_line}"
+                except Exception:
+                    pass
+            output.append(f"  {rel} ({size_str}){' — ' + hint if hint else ''}")
+            if preview:
+                output.append(preview)
+        if len(files) > 20:
+            output.append(f"  ... and {len(files) - 20} more files")
+
+    # Top-level files
+    top_files = sorted(f for f in DATA_DIR.iterdir() if f.is_file() and not f.name.startswith("."))
+    if top_files:
+        output.append("\n📄 Top-level files:")
+        for f in top_files:
+            size = f.stat().st_size
+            size_str = f"{size / 1024:.0f}K" if size < 1_000_000 else f"{size / 1_000_000:.1f}M"
+            output.append(f"  {f.name} ({size_str})")
+
+    return "\n".join(output) if output else "No data files found."
+
+
+def get_sample_summary():
+    """Summarize sample metadata from metadata.json for the AI."""
+    try:
+        metadata = json.loads(SUBMISSION_META)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+
+    sample_meta = metadata.get("sample_metadata", {})
+    records = sample_meta.get("sample_records", [])
+    if not records:
+        return ""
+
+    lines = [f"\nSAMPLE METADATA ({len(records)} runs):"]
+
+    # Summarize unique values for key fields
+    key_fields = ["collection_date", "country", "host", "scientific_name",
+                  "environment_biome", "environment_feature", "environment_material",
+                  "instrument_platform", "library_strategy", "depth", "altitude"]
+    for field in key_fields:
+        values = set(r.get(field, "") for r in records if r.get(field))
+        if values:
+            label = field.replace("_", " ").title()
+            if len(values) <= 5:
+                lines.append(f"  {label}: {', '.join(sorted(values))}")
+            else:
+                lines.append(f"  {label}: {len(values)} unique values")
+
+    # Show first record as example
+    if records:
+        lines.append(f"\n  Example record (run {records[0].get('run_accession', '?')}):")
+        for k, v in sorted(records[0].items()):
+            if v and k not in ("study_accession", "study_title", "experiment_accession",
+                               "sample_description", "description", "center_name"):
+                lines.append(f"    {k}: {v}")
+
+    return "\n".join(lines)
 
 
 # ── Session lifecycle ────────────────────────────────────────────────────────
@@ -150,12 +263,14 @@ async def on_start():
     # Generate opening message
     client = get_llm_client()
     system = SYSTEM_PROMPTS["interview"].format(
-        metadata=json.dumps(metadata, indent=2, default=str)
+        metadata=json.dumps(metadata, indent=2, default=str),
+        sample_summary=get_sample_summary(),
     )
 
     opening_prompt = (
-        "The author just opened their session. Their pipeline results are ready. "
-        "Introduce yourself warmly, mention something specific from their metadata, "
+        "The author just opened their session. "
+        "Introduce yourself warmly, mention something specific from their metadata "
+        "(like the sampling location, date, organism, or number of samples), "
         "and ask your first interview question. Keep it under 150 words."
     )
 
@@ -197,13 +312,17 @@ async def on_message(message: cl.Message):
     history.append({"role": "user", "content": message.content})
 
     # Build system prompt for current phase
+    sample_summary = get_sample_summary()
+
     if phase == "interview":
         system = SYSTEM_PROMPTS["interview"].format(
-            metadata=json.dumps(metadata, indent=2, default=str)
+            metadata=json.dumps(metadata, indent=2, default=str),
+            sample_summary=sample_summary,
         )
     elif phase == "results_review":
         system = SYSTEM_PROMPTS["results_review"].format(
             interview_summary=cl.user_session.get("interview_summary", ""),
+            sample_summary=sample_summary,
             data_files=list_data_files(),
         )
     elif phase == "figure_workshop":
