@@ -160,14 +160,14 @@ if [ $PIPELINE_EXIT -eq 0 ]; then
     push_status "archiving"
 
     echo "Archiving results..."
-    if mksquashfs "${{OUTPUT_DIR}}" "${{OUTPUT_DIR}}.sqsh" -noappend -quiet; then
+    if mksquashfs "${{OUTPUT_DIR}}" "${{OUTPUT_DIR}}.sqsh" -noappend -quiet -no-xattrs; then
         echo "Results archived: $(du -h "${{OUTPUT_DIR}}.sqsh" | cut -f1)"
     else
         echo "WARNING: Failed to archive results to squashfs"
     fi
 
     echo "Archiving work dir (excluding raw reads and flye intermediates)..."
-    if mksquashfs "${{WORK_DIR}}" "${{WORK_DIR}}.sqsh" -noappend -quiet \\
+    if mksquashfs "${{WORK_DIR}}" "${{WORK_DIR}}.sqsh" -noappend -quiet -no-xattrs \\
         -wildcards -e '*.fastq' '*.fastq.gz' '*.fq' '*.fq.gz' 'flye_out'; then
         echo "Work dir archived: $(du -h "${{WORK_DIR}}.sqsh" | cut -f1)"
         if [ "${{OMC_CLEANUP_WORKDIR:-false}}" = "true" ]; then
