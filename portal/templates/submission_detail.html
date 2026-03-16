@@ -268,9 +268,11 @@
 
             {% if step3_state != 'locked' %}
             <div class="wf-step-actions">
-                <button class="btn btn-primary" onclick="launchSession()" id="session-launch-btn">
-                    {% if has_interview %}Resume Research Session{% else %}Start Research Session{% endif %}
-                </button>
+                <form id="session-launch-form" action="/sessions/{{ submission.slug }}/launch" method="POST" style="display:inline;">
+                    <button type="submit" class="btn btn-primary" id="session-launch-btn">
+                        {% if has_interview %}Resume Research Session{% else %}Start Research Session{% endif %}
+                    </button>
+                </form>
 
                 <button class="btn btn-secondary" onclick="generateManuscript()"
                     {% if not has_interview %}title="Complete the research session first" disabled{% endif %}>
@@ -704,7 +706,7 @@ async function launchSession() {
     status.textContent = 'Starting your research environment...';
 
     try {
-        const resp = await fetch(`/sessions/${subId}/launch`, { method: 'POST' });
+        const resp = await fetch(`/sessions/${subId}/launch`, { method: 'POST', credentials: 'same-origin' });
         const data = await resp.json();
         if (resp.ok) {
             status.textContent = 'Session ready! Redirecting...';

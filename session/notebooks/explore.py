@@ -5,6 +5,17 @@ app = marimo.App(width="full", app_title="OMC Data Explorer")
 
 
 @app.cell
+def _():
+    import marimo as mo
+    import os
+    from pathlib import Path
+    import pandas as pd
+
+    data_dir = Path(os.environ.get("DATA_DIR", "/data"))
+    return data_dir, mo, os, pd, Path
+
+
+@app.cell
 def _(mo):
     mo.md(
         """
@@ -16,16 +27,6 @@ def _(mo):
         """
     )
     return
-
-
-@app.cell
-def _():
-    import os as _os
-    from pathlib import Path as _Path
-    import pandas as _pd
-
-    data_dir = _Path(_os.environ.get("DATA_DIR", "/data"))
-    return (data_dir,)
 
 
 @app.cell
@@ -59,9 +60,7 @@ def _(mo, available_categories):
 
 
 @app.cell
-def _(mo, category, available_categories, data_dir):
-    import pandas as _pd2
-
+def _(mo, category, available_categories, data_dir, pd):
     if available_categories and category.value:
         _cat_dir = data_dir / category.value
         _file_list = []
@@ -71,7 +70,7 @@ def _(mo, category, available_categories, data_dir):
                 _size_str = f"{_size / 1024:.0f} KB" if _size < 1_000_000 else f"{_size / 1_000_000:.1f} MB"
                 _file_list.append({"File": _f.name, "Size": _size_str})
         if _file_list:
-            _df = _pd2.DataFrame(_file_list)
+            _df = pd.DataFrame(_file_list)
             mo.vstack([
                 mo.md(f"### {category.value.title()} — {len(_file_list)} files"),
                 mo.ui.table(_df),
@@ -80,10 +79,8 @@ def _(mo, category, available_categories, data_dir):
 
 
 @app.cell
-def _(mo, data_dir):
+def _(mo, data_dir, pd):
     """MAG quality scatter plot if binning results exist."""
-    import pandas as _pd3
-
     _quality_files = list(data_dir.rglob("*quality*")) + list(data_dir.rglob("*checkm*"))
 
     _mag_output = None
@@ -91,9 +88,9 @@ def _(mo, data_dir):
         try:
             _qf = _quality_files[0]
             if _qf.suffix in (".tsv", ".txt"):
-                _qdf = _pd3.read_csv(_qf, sep="\t")
+                _qdf = pd.read_csv(_qf, sep="\t")
             elif _qf.suffix == ".csv":
-                _qdf = _pd3.read_csv(_qf)
+                _qdf = pd.read_csv(_qf)
             else:
                 _qdf = None
 
@@ -125,10 +122,8 @@ def _(mo, data_dir):
 
 
 @app.cell
-def _(mo, data_dir):
+def _(mo, data_dir, pd):
     """Taxonomy overview table if available."""
-    import pandas as _pd4
-
     _tax_files = list(data_dir.rglob("*taxonomy*")) + list(data_dir.rglob("*gtdb*")) + list(data_dir.rglob("*kraken*"))
 
     _tax_output = None
@@ -136,9 +131,9 @@ def _(mo, data_dir):
         try:
             _tf = _tax_files[0]
             if _tf.suffix in (".tsv", ".txt"):
-                _tdf = _pd4.read_csv(_tf, sep="\t")
+                _tdf = pd.read_csv(_tf, sep="\t")
             elif _tf.suffix == ".csv":
-                _tdf = _pd4.read_csv(_tf)
+                _tdf = pd.read_csv(_tf)
             else:
                 _tdf = None
 

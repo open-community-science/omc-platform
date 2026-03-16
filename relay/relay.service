@@ -1,0 +1,16 @@
+[Unit]
+Description=Agent Relay — Claude Code chat bridge
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/omc-platform/relay
+Environment=RELAY_DB=/opt/omc-platform/relay/relay.db
+EnvironmentFile=/opt/omc-platform/relay/.env
+ExecStart=/opt/omc-platform/.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8484
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

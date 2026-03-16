@@ -95,6 +95,23 @@ async def _run_docker(cmd: list[str]) -> str:
 async def _sqsh_mount(slug: str, sqsh_path: Path) -> Path:
     """Mount a .sqsh file via squashfuse, return the mountpoint."""
     mountpoint = SQSH_MOUNT_BASE / slug
+
+    # Clean up stale FUSE mountpoints (transport endpoint not connected)
+    if mountpoint.exists():
+        try:
+            list(mountpoint.iterdir())  # test if mount is alive
+            return mountpoint  # already mounted and working
+        except OSError:
+            # Stale mount — force unmount
+            await asyncio.create_subprocess_exec(
+                "fusermount", "-u", str(mountpoint),
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            try:
+                mountpoint.rmdir()
+            except OSError:
+                pass
+
     mountpoint.mkdir(parents=True, exist_ok=True)
 
     proc = await asyncio.create_subprocess_exec(
@@ -153,6 +170,19 @@ async def launch_session(slug: str, metadata: dict) -> SessionInfo:
 
     await _ensure_network()
 
+    # Check for orphaned container from a previous portal process
+    # Only remove if we don't have it tracked in _sessions
+    container_name = f"omc-session-{slug}"
+    if slug not in _sessions:
+        try:
+            # Check if container exists (inspect returns 0 if it does)
+            await _run_docker(["inspect", container_name])
+            # It exists but we don't track it — remove it
+            await _run_docker(["rm", "-f", container_name])
+            logger.info(f"Removed orphaned container {container_name}")
+        except RuntimeError:
+            pass  # doesn't exist, good
+
     chat_port, nb_port = _allocate_ports()
     data_path = DATA_BASE_PATH / slug
 
@@ -190,6 +220,8 @@ async def launch_session(slug: str, metadata: dict) -> SessionInfo:
         "-e", f"LLM_MODEL={settings.llm_model}",
         "-e", f"SUBMISSION_META={json.dumps(metadata)}",
         "-e", f"MARIMO_URL=http://localhost:{nb_port}",
+        "-e", f"CHAT_ROOT_PATH=/session-proxy/{chat_port}",
+        "-e", f"NB_ROOT_PATH=/session-proxy/{nb_port}",
         "--memory", "2g",
         "--cpus", "1.0",
     ]
@@ -272,6 +304,7 @@ async def remove_session(slug: str):
 @router.post("/{slug}/launch")
 async def launch(
     slug: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
@@ -294,6 +327,13 @@ async def launch(
     }
 
     session = await launch_session(slug, metadata)
+
+    # If called from a form (browser), redirect to the chat UI
+    # If called from JS/API, return JSON
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        return RedirectResponse(f"/sessions/{slug}/chat", status_code=303)
+
     return {
         "slug": slug,
         "status": session.status,
