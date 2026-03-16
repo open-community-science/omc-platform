@@ -6,6 +6,7 @@ Connects to an OpenAI-compatible LLM endpoint.
 
 import os
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import chainlit as cl
@@ -21,6 +22,34 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "not-needed")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3-coder-30b-a3b-instruct")
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 MARIMO_URL = os.environ.get("MARIMO_URL", "http://localhost:8081")
+
+# ── Chat state persistence ────────────────────────────────────────────────────
+STATE_FILE = Path("/app/.omc/chat_state.json")
+
+
+def _save_state():
+    """Write session state to container-local file after every message."""
+    state = {
+        "version": 1,
+        "phase": cl.user_session.get("phase", "interview"),
+        "history": cl.user_session.get("history", []),
+        "interview_summary": cl.user_session.get("interview_summary", ""),
+        "results_summary": cl.user_session.get("results_summary", ""),
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
+def _load_state() -> dict | None:
+    """Load session state from container-local file if it exists."""
+    if STATE_FILE.exists():
+        try:
+            return json.loads(STATE_FILE.read_text())
+        except (json.JSONDecodeError, OSError):
+            return None
+    return None
+
 
 # Load metadata from file (round-trips with the data through the pipeline)
 # Falls back to SUBMISSION_META env var for backwards compat
@@ -363,7 +392,11 @@ def get_selected_runs_context():
 
 
 def get_sample_records_json():
-    """Get full sample records as compact JSON for the AI to reason about."""
+    """Get sample records as compact JSON, trimmed to fit context window.
+
+    Keeps only fields useful for sample selection and interview context.
+    Caps total output to ~30K chars to stay well within LLM context limits.
+    """
     try:
         metadata = json.loads(SUBMISSION_META)
     except (json.JSONDecodeError, TypeError):
@@ -371,8 +404,34 @@ def get_sample_records_json():
     records = metadata.get("sample_metadata", {}).get("sample_records", [])
     if not records:
         return "[]"
-    # Compact but readable
-    return json.dumps(records, indent=1, default=str)
+
+    # Fields the AI needs for sample selection and interview
+    KEEP_FIELDS = {
+        "run_accession", "sample_accession", "sample_alias", "sample_title",
+        "scientific_name", "organism", "host", "collection_date", "country",
+        "geo_loc_name", "lat_lon", "environment_biome", "environment_feature",
+        "environment_material", "depth", "altitude", "temperature",
+        "instrument_platform", "instrument_model", "library_strategy",
+        "library_source", "library_layout", "read_count", "base_count",
+    }
+
+    trimmed = []
+    for r in records:
+        entry = {k: v for k, v in r.items() if k in KEEP_FIELDS and v}
+        trimmed.append(entry)
+
+    result = json.dumps(trimmed, indent=1, default=str)
+
+    # Hard cap — if still too large, truncate to first N records
+    MAX_CHARS = 30_000
+    if len(result) > MAX_CHARS:
+        for limit in range(len(trimmed), 0, -1):
+            result = json.dumps(trimmed[:limit], indent=1, default=str)
+            if len(result) <= MAX_CHARS:
+                result += f"\n(showing {limit} of {len(records)} records)"
+                break
+
+    return result
 
 
 def get_current_step():
@@ -413,9 +472,28 @@ async def on_start():
     except json.JSONDecodeError:
         metadata = {}
 
-    # Session state
-    cl.user_session.set("phase", "interview")
     cl.user_session.set("metadata", metadata)
+
+    # Check for saved state (survives docker stop/start)
+    saved = _load_state()
+    if saved and saved.get("history"):
+        cl.user_session.set("phase", saved.get("phase", "interview"))
+        cl.user_session.set("interview_summary", saved.get("interview_summary", ""))
+        cl.user_session.set("results_summary", saved.get("results_summary", ""))
+        cl.user_session.set("history", saved["history"])
+
+        # Replay history to Chainlit UI so user sees prior messages
+        for entry in saved["history"]:
+            author = "assistant" if entry["role"] == "assistant" else "user"
+            await cl.Message(content=entry["content"], author=author).send()
+
+        await cl.Message(
+            content="---\n*Session restored. Pick up where you left off!*"
+        ).send()
+        return
+
+    # Fresh session — initialize state
+    cl.user_session.set("phase", "interview")
     cl.user_session.set("interview_summary", "")
     cl.user_session.set("results_summary", "")
     cl.user_session.set("history", [])
@@ -454,10 +532,12 @@ async def on_start():
             f"*(LLM connection issue: {e})*"
         )
 
+    now = datetime.now(timezone.utc).isoformat()
     cl.user_session.set("history", [
-        {"role": "assistant", "content": greeting}
+        {"role": "assistant", "content": greeting, "timestamp": now}
     ])
 
+    _save_state()
     await cl.Message(content=greeting).send()
 
 
@@ -469,7 +549,8 @@ async def on_message(message: cl.Message):
     history = cl.user_session.get("history", [])
 
     # Add user message to history
-    history.append({"role": "user", "content": message.content})
+    now = datetime.now(timezone.utc).isoformat()
+    history.append({"role": "user", "content": message.content, "timestamp": now})
 
     # Build system prompt for current phase
     if phase == "interview":
@@ -523,8 +604,12 @@ async def on_message(message: cl.Message):
         await msg.update()
 
     # Save to history
-    history.append({"role": "assistant", "content": full_response})
+    now = datetime.now(timezone.utc).isoformat()
+    history.append({"role": "assistant", "content": full_response, "timestamp": now})
     cl.user_session.set("history", history)
+
+    # Persist state to container-local file
+    _save_state()
 
     # Check for run selection updates
     await _check_run_selection(full_response)

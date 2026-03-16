@@ -57,6 +57,7 @@ class SessionInfo:
     sqsh_mounted: bool = False  # True if we squashfuse-mounted a .sqsh
     started_at: datetime = field(default_factory=datetime.utcnow)
     status: str = "running"  # running, stopped
+    chat_state: dict | None = None  # cached chat state for resume without git
 
 
 # In-memory session registry (replace with DB/Redis for production)
@@ -201,6 +202,107 @@ async def _ensure_network():
         logger.info(f"Created Docker network {SESSION_NETWORK}")
 
 
+async def _extract_chat_state(slug: str) -> dict | None:
+    """Read chat state from running container via docker exec."""
+    try:
+        raw = await _run_docker([
+            "exec", f"omc-session-{slug}",
+            "cat", "/app/.omc/chat_state.json",
+        ])
+        return json.loads(raw)
+    except (RuntimeError, json.JSONDecodeError):
+        return None
+
+
+async def _inject_chat_state(slug: str, state: dict):
+    """Write chat state into a container after resume."""
+    import base64
+    encoded = base64.b64encode(json.dumps(state).encode()).decode()
+    await _run_docker([
+        "exec", f"omc-session-{slug}",
+        "sh", "-c",
+        f"mkdir -p /app/.omc && echo '{encoded}' | base64 -d > /app/.omc/chat_state.json",
+    ])
+
+
+async def _commit_chat_to_github(slug: str, state: dict):
+    """Commit chat state to paper repo .omc/ directory."""
+    import httpx
+    import base64
+    from .github_app_auth import get_github_headers
+
+    # Look up submission to get github_repo
+    async with async_session() as db:
+        stmt = select(Submission).where(Submission.slug == slug)
+        result = await db.execute(stmt)
+        submission = result.scalar_one_or_none()
+
+    if not submission or not submission.github_repo:
+        logger.debug(f"No paper repo for {slug}, skipping git commit")
+        return
+
+    repo = submission.github_repo  # e.g. "open-community-science/micro-0001"
+    api = "https://api.github.com"
+
+    try:
+        headers = await get_github_headers()
+    except Exception as e:
+        logger.warning(f"GitHub auth failed for chat commit: {e}")
+        return
+
+    # Prepare transcript (just messages with timestamps)
+    transcript = {
+        "slug": slug,
+        "phase": state.get("phase", "unknown"),
+        "message_count": len(state.get("history", [])),
+        "saved_at": state.get("saved_at", ""),
+        "messages": state.get("history", []),
+    }
+
+    # Prepare session metadata (phase, summaries — no messages)
+    session_meta = {
+        "slug": slug,
+        "phase": state.get("phase", "unknown"),
+        "message_count": len(state.get("history", [])),
+        "interview_summary": state.get("interview_summary", ""),
+        "results_summary": state.get("results_summary", ""),
+        "saved_at": state.get("saved_at", ""),
+    }
+
+    files = {
+        ".omc/chat_transcript.json": json.dumps(transcript, indent=2),
+        ".omc/session_state.json": json.dumps(session_meta, indent=2),
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for path, content in files.items():
+            content_b64 = base64.b64encode(content.encode()).decode()
+
+            # Check if file exists (need sha for updates)
+            get_resp = await client.get(
+                f"{api}/repos/{repo}/contents/{path}",
+                headers=headers,
+            )
+
+            payload = {
+                "message": f"Update {path} — {len(state.get('history', []))} messages",
+                "content": content_b64,
+            }
+
+            if get_resp.status_code == 200:
+                payload["sha"] = get_resp.json()["sha"]
+
+            resp = await client.put(
+                f"{api}/repos/{repo}/contents/{path}",
+                headers=headers,
+                json=payload,
+            )
+            if resp.status_code in (200, 201):
+                logger.info(f"Committed {path} to {repo}")
+            else:
+                logger.warning(f"Failed to commit {path} to {repo}: {resp.status_code} {resp.text[:200]}")
+
+
 async def launch_session(slug: str, metadata: dict) -> SessionInfo:
     """Launch a new session container for a submission."""
     if slug in _sessions and _sessions[slug].status == "running":
@@ -311,10 +413,22 @@ async def launch_session(slug: str, metadata: dict) -> SessionInfo:
 
 
 async def stop_session(slug: str):
-    """Stop (but don't remove) a session container."""
+    """Stop (but don't remove) a session container. Extracts chat state first."""
     if slug not in _sessions:
         return
     session = _sessions[slug]
+
+    # Extract chat state before stopping
+    if session.status == "running":
+        state = await _extract_chat_state(slug)
+        if state:
+            session.chat_state = state
+            # Commit to GitHub in background (don't block stop)
+            try:
+                await _commit_chat_to_github(slug, state)
+            except Exception as e:
+                logger.warning(f"Failed to commit chat for {slug}: {e}")
+
     try:
         await _run_docker(["stop", f"omc-session-{slug}"])
         session.status = "stopped"
@@ -324,7 +438,7 @@ async def stop_session(slug: str):
 
 
 async def resume_session(slug: str) -> SessionInfo:
-    """Resume a stopped session container."""
+    """Resume a stopped session container, restoring chat state."""
     if slug not in _sessions:
         raise HTTPException(404, "No session found")
     session = _sessions[slug]
@@ -334,6 +448,17 @@ async def resume_session(slug: str) -> SessionInfo:
         logger.info(f"Resumed session {slug}")
     except RuntimeError as e:
         raise HTTPException(500, f"Failed to resume session: {e}")
+
+    # Inject cached chat state if the container-local file was lost
+    if session.chat_state:
+        try:
+            # Wait for container processes to start
+            await asyncio.sleep(3)
+            await _inject_chat_state(slug, session.chat_state)
+            logger.info(f"Injected chat state into {slug}")
+        except Exception as e:
+            logger.warning(f"Failed to inject chat state for {slug}: {e}")
+
     return session
 
 
@@ -441,6 +566,22 @@ async def session_notebook(
     session = _sessions[slug]
     # In production, nginx would reverse-proxy this
     return RedirectResponse(f"http://localhost:{session.notebook_port}")
+
+
+@router.post("/{slug}/save")
+async def save(
+    slug: str,
+    user: User = Depends(require_user),
+):
+    """Save chat state to GitHub without stopping the session."""
+    if slug not in _sessions or _sessions[slug].status != "running":
+        raise HTTPException(404, "Session not running")
+    state = await _extract_chat_state(slug)
+    if not state:
+        raise HTTPException(404, "No chat state found")
+    _sessions[slug].chat_state = state
+    await _commit_chat_to_github(slug, state)
+    return {"slug": slug, "status": "saved"}
 
 
 @router.post("/{slug}/stop")

@@ -101,6 +101,12 @@
 
     async function stopSession() {
         if (!confirm('Save and close this session? You can resume it later.')) return;
+        // Save chat to GitHub first, then stop
+        try {
+            await fetch('/sessions/{{ slug }}/save', { method: 'POST', credentials: 'same-origin' });
+        } catch (e) {
+            console.warn('Save failed, stopping anyway:', e);
+        }
         await fetch('/sessions/{{ slug }}/stop', { method: 'POST', credentials: 'same-origin' });
         window.location.href = '/submissions/{{ slug }}';
     }
