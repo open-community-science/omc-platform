@@ -104,9 +104,41 @@
 
             {% if submission.sample_metadata and submission.sample_metadata.get('breakdown') %}
             <div class="wf-data-selection">
-                <h3 class="wf-section-label">Data Selection</h3>
-                <p class="wf-step-desc">Click to select which data types to include. Types must share the same strategy, source, and layout.</p>
+                <h3 class="wf-section-label">Data Type</h3>
+                <p class="wf-step-desc">Select which data types to include. Types must share the same strategy, source, and layout.</p>
                 <div id="breakdown-container"></div>
+            </div>
+
+            <style>
+                .run-table-wrapper { overflow-x: auto; margin-top: 0.5rem; }
+                .run-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+                .run-table th, .run-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--color-border, #ddd); white-space: nowrap; }
+                .run-table th { cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--color-bg, #fff); }
+                .run-table th:hover { background: var(--color-hover, #f0f0f0); }
+                .run-table th .sort-arrow { margin-left: 4px; opacity: 0.4; }
+                .run-table th.sorted .sort-arrow { opacity: 1; }
+                .run-table tr.selected { background: var(--color-selected, #e8f0fe); }
+                .run-table tr:hover { background: var(--color-hover, #f5f5f5); }
+                .run-table tr.selected:hover { background: var(--color-selected-hover, #d0e0fd); }
+                .run-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+                .run-table input[type="checkbox"] { cursor: pointer; }
+                .run-table-controls { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+                .run-table-wrapper { max-height: 400px; overflow-y: auto; }
+            </style>
+            <div class="wf-data-selection" id="run-selector-section" style="display:none;">
+                <h3 class="wf-section-label">Run Selection</h3>
+                <p class="wf-step-desc">Select individual runs to include. Click column headers to sort.</p>
+                <div class="run-table-controls">
+                    <button class="btn btn-sm btn-secondary" onclick="selectAllRuns()">Select All</button>
+                    <button class="btn btn-sm btn-secondary" onclick="deselectAllRuns()">Deselect All</button>
+                    <span id="run-selection-summary" class="selection-summary"></span>
+                </div>
+                <div class="run-table-wrapper">
+                    <table class="run-table" id="run-table">
+                        <thead><tr id="run-table-head"></tr></thead>
+                        <tbody id="run-table-body"></tbody>
+                    </table>
+                </div>
             </div>
             {% endif %}
 
@@ -593,13 +625,37 @@ async function savePipeline() {
 /* ── Data selection (draft only) ── */
 {% if submission.status.value == 'draft' and submission.sample_metadata and submission.sample_metadata.get('breakdown') %}
 const breakdownData = {{ submission.sample_metadata.breakdown | tojson }};
+const sampleRecords = {{ (submission.sample_metadata.get('sample_records', []) or []) | tojson }};
 const selectedRunsData = {{ (submission.selected_runs or []) | tojson }};
 
+// Type selection (breakdown cards)
 let selected = new Set();
+// Run selection (individual run accessions)
+let selectedRuns = new Set();
+// Sort state
+let sortCol = null;
+let sortAsc = true;
+
+// Columns to show in run table (order matters)
+const runColumns = [
+    { key: 'run_accession', label: 'Run', cls: '' },
+    { key: 'sample_alias', label: 'Sample', cls: '' },
+    { key: 'instrument_platform', label: 'Platform', cls: '' },
+    { key: 'instrument_model', label: 'Instrument', cls: '' },
+    { key: 'library_strategy', label: 'Strategy', cls: '' },
+    { key: 'collection_date', label: 'Date', cls: '' },
+    { key: 'country', label: 'Location', cls: '' },
+    { key: 'scientific_name', label: 'Organism', cls: '' },
+    { key: 'base_count', label: 'Bases', cls: 'num' },
+    { key: 'read_count', label: 'Reads', cls: 'num' },
+];
+
 (function initSelection() {
+    // Restore type selection
     for (let i = 0; i < breakdownData.length; i++) {
         for (const sr of selectedRunsData) {
-            if (breakdownData[i].platform === sr.platform &&
+            if (typeof sr === 'object' && sr.platform &&
+                breakdownData[i].platform === sr.platform &&
                 breakdownData[i].strategy === sr.strategy &&
                 breakdownData[i].source === sr.source &&
                 breakdownData[i].layout === sr.layout &&
@@ -609,7 +665,12 @@ let selected = new Set();
             }
         }
     }
+    // Restore run selection (if saved as accession strings)
+    for (const sr of selectedRunsData) {
+        if (typeof sr === 'string') selectedRuns.add(sr);
+    }
     renderBreakdown();
+    renderRunTable();
 })();
 
 function fmtBases(b) {
@@ -617,6 +678,12 @@ function fmtBases(b) {
     if (b >= 1e6) return (b / 1e6).toFixed(0) + ' Mbp';
     return b.toLocaleString() + ' bp';
 }
+
+function fmtNum(n) {
+    return Number(n).toLocaleString();
+}
+
+/* ── Type cards ── */
 
 function renderBreakdown() {
     const container = document.getElementById('breakdown-container');
@@ -651,7 +718,7 @@ function renderBreakdown() {
         const totalBases = selRows.reduce((a, r) => a + r.bases, 0);
         html += `<p class="selection-summary">${selected.size} of ${breakdownData.length} types selected &middot; ${totalRuns} runs &middot; ${totalSamples} samples &middot; ${fmtBases(totalBases)}</p>`;
     } else {
-        html += '<p class="selection-summary" style="color: var(--color-warning)">No data selected</p>';
+        html += '<p class="selection-summary" style="color: var(--color-warning)">No data type selected</p>';
     }
     container.innerHTML = html;
     updatePipelineInfo();
@@ -672,17 +739,149 @@ function canSelect(idx) {
 function toggleColumn(idx) {
     if (selected.has(idx)) selected.delete(idx); else selected.add(idx);
     renderBreakdown();
+    renderRunTable();
     saveSelection();
 }
+
+/* ── Run table ── */
+
+function getFilteredRuns() {
+    if (selected.size === 0 || !sampleRecords.length) return [];
+    // Get run accessions from selected type groups
+    const allowedAccs = new Set();
+    for (const i of selected) {
+        for (const acc of (breakdownData[i].run_accessions || [])) {
+            allowedAccs.add(acc);
+        }
+    }
+    return sampleRecords.filter(r => allowedAccs.has(r.run_accession));
+}
+
+function renderRunTable() {
+    const section = document.getElementById('run-selector-section');
+    const head = document.getElementById('run-table-head');
+    const body = document.getElementById('run-table-body');
+    if (!section || !head || !body) return;
+
+    const runs = getFilteredRuns();
+    if (!runs.length) {
+        section.style.display = 'none';
+        return;
+    }
+    section.style.display = '';
+
+    // Sort
+    let sorted = [...runs];
+    if (sortCol) {
+        sorted.sort((a, b) => {
+            let va = a[sortCol] || '', vb = b[sortCol] || '';
+            // Numeric sort for base_count, read_count
+            if (sortCol === 'base_count' || sortCol === 'read_count') {
+                va = Number(va) || 0; vb = Number(vb) || 0;
+            }
+            if (va < vb) return sortAsc ? -1 : 1;
+            if (va > vb) return sortAsc ? 1 : -1;
+            return 0;
+        });
+    }
+
+    // Auto-select all runs if none were previously selected
+    if (selectedRuns.size === 0) {
+        for (const r of sorted) selectedRuns.add(r.run_accession);
+    }
+
+    // Header
+    let hhtml = '<th><input type="checkbox" onchange="toggleAllRunCheckbox(this)" ' +
+        (sorted.every(r => selectedRuns.has(r.run_accession)) ? 'checked' : '') + '></th>';
+    for (const col of runColumns) {
+        const arrow = sortCol === col.key ? (sortAsc ? '▲' : '▼') : '↕';
+        const cls = sortCol === col.key ? 'sorted' : '';
+        hhtml += `<th class="${cls}" onclick="sortRunTable('${col.key}')">${col.label} <span class="sort-arrow">${arrow}</span></th>`;
+    }
+    head.innerHTML = hhtml;
+
+    // Body
+    let bhtml = '';
+    for (const r of sorted) {
+        const acc = r.run_accession;
+        const checked = selectedRuns.has(acc);
+        bhtml += `<tr class="${checked ? 'selected' : ''}" onclick="toggleRun('${acc}', event)">`;
+        bhtml += `<td><input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleRun('${acc}')"></td>`;
+        for (const col of runColumns) {
+            let val = r[col.key] || '';
+            if ((col.key === 'base_count' || col.key === 'read_count') && val) {
+                val = fmtNum(val);
+            }
+            bhtml += `<td class="${col.cls}">${val}</td>`;
+        }
+        bhtml += '</tr>';
+    }
+    body.innerHTML = bhtml;
+
+    updateRunSummary(sorted);
+}
+
+function sortRunTable(col) {
+    if (sortCol === col) { sortAsc = !sortAsc; }
+    else { sortCol = col; sortAsc = true; }
+    renderRunTable();
+}
+
+function toggleRun(acc, event) {
+    if (event && event.target.type === 'checkbox') return; // handled by checkbox onclick
+    if (selectedRuns.has(acc)) selectedRuns.delete(acc); else selectedRuns.add(acc);
+    renderRunTable();
+    saveSelection();
+}
+
+function toggleAllRunCheckbox(checkbox) {
+    const runs = getFilteredRuns();
+    if (checkbox.checked) {
+        for (const r of runs) selectedRuns.add(r.run_accession);
+    } else {
+        for (const r of runs) selectedRuns.delete(r.run_accession);
+    }
+    renderRunTable();
+    saveSelection();
+}
+
+function selectAllRuns() {
+    for (const r of getFilteredRuns()) selectedRuns.add(r.run_accession);
+    renderRunTable();
+    saveSelection();
+}
+
+function deselectAllRuns() {
+    for (const r of getFilteredRuns()) selectedRuns.delete(r.run_accession);
+    renderRunTable();
+    saveSelection();
+}
+
+function updateRunSummary(runs) {
+    const el = document.getElementById('run-selection-summary');
+    if (!el) return;
+    const selCount = runs.filter(r => selectedRuns.has(r.run_accession)).length;
+    const totalBases = runs.filter(r => selectedRuns.has(r.run_accession))
+        .reduce((a, r) => a + (Number(r.base_count) || 0), 0);
+    el.textContent = `${selCount} of ${runs.length} runs selected` +
+        (totalBases > 0 ? ` · ${fmtBases(totalBases)}` : '');
+}
+
+/* ── Save selection ── */
 
 let selectionSaveTimer = null;
 function saveSelection() {
     clearTimeout(selectionSaveTimer);
     selectionSaveTimer = setTimeout(async () => {
+        // Save both type indices and selected run accessions
         const resp = await fetch(`/submissions/${subId}/update`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ selected_runs: [...selected] }),
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                selected_runs: [...selected],
+                selected_run_accessions: [...selectedRuns],
+            }),
         });
         const data = await resp.json();
         if (data.ok && data.pipeline) {

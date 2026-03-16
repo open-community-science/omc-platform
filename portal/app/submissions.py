@@ -3,6 +3,7 @@ from fastapi import APIRouter, Request, Depends, HTTPException, Form, Background
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import attributes
 from datetime import datetime
 from typing import Optional
 
@@ -366,6 +367,20 @@ async def update_submission(
                 submission.pipeline = _auto_pipeline(submission.selected_runs)
             elif not indices:
                 submission.selected_runs = None
+
+        if "selected_run_accessions" in body:
+            # Store individual run accessions chosen in the run selector
+            accessions = body["selected_run_accessions"]
+            if isinstance(accessions, list):
+                # Merge into selected_runs — keep type dicts plus run accession list
+                sr = submission.selected_runs or []
+                # Store as mixed list: type dicts + accession strings
+                # The download worker reads run_accessions from the type dicts,
+                # but if individual accessions are provided, use those instead
+                interview_data = dict(submission.interview_data or {})
+                interview_data["_selected_run_accessions"] = accessions
+                submission.interview_data = interview_data
+                attributes.flag_modified(submission, "interview_data")
 
     await db.commit()
     return JSONResponse({"ok": True, "title": submission.title, "pipeline": submission.pipeline.value})

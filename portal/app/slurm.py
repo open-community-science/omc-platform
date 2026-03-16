@@ -212,9 +212,13 @@ def _build_local_download_wrapper(submission: Submission) -> str:
     local_dir = f"{settings.local_download_path}/{submission.slug}"
     accession = submission.bioproject_accession
 
-    # Extract run accessions from selected_runs if available
+    # Extract run accessions — prefer individual selections from run selector,
+    # fall back to all runs from selected type groups
     run_accessions = []
-    if submission.selected_runs:
+    interview_data = submission.interview_data or {}
+    if interview_data.get("_selected_run_accessions"):
+        run_accessions = interview_data["_selected_run_accessions"]
+    elif submission.selected_runs:
         for row in submission.selected_runs:
             if isinstance(row, dict) and row.get("run_accessions"):
                 run_accessions.extend(row["run_accessions"])
