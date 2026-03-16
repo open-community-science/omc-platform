@@ -98,7 +98,7 @@ async def _sqsh_mount(slug: str, sqsh_path: Path) -> Path:
     mountpoint.mkdir(parents=True, exist_ok=True)
 
     proc = await asyncio.create_subprocess_exec(
-        "squashfuse", str(sqsh_path), str(mountpoint),
+        "squashfuse", "-o", "allow_other", str(sqsh_path), str(mountpoint),
         stderr=asyncio.subprocess.PIPE,
     )
     _, stderr = await proc.communicate()

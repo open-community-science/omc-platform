@@ -172,7 +172,7 @@ fir: pipeline completes → mksquashfs results → POST /staging/{slug}/upload-r
 
 - **Transfer**: single `.sqsh` file instead of thousands of loose files
 - **Inode efficiency**: 1 file per submission on both fir scratch and arbutus storage
-- **Session integration**: session manager auto-detects `.sqsh`, mounts via squashfuse, falls back to loose files
+- **Session integration**: session manager auto-detects `.sqsh`, mounts via `squashfuse -o allow_other`, falls back to loose files
 - **Re-analysis**: fir uses fuse-overlayfs (squashfs lower + writable upper) for `--resume`
 - **Provenance**: `.sqsh` is a checksummable artifact — hash stored in paper repo `.omc/`
 - **Tracking**: `Submission.results_format` field: `none` → `live` → `archived` → `transferred`
@@ -280,10 +280,17 @@ sudo apt install -y \
     sra-toolkit      # prefetch, fasterq-dump for SRA downloads
 ```
 
+### FUSE Config
+
+```bash
+# Enable allow_other so Docker can access squashfuse mounts
+sudo sed -i 's/^#user_allow_other/user_allow_other/' /etc/fuse.conf
+```
+
 ### Docker Setup
 
 ```bash
-sudo usermod -aG docker $USER   # run docker without sudo
+sudo usermod -aG docker $USER   # run docker without sudo (re-login required)
 # Session network (once)
 sudo session/setup-network.sh   # creates omc-sessions bridge + iptables rules
 # Session image
@@ -324,6 +331,8 @@ nginx.service         — reverse proxy, TLS termination
 - `microbial.opencommunity.science/relay/` → `localhost:8484` (relay)
 - Session proxying (TODO): `/sessions/{slug}/chat` → `localhost:{port}`
 
+**Important:** `client_max_body_size 10G;` in the server block — required for `.sqsh` uploads from fir.
+
 ### Environment File (`/opt/omc-platform/portal/.env`)
 
 ```
@@ -339,6 +348,19 @@ LOCAL_DOWNLOAD_PATH=/data/sra_downloads
 DEBUG=false
 ```
 
+### Reference DB Squashfs
+
+Large reference databases are squashed to save inodes and stored in project storage. Squashfuse-mounted at runtime by the pipeline wrapper.
+
+| DB | Files | Original | Squashed |
+|----|-------|----------|----------|
+| gtdbtk_db | 143,875 | 139G | 131G |
+| kofam_db | 27,508 | 7.2G | 1.5G |
+| defensefinder_models | 2,350 | 320M | 59M |
+| bakta | 418 | 88G | 45G |
+
+Created with `mksquashfs /path/to/db db.sqsh -noappend -no-xattrs`. Mounted with `squashfuse -o allow_other db.sqsh /mnt/db`.
+
 ### Portability Checklist
 
 To deploy on a new VM:
@@ -347,12 +369,14 @@ To deploy on a new VM:
 2. Clone repo to `/opt/omc-platform/`
 3. Create `.env` with site-specific values
 4. `pip install -r portal/requirements.txt`
-5. Build session image: `cd session && docker build -t omc-session:latest .`
-6. Run network setup: `sudo session/setup-network.sh`
-7. Create directories: `mkdir -p /data/sra_downloads /data/results /mnt/omc-sessions`
-8. Set up systemd services (see `deploy.sh`)
-9. Configure nginx + certbot for TLS
-10. Set up relay key: `mkdir -p ~/.config/omc && openssl rand -base64 32 > ~/.config/omc/relay-key`
+5. Enable FUSE `user_allow_other` in `/etc/fuse.conf`
+6. Add deploy user to docker group: `sudo usermod -aG docker $USER`
+7. Build session image: `cd session && docker build -t omc-session:latest .`
+8. Run network setup: `sudo session/setup-network.sh`
+9. Create directories: `mkdir -p /data/sra_downloads /data/results /mnt/omc-sessions`
+10. Set up systemd services (see `deploy.sh`)
+11. Configure nginx + certbot for TLS (set `client_max_body_size 10G`)
+12. Set up relay key: `mkdir -p ~/.config/omc && openssl rand -base64 32 > ~/.config/omc/relay-key`
 
 ## License
 
