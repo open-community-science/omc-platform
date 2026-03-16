@@ -154,6 +154,43 @@ echo $PIPELINE_EXIT > ${{OUTPUT_DIR}}/.completed
 if [ $PIPELINE_EXIT -eq 0 ]; then
     echo "completed" > ${{OUTPUT_DIR}}/.status
     push_status "completed" ',\\"exit_code\\":\\"0\\"'
+
+    # Archive results and work dir to squashfs (reduces inode footprint)
+    echo "=== Archiving to squashfs ==="
+    push_status "archiving"
+
+    echo "Archiving results..."
+    if mksquashfs "${{OUTPUT_DIR}}" "${{OUTPUT_DIR}}.sqsh" -noappend -quiet; then
+        echo "Results archived: $(du -h "${{OUTPUT_DIR}}.sqsh" | cut -f1)"
+    else
+        echo "WARNING: Failed to archive results to squashfs"
+    fi
+
+    echo "Archiving work dir (excluding raw reads and flye intermediates)..."
+    if mksquashfs "${{WORK_DIR}}" "${{WORK_DIR}}.sqsh" -noappend -quiet \\
+        -wildcards -e '*.fastq' '*.fastq.gz' '*.fq' '*.fq.gz' 'flye_out'; then
+        echo "Work dir archived: $(du -h "${{WORK_DIR}}.sqsh" | cut -f1)"
+        rm -rf "${{WORK_DIR}}"
+        echo "Work dir cleaned up"
+    else
+        echo "WARNING: Failed to archive work dir to squashfs"
+    fi
+
+    # Upload results squashfs to arbutus
+    if [ -f "${{OUTPUT_DIR}}.sqsh" ] && [ -n "$OMC_STAGING_URL" ] && [ -n "$OMC_STAGING_KEY" ]; then
+        echo "Uploading results to arbutus..."
+        UPLOAD_RC=0
+        curl -sf -X POST "${{OMC_STAGING_URL}}/staging/${{SLUG}}/upload-results" \\
+            -H "Authorization: Bearer ${{OMC_STAGING_KEY}}" \\
+            -H "Content-Type: application/octet-stream" \\
+            --data-binary "@${{OUTPUT_DIR}}.sqsh" || UPLOAD_RC=$?
+        if [ $UPLOAD_RC -eq 0 ]; then
+            echo "Upload complete"
+            push_status "transferred" ',\\"results_format\\":\\"archived\\"'
+        else
+            echo "WARNING: Upload failed (exit $UPLOAD_RC) — results remain on scratch"
+        fi
+    fi
 else
     echo "failed" > ${{OUTPUT_DIR}}/.status
     push_status "failed" ',\\"exit_code\\":\\"'$PIPELINE_EXIT'\\",\\"reason\\":\\"Pipeline exited with code '$PIPELINE_EXIT'\\"'
