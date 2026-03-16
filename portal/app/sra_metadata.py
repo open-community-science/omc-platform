@@ -1,12 +1,43 @@
-"""Fetch and parse SRA metadata from NCBI."""
-from Bio import Entrez
-from xml.etree import ElementTree
-import json
+"""Fetch and parse SRA metadata from NCBI and EBI/ENA."""
+import csv
+import io
+import logging
 from typing import Optional
 
+import httpx
+from Bio import Entrez
+from xml.etree import ElementTree
+
+logger = logging.getLogger(__name__)
 
 # NCBI requires an email for Entrez queries
 Entrez.email = "omc@opencommunity.science"
+
+# EBI/ENA portal API — returns per-run metadata as TSV, including MIxS fields
+ENA_API = "https://www.ebi.ac.uk/ena/portal/api/filereport"
+
+# Fields to request from ENA — covers MIxS/MIMARKS plus sequencing metadata
+ENA_FIELDS = ",".join([
+    # Run / experiment
+    "run_accession", "experiment_accession", "experiment_title",
+    "sample_accession", "sample_title", "sample_alias", "sample_description",
+    # Sequencing
+    "library_name", "library_strategy", "library_source", "library_selection",
+    "library_layout", "instrument_platform", "instrument_model",
+    "base_count", "read_count",
+    # Study
+    "study_accession", "study_title", "center_name",
+    # Taxonomy
+    "tax_id", "scientific_name",
+    # MIxS / MIMARKS environmental
+    "collection_date", "country", "description",
+    "environment_biome", "environment_feature", "environment_material",
+    "host", "investigation_type",
+    "lat", "lon",
+    "project_name", "sample_collection", "sequencing_method",
+    # BioSample
+    "broker_name", "nominal_length", "nominal_sdev",
+])
 
 
 async def resolve_to_bioproject(accession: str) -> dict:
@@ -564,6 +595,129 @@ def _parse_sra_xml(xml_data: str | bytes, accession: str) -> dict:
         break
 
     return metadata
+
+
+async def fetch_sample_metadata(bioproject: str) -> list[dict]:
+    """Fetch per-sample metadata for a BioProject from EBI/ENA.
+
+    Returns a list of dicts, one per run, with MIxS/MIMARKS fields:
+    collection_date, country, lat, lon, environment_biome/feature/material,
+    plus sequencing metadata (platform, strategy, bases, etc.).
+
+    ENA mirrors NCBI data so PRJNA accessions work directly.
+    Falls back to NCBI BioSample fetch if ENA returns nothing.
+    """
+    samples = await _fetch_ena_metadata(bioproject)
+    if not samples:
+        samples = await _fetch_biosample_metadata_ncbi(bioproject)
+    return samples
+
+
+async def _fetch_ena_metadata(bioproject: str) -> list[dict]:
+    """Fetch per-run metadata from EBI/ENA portal API as TSV."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(ENA_API, params={
+                "accession": bioproject,
+                "result": "read_run",
+                "fields": ENA_FIELDS,
+                "format": "tsv",
+                "limit": "0",  # no limit
+            })
+            if resp.status_code != 200:
+                logger.warning(f"ENA API returned {resp.status_code} for {bioproject}")
+                return []
+
+            text = resp.text.strip()
+            if not text or "\t" not in text:
+                return []
+
+            reader = csv.DictReader(io.StringIO(text), delimiter="\t")
+            samples = []
+            for row in reader:
+                # Clean up empty strings
+                clean = {k: v for k, v in row.items() if v and v.strip()}
+                if clean:
+                    samples.append(clean)
+
+            logger.info(f"ENA returned {len(samples)} runs for {bioproject}")
+            return samples
+
+    except Exception as e:
+        logger.warning(f"ENA fetch failed for {bioproject}: {e}")
+        return []
+
+
+async def _fetch_biosample_metadata_ncbi(bioproject: str) -> list[dict]:
+    """Fallback: fetch BioSample records from NCBI for a BioProject.
+
+    Slower than ENA but works for accessions not yet mirrored.
+    """
+    try:
+        # Find linked BioSample IDs
+        link_handle = Entrez.elink(
+            dbfrom="bioproject", db="biosample",
+            id=bioproject, linkname="bioproject_biosample",
+        )
+        links = Entrez.read(link_handle)
+        link_handle.close()
+
+        bs_ids = []
+        for linkset in links:
+            for link_db in linkset.get("LinkSetDb", []):
+                bs_ids.extend(link.get("Id", "") for link in link_db.get("Link", []))
+
+        if not bs_ids:
+            logger.info(f"No BioSamples linked to {bioproject}")
+            return []
+
+        # Fetch BioSample records in batches
+        samples = []
+        for i in range(0, len(bs_ids), 100):
+            batch = bs_ids[i:i + 100]
+            fetch_handle = Entrez.efetch(
+                db="biosample", id=",".join(batch),
+                rettype="full", retmode="xml",
+            )
+            xml_data = fetch_handle.read()
+            fetch_handle.close()
+
+            if isinstance(xml_data, str):
+                xml_data = xml_data.encode()
+
+            root = ElementTree.fromstring(xml_data)
+            for biosample in root.iter("BioSample"):
+                sample = {
+                    "sample_accession": biosample.get("accession", ""),
+                }
+
+                title_el = biosample.find(".//Title")
+                if title_el is not None and title_el.text:
+                    sample["sample_title"] = title_el.text
+
+                org_el = biosample.find(".//Organism")
+                if org_el is not None:
+                    sample["scientific_name"] = org_el.get("taxonomy_name", "")
+                    sample["tax_id"] = org_el.get("taxonomy_id", "")
+
+                model_el = biosample.find(".//Model")
+                if model_el is not None and model_el.text:
+                    sample["biosample_model"] = model_el.text
+
+                # All sample attributes (MIxS/MIMARKS fields)
+                for attr in biosample.iter("Attribute"):
+                    name = attr.get("harmonized_name") or attr.get("attribute_name", "")
+                    if name and attr.text:
+                        sample[name] = attr.text
+
+                samples.append(sample)
+
+        logger.info(f"NCBI returned {len(samples)} BioSamples for {bioproject}")
+        return samples
+
+    except Exception as e:
+        logger.warning(f"NCBI BioSample fetch failed for {bioproject}: {e}")
+        return []
 
 
 def metadata_summary(metadata: dict) -> str:

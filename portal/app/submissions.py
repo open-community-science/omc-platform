@@ -332,6 +332,13 @@ async def update_submission(
 
             submission.bioproject_accession = bioproject_acc
             submission.sra_accession = accession if accession != bioproject_acc else None
+
+            # Fetch per-sample MIxS/MIMARKS metadata from EBI/ENA
+            from .sra_metadata import fetch_sample_metadata
+            sample_records = await fetch_sample_metadata(bioproject_acc)
+            if sample_records:
+                project_metadata["sample_records"] = sample_records
+
             submission.sample_metadata = project_metadata
 
             # Auto-update title from metadata
