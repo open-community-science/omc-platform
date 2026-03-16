@@ -170,8 +170,12 @@ if [ $PIPELINE_EXIT -eq 0 ]; then
     if mksquashfs "${{WORK_DIR}}" "${{WORK_DIR}}.sqsh" -noappend -quiet \\
         -wildcards -e '*.fastq' '*.fastq.gz' '*.fq' '*.fq.gz' 'flye_out'; then
         echo "Work dir archived: $(du -h "${{WORK_DIR}}.sqsh" | cut -f1)"
-        rm -rf "${{WORK_DIR}}"
-        echo "Work dir cleaned up"
+        if [ "${{OMC_CLEANUP_WORKDIR:-false}}" = "true" ]; then
+            rm -rf "${{WORK_DIR}}"
+            echo "Work dir cleaned up"
+        else
+            echo "Work dir retained (set OMC_CLEANUP_WORKDIR=true to auto-delete)"
+        fi
     else
         echo "WARNING: Failed to archive work dir to squashfs"
     fi
