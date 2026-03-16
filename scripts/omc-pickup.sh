@@ -69,14 +69,28 @@ echo "$READY_JSON" | jq -c '.ready_runs[]' 2>/dev/null | while IFS= read -r slug
         echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) Fetching run $ACC for $SLUG"
         push_status "$SLUG" "{\"phase\":\"downloading\",\"detail\":\"Transferring $ACC to HPC\"}"
 
-        # Download each file for this run
+        # Download each file for this run (one at a time, with retry)
         DOWNLOAD_OK=true
         for FNAME in $(echo "$run_entry" | jq -r '.files[]'); do
             echo "  Downloading $FNAME..."
-            curl -sf -H "$AUTH_HEADER" "${STAGING_API}/${SLUG}/download/fastq/${FNAME}" \
-                -o "${INPUT_DIR}/fastq/${FNAME}"
-            if [ $? -ne 0 ]; then
-                echo "  ERROR: Failed to download $FNAME"
+            DL_OK=false
+            for attempt in 1 2 3; do
+                curl -f --max-time 7200 --retry 2 --retry-delay 10 \
+                    -H "$AUTH_HEADER" \
+                    "${STAGING_API}/${SLUG}/download/fastq/${FNAME}" \
+                    -o "${INPUT_DIR}/fastq/${FNAME}" 2>/dev/null
+                if [ $? -eq 0 ] && [ -s "${INPUT_DIR}/fastq/${FNAME}" ]; then
+                    DL_OK=true
+                    echo "  Downloaded: $(du -h "${INPUT_DIR}/fastq/${FNAME}" | cut -f1)"
+                    break
+                fi
+                echo "  Attempt $attempt failed, retrying in 30s..."
+                rm -f "${INPUT_DIR}/fastq/${FNAME}"
+                sleep 30
+            done
+            if [ "$DL_OK" != "true" ]; then
+                echo "  ERROR: Failed to download $FNAME after 3 attempts"
+                rm -f "${INPUT_DIR}/fastq/${FNAME}"
                 DOWNLOAD_OK=false
             fi
         done
@@ -104,7 +118,8 @@ echo "$READY_JSON" | jq -c '.ready_runs[]' 2>/dev/null | while IFS= read -r slug
 
         # Download pipeline.sh
         echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) All runs done for $SLUG — fetching pipeline.sh"
-        curl -sf -H "$AUTH_HEADER" "${STAGING_API}/${SLUG}/download/pipeline.sh" \
+        curl -f --max-time 60 --retry 3 --retry-delay 10 \
+            -H "$AUTH_HEADER" "${STAGING_API}/${SLUG}/download/pipeline.sh" \
             -o "${OUTPUT_DIR}/pipeline.sh"
         if [ $? -ne 0 ]; then
             echo "  ERROR: Failed to download pipeline.sh"
