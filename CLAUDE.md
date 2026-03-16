@@ -160,11 +160,28 @@ Container (OpenAI SDK) → http://172.30.0.1:8002/api/llm/chat/completions
 - **Rate limiting**: 30 requests/min per session
 - **Logging**: Every LLM call logged with submission slug for provenance
 
+### Results Storage (squashfs)
+
+Pipeline results are packaged as squashfs archives for efficient storage and transfer:
+
+```
+fir: pipeline completes → mksquashfs results → POST /staging/{slug}/upload-results
+  → arbutus stores {slug}.sqsh in /data/results/
+    → session launch: squashfuse mount → bind-mount into container at /data:ro
+```
+
+- **Transfer**: single `.sqsh` file instead of thousands of loose files
+- **Inode efficiency**: 1 file per submission on both fir scratch and arbutus storage
+- **Session integration**: session manager auto-detects `.sqsh`, mounts via squashfuse, falls back to loose files
+- **Re-analysis**: fir uses fuse-overlayfs (squashfs lower + writable upper) for `--resume`
+- **Provenance**: `.sqsh` is a checksummable artifact — hash stored in paper repo `.omc/`
+- **Tracking**: `Submission.results_format` field: `none` → `live` → `archived` → `transferred`
+
 ### Container Isolation
 
 - **Network**: `omc-sessions` Docker bridge, inter-container communication disabled
 - **Firewall**: iptables restrict outbound to portal port only (run `session/setup-network.sh`)
-- **Data**: Submission dataset mounted read-only at `/data`
+- **Data**: Submission dataset mounted read-only at `/data` (loose files or squashfuse mount)
 - **Resources**: 2GB memory, 1 CPU per container
 - **Lifecycle**: Containers are stopped (not destroyed) when idle — `docker start` resumes with full state
 
@@ -229,9 +246,12 @@ relay channels                     # list active channels
 ## HPC Job Flow (SSH-free)
 
 1. **Download** (arbutus VM): `prefetch` + `fasterq-dump` + `pigz` per run, with 30min timeout and single retry. Stages files in `LOCAL_DOWNLOAD_PATH/{slug}/`, writes `.ready` marker.
-2. **Transfer** (fir cron → arbutus HTTP): `omc-pickup.sh` polls `GET /staging/ready`, downloads fastq + `pipeline.sh` via `GET /staging/{slug}/download/...`, then `POST /staging/{slug}/picked-up` to clean up.
+2. **Transfer to fir** (fir cron → arbutus HTTP): `omc-pickup.sh` polls `GET /staging/ready`, downloads fastq + `pipeline.sh` via `GET /staging/{slug}/download/...`, then `POST /staging/{slug}/picked-up` to clean up.
 3. **Pipeline** (fir compute node via `sbatch`): Cron submits pipeline after transfer. Pipeline pushes status back to `POST /staging/{slug}/status`.
-4. **Status polling**: Portal reads local staging markers (download phase) + pushed HPC status JSON (pipeline phase). Background poller (60s) + htmx polling on user page. No SSH anywhere.
+4. **Archive** (fir post-pipeline): `mksquashfs` results → `{slug}.sqsh`. Work dir also squashed separately. Frees inodes on scratch.
+5. **Transfer to arbutus** (fir → arbutus HTTP): `POST /staging/{slug}/upload-results` with `.sqsh` body. Arbutus stores at `/data/results/{slug}.sqsh`.
+6. **Session mount**: Portal squashfuse-mounts `.sqsh` → bind-mounts into author session container at `/data:ro`.
+7. **Status polling**: Portal reads local staging markers (download phase) + pushed HPC status JSON (pipeline phase). Background poller (60s) + htmx polling on user page. No SSH anywhere.
 
 ## Pipeline (danaSeq)
 
@@ -241,6 +261,98 @@ relay channels                     # list active channels
 - **Default flags:** `--all --run_sendsketch false --run_vamb_tax false` (sendsketch needs TaxServer)
 - **Resources:** 128G mem, 32 CPUs for `--all` mode (kaiju/kraken2/GTDB need 128G minimum)
 - **Read type:** Auto-detected from median quality (Q>=20 → `--nano-hq`, Q<20 → `--nano-raw`)
+
+## Host Environment (Arbutus VM)
+
+Everything the portal needs beyond a base Ubuntu 24.04 VM. This list is the recipe for reproducing the environment on a new host.
+
+### System Packages
+
+```bash
+sudo apt install -y \
+    python3.12 python3-pip python3-venv \
+    docker.io \
+    squashfs-tools \
+    squashfuse \
+    fuse3 \
+    nginx \
+    certbot python3-certbot-nginx \
+    sra-toolkit      # prefetch, fasterq-dump for SRA downloads
+```
+
+### Docker Setup
+
+```bash
+sudo usermod -aG docker $USER   # run docker without sudo
+# Session network (once)
+sudo session/setup-network.sh   # creates omc-sessions bridge + iptables rules
+# Session image
+cd session && docker build -t omc-session:latest .
+```
+
+### Python Packages
+
+```bash
+pip install -r portal/requirements.txt
+pip install chainlit marimo   # for session container dev/testing
+```
+
+### Directory Layout on Host
+
+```
+/opt/omc-platform/           # deployed code (rsync from repo)
+/data/sra_downloads/          # SRA download staging (LOCAL_DOWNLOAD_PATH)
+  {slug}/fastq/              # per-submission fastq files
+  .hpc_status/               # status JSON pushed by fir
+/data/results/                # squashfs result archives
+  {slug}.sqsh                # pipeline results from fir
+/mnt/omc-sessions/            # squashfuse mountpoints (ephemeral)
+  {slug}/                    # mounted .sqsh for active sessions
+```
+
+### Systemd Services
+
+```
+omc-portal.service    — uvicorn portal on port 8002
+relay.service         — relay API on port 8484
+nginx.service         — reverse proxy, TLS termination
+```
+
+### Nginx Sites
+
+- `microbial.opencommunity.science` → `localhost:8002` (portal)
+- `microbial.opencommunity.science/relay/` → `localhost:8484` (relay)
+- Session proxying (TODO): `/sessions/{slug}/chat` → `localhost:{port}`
+
+### Environment File (`/opt/omc-platform/portal/.env`)
+
+```
+SECRET_KEY=<random>
+LLM_BASE_URL=<llm endpoint>
+LLM_API_KEY=<key>
+LLM_MODEL=<model>
+GITHUB_APP_ID=3078928
+GITHUB_APP_PRIVATE_KEY=<pem path>
+GITHUB_ORG=open-community-science
+STAGING_API_KEY=<shared key with fir>
+LOCAL_DOWNLOAD_PATH=/data/sra_downloads
+DEBUG=false
+```
+
+### Portability Checklist
+
+To deploy on a new VM:
+
+1. Install system packages (above)
+2. Clone repo to `/opt/omc-platform/`
+3. Create `.env` with site-specific values
+4. `pip install -r portal/requirements.txt`
+5. Build session image: `cd session && docker build -t omc-session:latest .`
+6. Run network setup: `sudo session/setup-network.sh`
+7. Create directories: `mkdir -p /data/sra_downloads /data/results /mnt/omc-sessions`
+8. Set up systemd services (see `deploy.sh`)
+9. Configure nginx + certbot for TLS
+10. Set up relay key: `mkdir -p ~/.config/omc && openssl rand -base64 32 > ~/.config/omc/relay-key`
 
 ## License
 

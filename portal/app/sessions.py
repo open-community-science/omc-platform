@@ -24,6 +24,7 @@ from .config import get_settings
 from .database import get_db, Submission, User
 from .auth import require_user
 from .llm_proxy import create_session_token, revoke_session_token
+from .staging import get_results_path
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -42,6 +43,7 @@ GATEWAY_IP = "172.30.0.1"  # host gateway on the session network
 PORTAL_PORT = 8002
 
 DATA_BASE_PATH = Path(settings.local_download_path) if hasattr(settings, "local_download_path") else Path("/data/sra_downloads")
+SQSH_MOUNT_BASE = Path("/mnt/omc-sessions")  # host mountpoints for squashfuse
 
 
 @dataclass
@@ -51,6 +53,8 @@ class SessionInfo:
     chat_port: int
     notebook_port: int
     session_token: str = ""
+    data_mount: str = ""  # host path to bind-mount as /data (dir or squashfuse mountpoint)
+    sqsh_mounted: bool = False  # True if we squashfuse-mounted a .sqsh
     started_at: datetime = field(default_factory=datetime.utcnow)
     status: str = "running"  # running, stopped
 
@@ -86,6 +90,39 @@ async def _run_docker(cmd: list[str]) -> str:
     if proc.returncode != 0:
         raise RuntimeError(f"docker {cmd[0]} failed: {stderr.decode()}")
     return stdout.decode().strip()
+
+
+async def _sqsh_mount(slug: str, sqsh_path: Path) -> Path:
+    """Mount a .sqsh file via squashfuse, return the mountpoint."""
+    mountpoint = SQSH_MOUNT_BASE / slug
+    mountpoint.mkdir(parents=True, exist_ok=True)
+
+    proc = await asyncio.create_subprocess_exec(
+        "squashfuse", str(sqsh_path), str(mountpoint),
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(f"squashfuse failed: {stderr.decode()}")
+    logger.info(f"Mounted {sqsh_path.name} at {mountpoint}")
+    return mountpoint
+
+
+async def _sqsh_unmount(slug: str):
+    """Unmount a squashfuse mountpoint."""
+    mountpoint = SQSH_MOUNT_BASE / slug
+    if not mountpoint.exists():
+        return
+    proc = await asyncio.create_subprocess_exec(
+        "fusermount", "-u", str(mountpoint),
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+    try:
+        mountpoint.rmdir()
+    except OSError:
+        pass
+    logger.info(f"Unmounted {mountpoint}")
 
 
 async def _ensure_network():
@@ -125,6 +162,21 @@ async def launch_session(slug: str, metadata: dict) -> SessionInfo:
     # Container talks to portal at GATEWAY_IP:PORTAL_PORT
     proxy_base_url = f"http://{GATEWAY_IP}:{PORTAL_PORT}/api/llm"
 
+    # Resolve data source: prefer .sqsh archive, fall back to loose files
+    data_mount = ""
+    sqsh_mounted = False
+    sqsh_path = get_results_path(slug)
+    if sqsh_path:
+        # Mount squashfs archive via squashfuse on the host
+        try:
+            mountpoint = await _sqsh_mount(slug, sqsh_path)
+            data_mount = str(mountpoint)
+            sqsh_mounted = True
+        except RuntimeError as e:
+            logger.warning(f"squashfuse mount failed for {slug}, falling back to loose files: {e}")
+    if not data_mount and data_path.exists():
+        data_mount = str(data_path)
+
     container_name = f"omc-session-{slug}"
     cmd = [
         "run", "-d",
@@ -142,9 +194,9 @@ async def launch_session(slug: str, metadata: dict) -> SessionInfo:
         "--cpus", "1.0",
     ]
 
-    # Mount data directory read-only if it exists
-    if data_path.exists():
-        cmd.extend(["-v", f"{data_path}:/data:ro"])
+    # Mount data (squashfuse mountpoint or loose directory) read-only
+    if data_mount:
+        cmd.extend(["-v", f"{data_mount}:/data:ro"])
 
     cmd.append(SESSION_IMAGE)
 
@@ -161,6 +213,8 @@ async def launch_session(slug: str, metadata: dict) -> SessionInfo:
         chat_port=chat_port,
         notebook_port=nb_port,
         session_token=session_token,
+        data_mount=data_mount,
+        sqsh_mounted=sqsh_mounted,
     )
     _sessions[slug] = session
     logger.info(f"Launched session {slug} → container {container_id[:12]} "
@@ -204,6 +258,9 @@ async def remove_session(slug: str):
         await _run_docker(["rm", "-f", f"omc-session-{slug}"])
     except RuntimeError:
         pass
+    # Unmount squashfuse if we mounted it
+    if session.sqsh_mounted:
+        await _sqsh_unmount(slug)
     _release_ports(session.chat_port, session.notebook_port)
     revoke_session_token(slug)
     del _sessions[slug]

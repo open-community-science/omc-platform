@@ -34,6 +34,13 @@ class PipelineType(str, enum.Enum):
     ISOLATE_GENOME = "isolate_genome"
 
 
+class ResultsFormat(str, enum.Enum):
+    NONE = "none"              # no results yet
+    LIVE = "live"              # loose files on HPC scratch
+    ARCHIVED = "archived"      # squashfs on HPC
+    TRANSFERRED = "transferred"  # squashfs on arbutus, ready for sessions
+
+
 class User(Base):
     """User model - linked to GitHub account."""
 
@@ -83,6 +90,9 @@ class Submission(Base):
     submitted_at = Column(DateTime)
     completed_at = Column(DateTime)
 
+    # Results tracking
+    results_format = Column(Enum(ResultsFormat), default=ResultsFormat.NONE)
+
     # Error tracking
     error_message = Column(Text)
 
@@ -128,6 +138,15 @@ async def init_db():
                 slug = uuid.uuid4().hex[:8]
                 await conn.execute(text(f"UPDATE submissions SET slug = '{slug}' WHERE id = {row[0]}"))
             logging.getLogger(__name__).info(f"Migrated {len(rows)} submissions with slugs")
+
+        # Migration: add results_format column
+        try:
+            await conn.execute(text("SELECT results_format FROM submissions LIMIT 1"))
+        except Exception:
+            await conn.execute(text(
+                "ALTER TABLE submissions ADD COLUMN results_format VARCHAR(20) DEFAULT 'none'"
+            ))
+            logging.getLogger(__name__).info("Added results_format column to submissions")
 
         # Migration: make bioproject_accession nullable (SQLite can't ALTER constraints,
         # so recreate the table if the column is NOT NULL)

@@ -246,6 +246,81 @@ async def push_status(slug: str, request: Request, authorization: str = Header(d
     return {"ok": True}
 
 
+# ── Squashfs results upload (fir → arbutus) ─────────────────────────────
+
+# Results .sqsh files stored separately from download staging
+_RESULTS_DIR = Path(settings.local_download_path).parent / "results"
+
+
+@router.post("/{slug}/upload-results")
+async def upload_results(slug: str, request: Request, authorization: str = Header(default="")):
+    """Receive a squashfs results archive from fir.
+
+    Fir streams the .sqsh file as the request body after pipeline completion.
+    Stored at {results_dir}/{slug}.sqsh for squashfuse mounting into session containers.
+    """
+    _check_staging_key(authorization)
+
+    _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    sqsh_path = _RESULTS_DIR / f"{slug}.sqsh"
+
+    # Stream the upload to disk to handle large files
+    bytes_written = 0
+    with open(sqsh_path, "wb") as f:
+        async for chunk in request.stream():
+            f.write(chunk)
+            bytes_written += len(chunk)
+
+    if bytes_written == 0:
+        sqsh_path.unlink(missing_ok=True)
+        raise HTTPException(400, "Empty upload")
+
+    size_mb = bytes_written / 1_000_000
+    logger.info(f"Received results archive for {slug}: {sqsh_path.name} ({size_mb:.1f} MB)")
+
+    return {"ok": True, "slug": slug, "file": sqsh_path.name, "size_bytes": bytes_written}
+
+
+@router.get("/results")
+async def list_results(authorization: str = Header(default="")):
+    """List available squashfs result archives."""
+    _check_staging_key(authorization)
+
+    if not _RESULTS_DIR.exists():
+        return {"results": []}
+
+    results = []
+    for f in sorted(_RESULTS_DIR.iterdir()):
+        if f.suffix == ".sqsh" and f.is_file():
+            results.append({
+                "slug": f.stem,
+                "file": f.name,
+                "size_bytes": f.stat().st_size,
+            })
+
+    return {"results": results}
+
+
+@router.delete("/{slug}/results")
+async def delete_results(slug: str, authorization: str = Header(default="")):
+    """Delete a results archive."""
+    _check_staging_key(authorization)
+
+    sqsh_path = _RESULTS_DIR / f"{slug}.sqsh"
+    if not sqsh_path.exists():
+        raise HTTPException(404, "Results archive not found")
+
+    sqsh_path.unlink()
+    logger.info(f"Deleted results archive for {slug}")
+    return {"ok": True, "slug": slug}
+
+
+def get_results_path(slug: str) -> Path | None:
+    """Get the path to a slug's results .sqsh file, if it exists."""
+    sqsh_path = _RESULTS_DIR / f"{slug}.sqsh"
+    return sqsh_path if sqsh_path.exists() else None
+
+
 def get_hpc_status(slug: str) -> dict | None:
     """Read the latest status pushed by fir for a given slug.
 
