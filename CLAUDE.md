@@ -320,31 +320,58 @@ pip install chainlit marimo   # for session container dev/testing
 ### Systemd Services
 
 ```
-omc-portal.service    — uvicorn portal on port 8002
+omc-portal.service    — uvicorn portal on 0.0.0.0:8002 (must be 0.0.0.0 for Docker gateway access)
 relay.service         — relay API on port 8484
 nginx.service         — reverse proxy, TLS termination
 ```
 
-### Nginx Sites
+**Important:** The portal must listen on `0.0.0.0`, not `127.0.0.1`, so session containers can reach the LLM proxy via the Docker gateway (`172.30.0.1:8002`).
 
-- `microbial.opencommunity.science` → `localhost:8002` (portal)
-- `microbial.opencommunity.science/relay/` → `localhost:8484` (relay)
-- Session proxying (TODO): `/sessions/{slug}/chat` → `localhost:{port}`
+### Nginx Config
 
-**Important:** `client_max_body_size 10G;` in the server block — required for `.sqsh` uploads from fir.
+The main site config (`/etc/nginx/sites-enabled/omc-platform`) handles:
+
+- `location /` → `localhost:8002` (portal)
+- `location /relay/` → `localhost:8484` (relay)
+- `location ~ ^/session-proxy/(\d+)/` → `localhost:$1` (session containers, with WebSocket upgrade)
+
+Key settings:
+- `client_max_body_size 10G;` — required for `.sqsh` uploads from fir
+- `proxy_http_version 1.1;` + `Upgrade`/`Connection` headers on session proxy — required for Chainlit/Marimo WebSocket
+
+### LLM Access (Reverse SSH Tunnel)
+
+The LLM (LM Studio) runs on the local network behind a VPN. Arbutus can't initiate connections inbound. A reverse SSH tunnel from the LLM host (concentration) forwards the port to arbutus:
+
+```
+concentration (local) → SSH → arbutus
+  localhost:1234 on arbutus → 10.151.49.182:1234 (LM Studio)
+```
+
+**Setup on concentration** (the machine that can reach LM Studio):
+```bash
+# Install the systemd service for persistence
+sudo cp session/llm-tunnel.service /etc/systemd/system/
+sudo systemctl enable --now llm-tunnel
+
+# Or manually:
+ssh -R 1234:10.151.49.182:1234 arbutus -N -o ServerAliveInterval=30 -f
+```
+
+The portal's `.env` on arbutus sets `LLM_BASE_URL=http://localhost:1234/v1`. Session containers never see the tunnel — they go through the LLM proxy at `172.30.0.1:8002/api/llm`.
 
 ### Environment File (`/opt/omc-platform/portal/.env`)
 
 ```
 SECRET_KEY=<random>
-LLM_BASE_URL=<llm endpoint>
-LLM_API_KEY=<key>
-LLM_MODEL=<model>
+LLM_BASE_URL=http://localhost:1234/v1   # via reverse SSH tunnel from concentration
+LLM_MODEL=qwen3-coder-30b-a3b-instruct
 GITHUB_APP_ID=3078928
 GITHUB_APP_PRIVATE_KEY=<pem path>
 GITHUB_ORG=open-community-science
 STAGING_API_KEY=<shared key with fir>
 LOCAL_DOWNLOAD_PATH=/data/sra_downloads
+SLURM_ENABLED=true
 DEBUG=false
 ```
 
@@ -367,16 +394,17 @@ To deploy on a new VM:
 
 1. Install system packages (above)
 2. Clone repo to `/opt/omc-platform/`
-3. Create `.env` with site-specific values
+3. Create `.env` with site-specific values (see Environment File above)
 4. `pip install -r portal/requirements.txt`
 5. Enable FUSE `user_allow_other` in `/etc/fuse.conf`
 6. Add deploy user to docker group: `sudo usermod -aG docker $USER`
 7. Build session image: `cd session && docker build -t omc-session:latest .`
 8. Run network setup: `sudo session/setup-network.sh`
 9. Create directories: `mkdir -p /data/sra_downloads /data/results /mnt/omc-sessions`
-10. Set up systemd services (see `deploy.sh`)
-11. Configure nginx + certbot for TLS (set `client_max_body_size 10G`)
+10. Set up systemd services — portal must listen on `0.0.0.0:8002`
+11. Configure nginx + certbot for TLS (see Nginx Config above)
 12. Set up relay key: `mkdir -p ~/.config/omc && openssl rand -base64 32 > ~/.config/omc/relay-key`
+13. Set up LLM access — reverse SSH tunnel from LLM host, or point `LLM_BASE_URL` at a cloud API
 
 ## License
 

@@ -1,0 +1,20 @@
+# Reverse SSH tunnel: concentration → arbutus
+# Forwards arbutus localhost:1234 to LM Studio at 10.151.49.182:1234
+# Install on concentration (the machine running LM Studio's network):
+#   sudo cp llm-tunnel.service /etc/systemd/system/
+#   sudo systemctl enable --now llm-tunnel
+
+[Unit]
+Description=Reverse SSH tunnel to arbutus for LLM access
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cryomics
+ExecStart=/usr/bin/ssh -N -R 1234:10.151.49.182:1234 arbutus -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=no
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
