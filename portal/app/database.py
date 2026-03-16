@@ -91,7 +91,7 @@ class Submission(Base):
     completed_at = Column(DateTime)
 
     # Results tracking
-    results_format = Column(Enum(ResultsFormat), default=ResultsFormat.NONE)
+    results_format = Column(Enum(ResultsFormat, values_callable=lambda x: [e.value for e in x]), default=ResultsFormat.NONE)
 
     # Error tracking
     error_message = Column(Text)
@@ -142,6 +142,11 @@ async def init_db():
         # Migration: add results_format column
         try:
             await conn.execute(text("SELECT results_format FROM submissions LIMIT 1"))
+            # Normalize any uppercase enum names to lowercase values
+            await conn.execute(text(
+                "UPDATE submissions SET results_format = LOWER(results_format) "
+                "WHERE results_format != LOWER(results_format)"
+            ))
         except Exception:
             await conn.execute(text(
                 "ALTER TABLE submissions ADD COLUMN results_format VARCHAR(20) DEFAULT 'none'"
