@@ -20,6 +20,10 @@ from data_layer import JSONDataLayer
 
 cl_data._data_layer = JSONDataLayer()
 
+# ── Single-connection guard ───────────────────────────────────────────────────
+# Only one browser tab should drive the chat at a time.
+_active_session_id: str | None = None
+
 
 @cl.header_auth_callback
 def header_auth_callback(headers: dict) -> cl.User | None:
@@ -546,6 +550,24 @@ def build_interview_system():
 @cl.on_chat_start
 async def on_start():
     """Initialize session: set phase, load metadata, greet the author."""
+    global _active_session_id
+
+    session_id = cl.context.session.id
+
+    # Check if another tab/browser is already connected
+    if _active_session_id and _active_session_id != session_id:
+        cl.user_session.set("blocked", True)
+        actions = [cl.Action(name="takeover_session", payload={}, label="Open here instead")]
+        await cl.Message(
+            content="This session is already open in another window. "
+                    "You can take over here (the other window will stop receiving updates).",
+            actions=actions,
+        ).send()
+        return
+
+    _active_session_id = session_id
+    cl.user_session.set("blocked", False)
+
     # Parse submission metadata
     try:
         metadata = json.loads(SUBMISSION_META)
@@ -607,9 +629,56 @@ async def on_start():
     await cl.Message(content=greeting).send()
 
 
+@cl.action_callback("takeover_session")
+async def takeover_session(action: cl.Action):
+    """Take over the session from another browser tab."""
+    global _active_session_id
+    _active_session_id = cl.context.session.id
+    cl.user_session.set("blocked", False)
+
+    # Load state from the previous session
+    try:
+        metadata = json.loads(SUBMISSION_META)
+    except json.JSONDecodeError:
+        metadata = {}
+    cl.user_session.set("metadata", metadata)
+
+    # Restore from saved state file if available
+    state = _load_state()
+    if state:
+        cl.user_session.set("phase", state.get("phase", "interview"))
+        cl.user_session.set("interview_summary", state.get("interview_summary", ""))
+        cl.user_session.set("results_summary", state.get("results_summary", ""))
+        cl.user_session.set("history", state.get("history", []))
+        n_msgs = len(state.get("history", []))
+        await cl.Message(content=f"Session taken over. Resuming from {state.get('phase', 'interview')} phase ({n_msgs} messages in history). How can I help?").send()
+    else:
+        cl.user_session.set("phase", "interview")
+        cl.user_session.set("interview_summary", "")
+        cl.user_session.set("results_summary", "")
+        cl.user_session.set("history", [])
+        await cl.Message(content="Session taken over. Starting fresh. How can I help?").send()
+
+
 @cl.on_chat_resume
 async def on_chat_resume(thread: dict):
     """Resume a thread from the sidebar — restore session state."""
+    global _active_session_id
+
+    session_id = cl.context.session.id
+    if _active_session_id and _active_session_id != session_id:
+        cl.user_session.set("blocked", True)
+        actions = [cl.Action(name="takeover_session", payload={}, label="Open here instead")]
+        await cl.Message(
+            content="This session is already open in another window. "
+                    "You can take over here (the other window will stop receiving updates).",
+            actions=actions,
+        ).send()
+        return
+
+    _active_session_id = session_id
+    cl.user_session.set("blocked", False)
+
     try:
         metadata = json.loads(SUBMISSION_META)
     except json.JSONDecodeError:
@@ -739,6 +808,15 @@ async def _llm_with_tools(client, messages: list, tools: list, msg: cl.Message, 
 @cl.on_message
 async def on_message(message: cl.Message):
     """Handle each author message — route to current phase."""
+    session_id = cl.context.session.id
+    if cl.user_session.get("blocked") or (_active_session_id and _active_session_id != session_id):
+        actions = [cl.Action(name="takeover_session", payload={}, label="Open here instead")]
+        await cl.Message(
+            content="This session is being controlled from another window.",
+            actions=actions,
+        ).send()
+        return
+
     phase = cl.user_session.get("phase")
     metadata = cl.user_session.get("metadata", {})
     history = cl.user_session.get("history", [])
