@@ -187,7 +187,7 @@ if [ $PIPELINE_EXIT -eq 0 ]; then
         curl -sf -X POST "${{OMC_STAGING_URL}}/staging/${{SLUG}}/upload-results" \\
             -H "Authorization: Bearer ${{OMC_STAGING_KEY}}" \\
             -H "Content-Type: application/octet-stream" \\
-            --data-binary "@${{OUTPUT_DIR}}.sqsh" || UPLOAD_RC=$?
+            -T "${{OUTPUT_DIR}}.sqsh" || UPLOAD_RC=$?
         if [ $UPLOAD_RC -eq 0 ]; then
             echo "Upload complete"
             push_status "transferred" ',\\"results_format\\":\\"archived\\"'
