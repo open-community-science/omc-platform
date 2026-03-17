@@ -121,7 +121,7 @@ async def _get_openrouter_config(user_id: int | None) -> dict | None:
 class ChatCompletionRequest(BaseModel):
     model: str | None = None
     messages: list[dict]
-    max_tokens: int = 1000
+    max_tokens: int = 16000
     temperature: float = 0.7
     stream: bool = False
 

@@ -117,15 +117,37 @@ async def _recover_sessions():
                 if viz_port:
                     _used_ports.add(viz_port)
                 is_running = "Up" in status
+
+                # Re-register the LLM proxy token from the container's env
+                session_token = ""
+                if is_running:
+                    try:
+                        env_out = await _run_docker([
+                            "exec", name, "printenv", "LLM_API_KEY",
+                        ])
+                        if env_out.strip():
+                            session_token = env_out.strip()
+                            from .llm_proxy import _session_tokens
+                            _session_tokens[session_token] = {
+                                "slug": slug,
+                                "user_id": None,
+                                "created_at": datetime.utcnow(),
+                                "request_count": 0,
+                            }
+                    except RuntimeError:
+                        pass  # container may not be fully up yet
+
                 _sessions[slug] = SessionInfo(
                     slug=slug,
                     container_id=name,
                     chat_port=chat_port,
                     notebook_port=nb_port,
                     viz_port=viz_port,
+                    session_token=session_token,
                     status="running" if is_running else "stopped",
                 )
-                logger.info(f"Recovered session {slug} (chat:{chat_port}, nb:{nb_port}, viz:{viz_port}, {'running' if is_running else 'stopped'})")
+                logger.info(f"Recovered session {slug} (chat:{chat_port}, nb:{nb_port}, viz:{viz_port}, "
+                            f"token:{'yes' if session_token else 'no'}, {'running' if is_running else 'stopped'})")
     except RuntimeError:
         pass  # docker not available
 

@@ -151,11 +151,16 @@ selection. The researcher can also manually adjust using checkboxes on the submi
 
 {selected_runs_context}
 
-SAMPLE DETAIL LOOKUP:
-You have a browse_samples tool that lets you page through all per-sample metadata.
-It returns shared columns (identical across all records) and varying columns per record.
-Use it when you need specific details — run accessions, read counts, barcodes, etc.
-You can search by keyword and page through results (50 per page).
+YOUR TOOLS:
+You have several tools to inspect data. Use them proactively — don't wait to be asked.
+
+- browse_samples: Page through per-sample SRA metadata (run accessions, read counts, etc.)
+- list_data_files: Discover what pipeline output files are in /data (if pipeline has run)
+- read_data_file: Read any TSV/JSON/text file from pipeline results
+- get_results_summary: Get preprocessed summaries (overview, mags, contigs, taxonomy, etc.)
+
+Start by using get_results_summary("overview") to see if pipeline results exist. If they do,
+present the key findings. If not, focus on the interview and sample selection.
 Summarize what you find for the researcher — they don't need to see raw JSON.
 
 Guidelines:
@@ -171,15 +176,20 @@ PROJECT METADATA:
 """,
 
     "results_review": """You are the OMC Research Assistant helping an author review their
-pipeline results. The data is mounted at /data inside the container.
+pipeline results.
 
-You can READ files to inspect results. For tabular files (.tsv, .csv), tell the author
-what you find — column names, row counts, key statistics. For each result category,
-explain what the analysis produced and what it means.
+YOUR TOOLS:
+- list_data_files: Discover pipeline output files in /data
+- read_data_file: Read TSV/JSON/text files from pipeline results
+- get_results_summary: Get preprocessed summaries (overview, mags, contigs, taxonomy, coverage, metabolism, etc.)
+- browse_samples: Page through per-sample SRA metadata
+
+Start by calling get_results_summary("overview") to get the big picture, then explore
+specific results with the other tools. Present findings to the author proactively.
 
 Your job is to PRESENT findings proactively:
-- Summarize key results (MAG quality, taxonomy, community composition)
-- Read and describe specific output files (e.g., CheckM2 quality, GTDB taxonomy)
+- Start with the overview (assembly size, MAG counts, virus counts)
+- Dive into specific results using read_data_file for raw pipeline outputs
 - Highlight interesting or unexpected patterns
 - Ask the author if results match their expectations
 - Suggest which findings deserve emphasis in the manuscript
@@ -190,9 +200,6 @@ Keep guiding — don't wait for the author to ask what to do next.
 INTERVIEW CONTEXT:
 {interview_summary}
 {sample_summary}
-
-AVAILABLE DATA FILES:
-{data_files}
 """,
 
     "figure_workshop": """You are the OMC Research Assistant helping create figures for the
@@ -630,58 +637,101 @@ async def on_chat_resume(thread: dict):
     cl.user_session.set("history", history)
 
 
-async def _llm_with_tools(client, messages: list, tools: list, msg: cl.Message, max_rounds: int = 5) -> str:
+async def _llm_with_tools(client, messages: list, tools: list, msg: cl.Message, max_rounds: int = 20) -> str:
     """Call the LLM, handle tool calls in a loop, stream the final text response."""
 
-    for _ in range(max_rounds):
-        # Non-streaming call to check for tool use
+    import sys
+    def log_info(s): print(f"[TOOLS] {s}", file=sys.stderr, flush=True)
+
+    total_calls = 0
+    MAX_TOTAL_CALLS = 50
+
+    for round_num in range(max_rounds):
+        # On last round, don't pass tools — force a text response
+        use_tools = round_num < max_rounds - 1 and total_calls < MAX_TOTAL_CALLS
+        call_tools = tools if use_tools else None
+
+        n_msgs = len(messages)
+        msg_sizes = sum(len(str(m.get("content", "") if isinstance(m, dict) else getattr(m, "content", "") or "")) for m in messages)
+        log_info(f"Round {round_num}: {n_msgs} messages (~{msg_sizes} chars), tools={'yes' if use_tools else 'no'}")
+
         resp = client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
-            tools=tools,
+            tools=call_tools,
             max_tokens=10000,
             temperature=0.7,
         )
 
         choice = resp.choices[0] if resp.choices else None
         if not choice:
+            log_info("No response from model")
             return "No response from the model."
+
+        log_info(f"Round {round_num}: finish_reason={choice.finish_reason}, "
+                 f"tool_calls={len(choice.message.tool_calls or []) if choice.message else 0}, "
+                 f"content_len={len(choice.message.content or '') if choice.message else 0}")
 
         # If the model wants to call tools
         if choice.finish_reason == "tool_calls" or (choice.message and choice.message.tool_calls):
             tool_calls = choice.message.tool_calls or []
-            # Add the assistant message with tool calls to context
-            messages.append(choice.message)
 
-            # Show a brief status to the user
-            tool_names = [tc.function.name for tc in tool_calls]
+            # Deduplicate: same function name + same args = only run once
+            seen = set()
+            unique_calls = []
+            for tc in tool_calls:
+                key = f"{tc.function.name}:{tc.function.arguments}"
+                if key not in seen:
+                    seen.add(key)
+                    unique_calls.append(tc)
+
+            deduped = len(tool_calls) - len(unique_calls)
+            tool_calls = unique_calls
+
+            # Cap total tool calls
+            remaining = MAX_TOTAL_CALLS - total_calls
+            if len(tool_calls) > remaining:
+                tool_calls = tool_calls[:remaining]
+            total_calls += len(tool_calls)
+
+            for tc in tool_calls:
+                log_info(f"  Tool: {tc.function.name}({tc.function.arguments[:100]})")
+            if deduped:
+                log_info(f"  Deduped {deduped} duplicate calls")
+
+            # Rebuild assistant message with only the deduplicated calls
+            assistant_msg = choice.message
+            assistant_msg.tool_calls = tool_calls
+            messages.append(assistant_msg)
+
+            tool_names = list(dict.fromkeys(tc.function.name for tc in tool_calls))
             await msg.stream_token(f"*Looking up {', '.join(tool_names)}...*\n\n")
 
-            # Execute each tool call
             for tc in tool_calls:
                 try:
                     args = json.loads(tc.function.arguments)
                 except json.JSONDecodeError:
                     args = {}
                 result = await execute_tool(tc.function.name, args)
+                log_info(f"  Result for {tc.function.name}: {len(result)} chars")
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "content": result,
                 })
 
-            # Continue the loop — the LLM will see the tool results
             continue
 
-        # No tool calls — stream the text response
-        # We got a non-streaming response, just use its content
+        # No tool calls — use the text response
         text = choice.message.content if choice.message else ""
+        log_info(f"Final text response: {len(text)} chars")
         if text:
             await msg.stream_token(text)
         await msg.update()
         return text or ""
 
-    # Exhausted rounds
+    # Exhausted rounds — make one final call without tools
+    log_info(f"Exhausted {max_rounds} rounds ({total_calls} tool calls). Forcing text response.")
     await msg.update()
     return msg.content or ""
 
