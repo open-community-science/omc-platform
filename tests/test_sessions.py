@@ -67,7 +67,7 @@ async def test_session_notebook_no_session():
 
 
 def test_port_allocation():
-    """Port allocator returns consecutive pairs and detects exhaustion."""
+    """Port allocator returns consecutive triples and detects exhaustion."""
     from portal.app.sessions import _allocate_ports, _release_ports, _used_ports
 
     # Save state
@@ -75,18 +75,21 @@ def test_port_allocation():
     _used_ports.clear()
 
     try:
-        p1, p2 = _allocate_ports()
+        p1, p2, p3 = _allocate_ports()
         assert p2 == p1 + 1
+        assert p3 == p1 + 2
         assert p1 in _used_ports
         assert p2 in _used_ports
+        assert p3 in _used_ports
 
-        p3, p4 = _allocate_ports()
-        assert p3 == p2 + 1
-        assert p3 != p1
+        p4, p5, p6 = _allocate_ports()
+        assert p4 == p3 + 1
+        assert p4 != p1
 
-        _release_ports(p1, p2)
+        _release_ports(p1, p2, p3)
         assert p1 not in _used_ports
         assert p2 not in _used_ports
+        assert p3 not in _used_ports
     finally:
         _used_ports.clear()
         _used_ports.update(saved)

@@ -16,6 +16,8 @@ def _():
 
     # Load submission metadata (round-trips with the data)
     _meta_file = data_dir / "metadata.json"
+    if not _meta_file.exists():
+        _meta_file = Path("/metadata/metadata.json")
     submission_meta = json.loads(_meta_file.read_text()) if _meta_file.exists() else {}
 
     return data_dir, json, mo, os, pd, Path, submission_meta

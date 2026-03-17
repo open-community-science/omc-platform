@@ -30,8 +30,13 @@
     <span class="brand"><a href="/submissions/{{ slug }}">{{ slug }}</a> — Research Session</span>
     <div class="controls">
         <button id="btn-chat" class="tab-active" onclick="showPanel('chat')">Chat</button>
-        <button id="btn-notebook" onclick="showPanel('notebook')">Data Explorer</button>
+        {% if viz_port %}
+        <button id="btn-viz" onclick="showPanel('viz')">Data Explorer</button>
+        {% endif %}
+        <button id="btn-notebook" onclick="showPanel('notebook')">Notebook</button>
+        {% if viz_port %}
         <button id="btn-split" onclick="showPanel('split')">Split View</button>
+        {% endif %}
         <button onclick="stopSession()">Save &amp; Close</button>
     </div>
 </div>
@@ -40,6 +45,9 @@
         Starting research environment...
     </div>
     <iframe id="frame-chat" class="panel" style="display:none"></iframe>
+    {% if viz_port %}
+    <iframe id="frame-viz" class="panel panel-hidden" style="display:none"></iframe>
+    {% endif %}
     <iframe id="frame-notebook" class="panel panel-hidden" style="display:none"></iframe>
 </div>
 {% endblock %}
@@ -50,9 +58,11 @@
     (async function waitForReady() {
         const chatUrl = '/session-proxy/{{ chat_port }}/';
         const nbUrl = '/session-proxy/{{ notebook_port }}/';
+        const vizUrl = {% if viz_port %}'/session-proxy/{{ viz_port }}/'{% else %}null{% endif %};
         const loading = document.getElementById('loading');
         const chat = document.getElementById('frame-chat');
         const nb = document.getElementById('frame-notebook');
+        const viz = document.getElementById('frame-viz');
 
         for (let i = 0; i < 30; i++) {
             try {
@@ -61,8 +71,10 @@
                     loading.style.display = 'none';
                     chat.src = chatUrl;
                     nb.src = nbUrl;
+                    if (viz && vizUrl) viz.src = vizUrl;
                     chat.style.display = '';
                     nb.style.display = '';
+                    if (viz) viz.style.display = '';
                     return;
                 }
             } catch (e) {}
@@ -75,27 +87,37 @@
     function showPanel(mode) {
         const chat = document.getElementById('frame-chat');
         const nb = document.getElementById('frame-notebook');
+        const viz = document.getElementById('frame-viz');
         const content = document.getElementById('content');
-        const btnChat = document.getElementById('btn-chat');
-        const btnNb = document.getElementById('btn-notebook');
-        const btnSplit = document.getElementById('btn-split');
+
+        const buttons = ['btn-chat', 'btn-viz', 'btn-notebook', 'btn-split'];
+        buttons.forEach(id => {
+            const b = document.getElementById(id);
+            if (b) b.classList.remove('tab-active');
+        });
 
         content.classList.remove('split-view');
-        [btnChat, btnNb, btnSplit].forEach(b => b.classList.remove('tab-active'));
+
+        // Hide all panels
+        chat.classList.add('panel-hidden');
+        nb.classList.add('panel-hidden');
+        if (viz) viz.classList.add('panel-hidden');
 
         if (mode === 'chat') {
             chat.classList.remove('panel-hidden');
-            nb.classList.add('panel-hidden');
-            btnChat.classList.add('tab-active');
+            document.getElementById('btn-chat').classList.add('tab-active');
+        } else if (mode === 'viz' && viz) {
+            viz.classList.remove('panel-hidden');
+            document.getElementById('btn-viz').classList.add('tab-active');
         } else if (mode === 'notebook') {
             chat.classList.add('panel-hidden');
             nb.classList.remove('panel-hidden');
-            btnNb.classList.add('tab-active');
-        } else {
+            document.getElementById('btn-notebook').classList.add('tab-active');
+        } else if (mode === 'split' && viz) {
             chat.classList.remove('panel-hidden');
-            nb.classList.remove('panel-hidden');
+            viz.classList.remove('panel-hidden');
             content.classList.add('split-view');
-            btnSplit.classList.add('tab-active');
+            document.getElementById('btn-split').classList.add('tab-active');
         }
     }
 

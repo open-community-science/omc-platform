@@ -17,13 +17,15 @@ COPY chat_app.py .
 COPY tools.py .
 COPY data_layer.py .
 COPY notebooks/ notebooks/
+COPY viz_server.py .
+COPY viz/ /app/viz/
 
 # Chainlit config — generated from chainlit 2.10.0, customized, committed to repo
 COPY .chainlit/config.toml /app/.chainlit/config.toml
 COPY chainlit.md /app/chainlit.md
 
-# Chainlit on 8080, marimo on 8081
-EXPOSE 8080 8081
+# Chainlit on 8080, marimo on 8081, viz on 8082
+EXPOSE 8080 8081 8082
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

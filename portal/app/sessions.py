@@ -52,6 +52,7 @@ class SessionInfo:
     container_id: str
     chat_port: int
     notebook_port: int
+    viz_port: int = 0
     session_token: str = ""
     data_mount: str = ""  # host path to bind-mount as /data (dir or squashfuse mountpoint)
     sqsh_mounted: bool = False  # True if we squashfuse-mounted a .sqsh
@@ -65,19 +66,21 @@ _sessions: dict[str, SessionInfo] = {}
 _used_ports: set[int] = set()
 
 
-def _allocate_ports() -> tuple[int, int]:
-    """Allocate two consecutive ports for chat and notebook."""
-    for base in range(PORT_RANGE_START, PORT_RANGE_END, 2):
-        if base not in _used_ports and (base + 1) not in _used_ports:
-            _used_ports.add(base)
-            _used_ports.add(base + 1)
-            return base, base + 1
+def _allocate_ports() -> tuple[int, int, int]:
+    """Allocate three consecutive ports for chat, notebook, and viz."""
+    for base in range(PORT_RANGE_START, PORT_RANGE_END, 3):
+        if all(base + i not in _used_ports for i in range(3)):
+            for i in range(3):
+                _used_ports.add(base + i)
+            return base, base + 1, base + 2
     raise RuntimeError("No available ports for new session")
 
 
-def _release_ports(chat_port: int, notebook_port: int):
+def _release_ports(chat_port: int, notebook_port: int, viz_port: int = 0):
     _used_ports.discard(chat_port)
     _used_ports.discard(notebook_port)
+    if viz_port:
+        _used_ports.discard(viz_port)
 
 
 async def _recover_sessions():
@@ -98,26 +101,31 @@ async def _recover_sessions():
             ports_str = parts[1]
             status = parts[2] if len(parts) > 2 else ""
 
-            # Parse ports like "127.0.0.1:9100->8080/tcp, 127.0.0.1:9101->8081/tcp"
-            chat_port = nb_port = 0
+            # Parse ports like "127.0.0.1:9100->8080/tcp, 127.0.0.1:9101->8081/tcp, 127.0.0.1:9102->8082/tcp"
+            chat_port = nb_port = viz_port = 0
             for mapping in ports_str.split(", "):
                 if "->8080" in mapping:
                     chat_port = int(mapping.split(":")[1].split("->")[0])
                 elif "->8081" in mapping:
                     nb_port = int(mapping.split(":")[1].split("->")[0])
+                elif "->8082" in mapping:
+                    viz_port = int(mapping.split(":")[1].split("->")[0])
 
             if chat_port and nb_port:
                 _used_ports.add(chat_port)
                 _used_ports.add(nb_port)
+                if viz_port:
+                    _used_ports.add(viz_port)
                 is_running = "Up" in status
                 _sessions[slug] = SessionInfo(
                     slug=slug,
                     container_id=name,
                     chat_port=chat_port,
                     notebook_port=nb_port,
+                    viz_port=viz_port,
                     status="running" if is_running else "stopped",
                 )
-                logger.info(f"Recovered session {slug} (chat:{chat_port}, nb:{nb_port}, {'running' if is_running else 'stopped'})")
+                logger.info(f"Recovered session {slug} (chat:{chat_port}, nb:{nb_port}, viz:{viz_port}, {'running' if is_running else 'stopped'})")
     except RuntimeError:
         pass  # docker not available
 
@@ -142,8 +150,10 @@ async def _sqsh_mount(slug: str, sqsh_path: Path) -> Path:
     # Clean up stale FUSE mountpoints (transport endpoint not connected)
     if mountpoint.exists():
         try:
-            list(mountpoint.iterdir())  # test if mount is alive
-            return mountpoint  # already mounted and working
+            contents = list(mountpoint.iterdir())
+            if contents:
+                return mountpoint  # already mounted and has files — working
+            # Empty dir — not mounted, fall through to mount below
         except OSError:
             # Stale mount — force unmount
             await asyncio.create_subprocess_exec(
@@ -327,7 +337,7 @@ async def launch_session(slug: str, metadata: dict, user_id: int | None = None) 
         except RuntimeError:
             pass  # doesn't exist, good
 
-    chat_port, nb_port = _allocate_ports()
+    chat_port, nb_port, viz_port = _allocate_ports()
     data_path = DATA_BASE_PATH / slug
 
     # Generate a session-scoped token for the LLM proxy
@@ -364,6 +374,7 @@ async def launch_session(slug: str, metadata: dict, user_id: int | None = None) 
         "--network", SESSION_NETWORK,
         "-p", f"127.0.0.1:{chat_port}:8080",
         "-p", f"127.0.0.1:{nb_port}:8081",
+        "-p", f"127.0.0.1:{viz_port}:8082",
         # LLM goes through the portal proxy — no direct access
         "-e", f"LLM_BASE_URL={proxy_base_url}",
         "-e", f"LLM_API_KEY={session_token}",
@@ -372,6 +383,7 @@ async def launch_session(slug: str, metadata: dict, user_id: int | None = None) 
         "-e", f"MARIMO_URL=http://localhost:{nb_port}",
         "-e", f"CHAT_ROOT_PATH=/session-proxy/{chat_port}",
         "-e", f"NB_ROOT_PATH=/session-proxy/{nb_port}",
+        "-e", f"VIZ_ROOT_PATH=/session-proxy/{viz_port}",
         "--memory", "2g",
         "--cpus", "1.0",
     ]
@@ -380,8 +392,8 @@ async def launch_session(slug: str, metadata: dict, user_id: int | None = None) 
     if data_mount:
         cmd.extend(["-v", f"{data_mount}:/data:ro"])
 
-    # Always mount metadata.json (even if /data is empty or read-only)
-    cmd.extend(["-v", f"{meta_file}:/data/metadata.json:ro"])
+    # Mount metadata.json separately (can't overlay on read-only squashfuse /data)
+    cmd.extend(["-v", f"{meta_file}:/metadata/metadata.json:ro"])
 
     # Mount chat_app.py and notebooks from host for live editing (no rebuild needed)
     session_src = Path(__file__).parent.parent.parent / "session"
@@ -390,13 +402,14 @@ async def launch_session(slug: str, metadata: dict, user_id: int | None = None) 
         cmd.extend(["-v", f"{session_src / 'tools.py'}:/app/tools.py:ro"])
         cmd.extend(["-v", f"{session_src / 'data_layer.py'}:/app/data_layer.py:ro"])
         cmd.extend(["-v", f"{session_src / 'notebooks'}:/app/notebooks:ro"])
+        cmd.extend(["-v", f"{session_src / 'viz_server.py'}:/app/viz_server.py:ro"])
 
     cmd.append(SESSION_IMAGE)
 
     try:
         container_id = await _run_docker(cmd)
     except RuntimeError as e:
-        _release_ports(chat_port, nb_port)
+        _release_ports(chat_port, nb_port, viz_port)
         revoke_session_token(slug)
         raise HTTPException(500, f"Failed to launch session: {e}")
 
@@ -405,13 +418,14 @@ async def launch_session(slug: str, metadata: dict, user_id: int | None = None) 
         container_id=container_id[:12],
         chat_port=chat_port,
         notebook_port=nb_port,
+        viz_port=viz_port,
         session_token=session_token,
         data_mount=data_mount,
         sqsh_mounted=sqsh_mounted,
     )
     _sessions[slug] = session
     logger.info(f"Launched session {slug} → container {container_id[:12]} "
-                f"(chat:{chat_port}, nb:{nb_port}, network:{SESSION_NETWORK})")
+                f"(chat:{chat_port}, nb:{nb_port}, viz:{viz_port}, network:{SESSION_NETWORK})")
     return session
 
 
@@ -477,7 +491,7 @@ async def remove_session(slug: str):
     # Unmount squashfuse if we mounted it
     if session.sqsh_mounted:
         await _sqsh_unmount(slug)
-    _release_ports(session.chat_port, session.notebook_port)
+    _release_ports(session.chat_port, session.notebook_port, session.viz_port)
     revoke_session_token(slug)
     del _sessions[slug]
     logger.info(f"Removed session {slug}")
@@ -552,6 +566,7 @@ async def session_chat(
             "slug": slug,
             "chat_port": session.chat_port,
             "notebook_port": session.notebook_port,
+            "viz_port": session.viz_port,
         },
     )
 
@@ -619,6 +634,7 @@ async def list_sessions(user: User = Depends(require_user)):
             "status": s.status,
             "chat_port": s.chat_port,
             "notebook_port": s.notebook_port,
+            "viz_port": s.viz_port,
             "started_at": s.started_at.isoformat(),
         }
         for slug, s in _sessions.items()
@@ -653,9 +669,11 @@ async def dev_launch(slug: str, request: Request):
         "status": session.status,
         "chat_port": session.chat_port,
         "notebook_port": session.notebook_port,
+        "viz_port": session.viz_port,
         "chat_url": f"/sessions/{slug}/chat",
         "chat_proxy": f"/session-proxy/{session.chat_port}/",
         "notebook_proxy": f"/session-proxy/{session.notebook_port}/",
+        "viz_proxy": f"/session-proxy/{session.viz_port}/",
     }
 
 

@@ -159,8 +159,9 @@ if [ $PIPELINE_EXIT -eq 0 ]; then
     echo "=== Archiving to squashfs ==="
     push_status "archiving"
 
-    echo "Archiving results..."
-    if mksquashfs "${{OUTPUT_DIR}}" "${{OUTPUT_DIR}}.sqsh" -noappend -quiet -no-xattrs; then
+    echo "Archiving results (excluding BAMs and raw reads)..."
+    if mksquashfs "${{OUTPUT_DIR}}" "${{OUTPUT_DIR}}.sqsh" -noappend -quiet -no-xattrs \
+        -wildcards -e '*.bam' '*.bam.bai' '*.fastq' '*.fastq.gz' '*.fq' '*.fq.gz'; then
         echo "Results archived: $(du -h "${{OUTPUT_DIR}}.sqsh" | cut -f1)"
     else
         echo "WARNING: Failed to archive results to squashfs"

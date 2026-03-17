@@ -85,6 +85,8 @@ def _load_state() -> dict | None:
 # Load metadata from file (round-trips with the data through the pipeline)
 # Falls back to SUBMISSION_META env var for backwards compat
 _meta_file = DATA_DIR / "metadata.json"
+if not _meta_file.exists():
+    _meta_file = Path("/metadata/metadata.json")
 if _meta_file.exists():
     SUBMISSION_META = _meta_file.read_text()
 else:
