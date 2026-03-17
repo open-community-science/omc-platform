@@ -17,6 +17,7 @@
             <a href="/" class="logo">OMC</a>
             <div class="nav-links">
                 {% if user %}
+                {% block header_actions %}{% endblock %}
                 <a href="/dashboard">Dashboard</a>
                 <a href="/settings">Settings</a>
                 <form action="/submissions/create" method="POST" style="display:inline;">

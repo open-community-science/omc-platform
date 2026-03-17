@@ -368,6 +368,7 @@ async def launch_session(slug: str, metadata: dict, user_id: int | None = None) 
         "-e", f"LLM_BASE_URL={proxy_base_url}",
         "-e", f"LLM_API_KEY={session_token}",
         "-e", f"LLM_MODEL={settings.llm_model}",
+        "-e", f"CHAINLIT_AUTH_SECRET={settings.secret_key}",
         "-e", f"MARIMO_URL=http://localhost:{nb_port}",
         "-e", f"CHAT_ROOT_PATH=/session-proxy/{chat_port}",
         "-e", f"NB_ROOT_PATH=/session-proxy/{nb_port}",
@@ -387,6 +388,7 @@ async def launch_session(slug: str, metadata: dict, user_id: int | None = None) 
     if session_src.exists():
         cmd.extend(["-v", f"{session_src / 'chat_app.py'}:/app/chat_app.py:ro"])
         cmd.extend(["-v", f"{session_src / 'tools.py'}:/app/tools.py:ro"])
+        cmd.extend(["-v", f"{session_src / 'data_layer.py'}:/app/data_layer.py:ro"])
         cmd.extend(["-v", f"{session_src / 'notebooks'}:/app/notebooks:ro"])
 
     cmd.append(SESSION_IMAGE)

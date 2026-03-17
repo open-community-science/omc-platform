@@ -47,7 +47,8 @@ reaction_on_message_received = false
 [UI]
 name = "OMC Research Assistant"
 description = "AI-guided research interview and data exploration"
-confirm_new_chat = true
+confirm_new_chat = false
+default_sidebar_state = "open"
 cot = "full"
 layout = "wide"
 alert_style = "classic"

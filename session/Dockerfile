@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir \
 # Copy app code
 COPY chat_app.py .
 COPY tools.py .
+COPY data_layer.py .
 COPY notebooks/ notebooks/
 
 # Chainlit config — generated from chainlit 2.10.0, customized, committed to repo

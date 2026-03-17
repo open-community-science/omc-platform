@@ -10,9 +10,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import chainlit as cl
+import chainlit.data as cl_data
 from openai import OpenAI
 
 from tools import get_tool_schemas, execute_tool
+from data_layer import JSONDataLayer
+
+# ── Data persistence + auth (enables sidebar with multiple threads) ───────────
+
+cl_data._data_layer = JSONDataLayer()
+
+
+@cl.header_auth_callback
+def header_auth_callback(headers: dict) -> cl.User | None:
+    """Auto-authenticate — containers are single-user, no login needed."""
+    return cl.User(identifier="author", metadata={"role": "author"})
 
 # ── Config from environment (set by portal when launching container) ─────────
 
@@ -41,6 +53,23 @@ def _save_state():
     }
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=2))
+
+    # Also persist phase/summary in Chainlit thread metadata (for sidebar resume)
+    try:
+        thread_id = cl.context.session.thread_id
+        if thread_id:
+            import asyncio
+            layer = cl_data.get_data_layer()
+            if layer:
+                asyncio.get_event_loop().create_task(
+                    layer.update_thread(thread_id, metadata={
+                        "phase": state["phase"],
+                        "interview_summary": state["interview_summary"],
+                        "results_summary": state["results_summary"],
+                    })
+                )
+    except Exception:
+        pass  # Non-critical
 
 
 def _load_state() -> dict | None:
@@ -516,25 +545,7 @@ async def on_start():
 
     cl.user_session.set("metadata", metadata)
 
-    # Check for saved state (survives docker stop/start)
-    saved = _load_state()
-    if saved and saved.get("history"):
-        cl.user_session.set("phase", saved.get("phase", "interview"))
-        cl.user_session.set("interview_summary", saved.get("interview_summary", ""))
-        cl.user_session.set("results_summary", saved.get("results_summary", ""))
-        cl.user_session.set("history", saved["history"])
-
-        # Replay history to Chainlit UI so user sees prior messages
-        for entry in saved["history"]:
-            author = "assistant" if entry["role"] == "assistant" else "user"
-            await cl.Message(content=entry["content"], author=author).send()
-
-        await cl.Message(
-            content="---\n*Session restored. Pick up where you left off!*"
-        ).send()
-        return
-
-    # Fresh session — initialize state
+    # Fresh session — the data layer + on_chat_resume handles thread persistence
     cl.user_session.set("phase", "interview")
     cl.user_session.set("interview_summary", "")
     cl.user_session.set("results_summary", "")
@@ -585,6 +596,36 @@ async def on_start():
 
     _save_state()
     await cl.Message(content=greeting).send()
+
+
+@cl.on_chat_resume
+async def on_chat_resume(thread: dict):
+    """Resume a thread from the sidebar — restore session state."""
+    try:
+        metadata = json.loads(SUBMISSION_META)
+    except json.JSONDecodeError:
+        metadata = {}
+
+    cl.user_session.set("metadata", metadata)
+
+    # Rebuild history from persisted steps
+    history = []
+    for step in thread.get("steps", []):
+        step_type = step.get("type", "")
+        output = step.get("output", "")
+        if not output:
+            continue
+        if step_type == "user_message":
+            history.append({"role": "user", "content": output})
+        elif step_type == "assistant_message":
+            history.append({"role": "assistant", "content": output})
+
+    # Restore phase and summaries from thread metadata
+    thread_meta = thread.get("metadata", {}) or {}
+    cl.user_session.set("phase", thread_meta.get("phase", "interview"))
+    cl.user_session.set("interview_summary", thread_meta.get("interview_summary", ""))
+    cl.user_session.set("results_summary", thread_meta.get("results_summary", ""))
+    cl.user_session.set("history", history)
 
 
 async def _llm_with_tools(client, messages: list, tools: list, msg: cl.Message, max_rounds: int = 5) -> str:

@@ -10,6 +10,16 @@
 {% set has_interview = submission.interview_data is not none and submission.interview_data | length > 0 %}
 {% set interview_prs = (submission.interview_data or {}).get('_review_prs', []) %}
 
+{% block header_actions %}
+{% if has_accession %}
+<form action="/sessions/{{ submission.slug }}/launch" method="POST" style="display:inline;">
+    <button type="submit" class="btn btn-primary btn-sm">
+        {% if has_interview %}Resume AI Session{% else %}Start AI Session{% endif %}
+    </button>
+</form>
+{% endif %}
+{% endblock %}
+
 {% block content %}
 <div class="submission-detail">
 
@@ -384,14 +394,8 @@
 
             {% if step3_state != 'locked' %}
             <div class="wf-step-actions">
-                <form id="session-launch-form" action="/sessions/{{ submission.slug }}/launch" method="POST" style="display:inline;">
-                    <button type="submit" class="btn btn-primary" id="session-launch-btn">
-                        {% if has_interview %}Resume Research Session{% else %}Start Research Session{% endif %}
-                    </button>
-                </form>
-
                 <button class="btn btn-secondary" onclick="generateManuscript()"
-                    {% if not has_interview %}title="Complete the research session first" disabled{% endif %}>
+                    {% if not has_interview %}title="Complete the AI session first" disabled{% endif %}>
                     Generate Manuscript
                 </button>
             </div>
