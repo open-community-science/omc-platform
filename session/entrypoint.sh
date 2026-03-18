@@ -14,8 +14,8 @@ fi
 # Start viz static server on port 8082
 python3 /app/viz_server.py &
 
-# Start marimo in run mode on port 8081
-marimo run notebooks/explore.py --host 0.0.0.0 --port 8081 --headless \
+# Start marimo in edit mode on port 8081 (authors can modify and re-run cells)
+marimo edit notebooks/explore.py --host 0.0.0.0 --port 8081 --headless --no-token \
     ${NB_ROOT:+--base-url "$NB_ROOT"} &
 
 # Start chainlit on port 8080

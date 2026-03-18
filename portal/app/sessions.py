@@ -338,7 +338,16 @@ async def _commit_chat_to_github(slug: str, state: dict):
 async def launch_session(slug: str, metadata: dict, user_id: int | None = None) -> SessionInfo:
     """Launch a new session container for a submission."""
     if slug in _sessions and _sessions[slug].status == "running":
-        return _sessions[slug]
+        # Verify the container is actually alive
+        try:
+            await _run_docker(["inspect", f"omc-session-{slug}"])
+            return _sessions[slug]
+        except RuntimeError:
+            # Container gone — clean up stale session
+            logger.warning(f"Session {slug} was tracked as running but container is gone, relaunching")
+            _release_ports(_sessions[slug].chat_port, _sessions[slug].notebook_port, _sessions[slug].viz_port)
+            revoke_session_token(slug)
+            del _sessions[slug]
 
     # Check for stopped container to resume
     if slug in _sessions and _sessions[slug].status == "stopped":
@@ -423,8 +432,9 @@ async def launch_session(slug: str, metadata: dict, user_id: int | None = None) 
         cmd.extend(["-v", f"{session_src / 'chat_app.py'}:/app/chat_app.py:ro"])
         cmd.extend(["-v", f"{session_src / 'tools.py'}:/app/tools.py:ro"])
         cmd.extend(["-v", f"{session_src / 'data_layer.py'}:/app/data_layer.py:ro"])
-        cmd.extend(["-v", f"{session_src / 'notebooks'}:/app/notebooks:ro"])
+        cmd.extend(["-v", f"{session_src / 'notebooks'}:/app/notebooks"])
         cmd.extend(["-v", f"{session_src / 'viz_server.py'}:/app/viz_server.py:ro"])
+        cmd.extend(["-v", f"{session_src / 'entrypoint.sh'}:/entrypoint.sh:ro"])
 
     cmd.append(SESSION_IMAGE)
 
