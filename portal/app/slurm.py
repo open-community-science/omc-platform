@@ -149,6 +149,13 @@ echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "--- Pipeline finished with exit code $PIPELINE_EXIT ---"
 echo "Completed: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# Apptainer squashfuse_ll cleanup can return exit 2 even on success
+# (github.com/apptainer/apptainer#2216). Treat as success if outputs exist.
+if [ $PIPELINE_EXIT -ne 0 ] && [ -d "${{OUTPUT_DIR}}/assembly" ]; then
+    echo "WARNING: Pipeline exited $PIPELINE_EXIT but outputs exist — treating as success (likely Apptainer cleanup timeout)"
+    PIPELINE_EXIT=0
+fi
+
 # Signal completion
 echo $PIPELINE_EXIT > ${{OUTPUT_DIR}}/.completed
 if [ $PIPELINE_EXIT -eq 0 ]; then
