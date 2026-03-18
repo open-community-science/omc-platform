@@ -264,11 +264,15 @@ async def upload_results(slug: str, request: Request, authorization: str = Heade
     _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     sqsh_path = _RESULTS_DIR / f"{slug}.sqsh"
 
-    # Stream the upload to disk to handle large files
+    # Stream the upload to disk to handle large files.
+    # IMPORTANT: f.write() is blocking — must use asyncio.to_thread() to avoid
+    # buffering the entire request body in memory. Without this, uvicorn accepts
+    # data from nginx faster than disk writes complete, causing OOM on large uploads.
+    import asyncio
     bytes_written = 0
     with open(sqsh_path, "wb") as f:
         async for chunk in request.stream():
-            f.write(chunk)
+            await asyncio.to_thread(f.write, chunk)
             bytes_written += len(chunk)
 
     if bytes_written == 0:
