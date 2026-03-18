@@ -117,6 +117,9 @@ server {
         # Stream request body directly to uvicorn, no disk buffering
         proxy_request_buffering off;
 
+        # Fallback: if nginx still buffers, use the data volume (not root disk)
+        proxy_temp_path /data/nginx-tmp 1 2;
+
         # Long timeouts for multi-GB uploads
         proxy_read_timeout 3600;
         proxy_send_timeout 3600;
@@ -145,6 +148,12 @@ NGINX
 ssh "$REMOTE" bash <<'NGINX_ENABLE'
 sudo ln -sf /etc/nginx/sites-available/omc-platform /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
+# Nginx temp dirs on data volume (root disk too small for large upload buffering)
+sudo mkdir -p /data/nginx-tmp
+sudo chown www-data:www-data /data/nginx-tmp
+# Set global client_body_temp_path in nginx.conf if not already present
+sudo grep -q 'client_body_temp_path' /etc/nginx/nginx.conf || \
+    sudo sed -i '/sendfile on;/i\\tclient_body_temp_path /data/nginx-tmp 1 2;' /etc/nginx/nginx.conf
 sudo nginx -t && sudo systemctl restart nginx
 NGINX_ENABLE
 

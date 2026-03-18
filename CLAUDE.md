@@ -380,6 +380,8 @@ Key settings:
 - `client_max_body_size 0;` — unlimited, required for `.sqsh` uploads from fir (up to 50G+)
 - `proxy_http_version 1.1;` — **critical** for all proxy locations; nginx defaults to HTTP/1.0 upstream which doesn't support chunked transfer encoding, causing large uploads to stall
 - `proxy_request_buffering off;` — on `/staging/` location, streams request body directly to uvicorn instead of buffering to disk
+- `proxy_temp_path /data/nginx-tmp;` — on `/staging/` location, redirects any fallback buffering to the data volume (nginx may still buffer despite `proxy_request_buffering off` in some cases, e.g. SSL connections with `Content-Length`). Without this, nginx buffers to `/var/lib/nginx/body/` on root disk which will fill up on large uploads
+- `client_body_temp_path /data/nginx-tmp;` — set globally in `/etc/nginx/nginx.conf` as a safety net for the same reason
 - `proxy_read_timeout 3600;` + `proxy_send_timeout 3600;` — on `/staging/` location, 1h timeouts for multi-GB uploads
 - `Upgrade`/`Connection` headers on session proxy — required for Chainlit/Marimo WebSocket
 
@@ -446,7 +448,7 @@ To deploy on a new VM:
 8. Run network setup: `sudo session/setup-network.sh`
 9. Create directories: `mkdir -p /data/sra_downloads /data/results /mnt/omc-sessions`
 10. Set up systemd services — portal must listen on `0.0.0.0:8002` with `--http httptools`
-11. Configure nginx + certbot for TLS (see Nginx Config above) — must use `proxy_http_version 1.1` and dedicated `/staging/` location with `proxy_request_buffering off` for HPC uploads
+11. Configure nginx + certbot for TLS (see Nginx Config above) — must use `proxy_http_version 1.1`, dedicated `/staging/` location with `proxy_request_buffering off`, and `client_body_temp_path`/`proxy_temp_path` on the data volume (root disk is too small for upload buffering)
 12. Set up relay key: `mkdir -p ~/.config/omc && openssl rand -base64 32 > ~/.config/omc/relay-key`
 13. Set up LLM access — reverse SSH tunnel from LLM host, or point `LLM_BASE_URL` at a cloud API
 
