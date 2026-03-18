@@ -360,24 +360,28 @@ pip install chainlit marimo   # for session container dev/testing
 ### Systemd Services
 
 ```
-omc-portal.service    — uvicorn portal on 0.0.0.0:8002 (must be 0.0.0.0 for Docker gateway access)
+omc-portal.service    — uvicorn portal on 0.0.0.0:8002 --http httptools
 relay.service         — relay API on port 8484
 nginx.service         — reverse proxy, TLS termination
 ```
 
-**Important:** The portal must listen on `0.0.0.0`, not `127.0.0.1`, so session containers can reach the LLM proxy via the Docker gateway (`172.30.0.1:8002`).
+**Important:** The portal must listen on `0.0.0.0`, not `127.0.0.1`, so session containers can reach the LLM proxy via the Docker gateway (`172.30.0.1:8002`). The `--http httptools` flag uses the C-based HTTP parser instead of h11, which is required for streaming large request bodies (h11 stalls on uploads >10G).
 
 ### Nginx Config
 
 The main site config (`/etc/nginx/sites-enabled/omc-platform`) handles:
 
-- `location /` → `localhost:8002` (portal)
+- `location /staging/` → `localhost:8002` (HPC uploads — dedicated block with streaming settings)
 - `location /relay/` → `localhost:8484` (relay)
+- `location /` → `localhost:8002` (portal)
 - `location ~ ^/session-proxy/(\d+)/` → `localhost:$1` (session containers, with WebSocket upgrade)
 
 Key settings:
-- `client_max_body_size 10G;` — required for `.sqsh` uploads from fir
-- `proxy_http_version 1.1;` + `Upgrade`/`Connection` headers on session proxy — required for Chainlit/Marimo WebSocket
+- `client_max_body_size 0;` — unlimited, required for `.sqsh` uploads from fir (up to 50G+)
+- `proxy_http_version 1.1;` — **critical** for all proxy locations; nginx defaults to HTTP/1.0 upstream which doesn't support chunked transfer encoding, causing large uploads to stall
+- `proxy_request_buffering off;` — on `/staging/` location, streams request body directly to uvicorn instead of buffering to disk
+- `proxy_read_timeout 3600;` + `proxy_send_timeout 3600;` — on `/staging/` location, 1h timeouts for multi-GB uploads
+- `Upgrade`/`Connection` headers on session proxy — required for Chainlit/Marimo WebSocket
 
 ### LLM Access (Reverse SSH Tunnel)
 
@@ -441,8 +445,8 @@ To deploy on a new VM:
 7. Build session image: `cd session && docker build -t omc-session:latest .`
 8. Run network setup: `sudo session/setup-network.sh`
 9. Create directories: `mkdir -p /data/sra_downloads /data/results /mnt/omc-sessions`
-10. Set up systemd services — portal must listen on `0.0.0.0:8002`
-11. Configure nginx + certbot for TLS (see Nginx Config above)
+10. Set up systemd services — portal must listen on `0.0.0.0:8002` with `--http httptools`
+11. Configure nginx + certbot for TLS (see Nginx Config above) — must use `proxy_http_version 1.1` and dedicated `/staging/` location with `proxy_request_buffering off` for HPC uploads
 12. Set up relay key: `mkdir -p ~/.config/omc && openssl rand -base64 32 > ~/.config/omc/relay-key`
 13. Set up LLM access — reverse SSH tunnel from LLM host, or point `LLM_BASE_URL` at a cloud API
 

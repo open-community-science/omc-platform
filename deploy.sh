@@ -80,7 +80,7 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/opt/omc-platform/portal
 Environment=PATH=/opt/omc-platform/.venv/bin:/usr/local/bin:/usr/bin
-ExecStart=/opt/omc-platform/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8002
+ExecStart=/opt/omc-platform/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8002 --http httptools
 Restart=always
 RestartSec=5
 
@@ -100,6 +100,34 @@ ssh "$REMOTE" sudo tee /etc/nginx/sites-available/omc-platform > /dev/null <<NGI
 server {
     listen 80;
     server_name ${DOMAIN} ${HOST};
+    client_max_body_size 0;
+
+    # Upload endpoint — tuned for large streaming transfers (up to 50G+)
+    location /staging/ {
+        proxy_pass http://127.0.0.1:8002;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+
+        # HTTP/1.1 upstream — required for chunked transfer encoding
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        # Stream request body directly to uvicorn, no disk buffering
+        proxy_request_buffering off;
+
+        # Long timeouts for multi-GB uploads
+        proxy_read_timeout 3600;
+        proxy_send_timeout 3600;
+        proxy_connect_timeout 60;
+    }
+
+    location /relay/ {
+        proxy_pass http://127.0.0.1:8484/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:8002;
@@ -107,6 +135,8 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_read_timeout 300;
     }
 }
