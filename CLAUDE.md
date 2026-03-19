@@ -132,7 +132,7 @@ Author browser → Portal /sessions/{slug}/chat
   → Portal launches Docker container (omc-session image)
     ├── Chainlit (port 8080) — AI chat, drives the conversation
     ├── Viz SPA  (port 8082) — danaSeq interactive charts (primary data explorer)
-    └── Marimo   (port 8081) — notebook-style data explorer
+    └── Marimo   (port 8081) — editable notebooks (10 tabs matching viz views)
   → Container on 'omc-sessions' network (isolated, no internet)
   → LLM access via portal proxy only
 ```
@@ -157,9 +157,12 @@ Container (OpenAI SDK) → http://172.30.0.1:8002/api/llm/chat/completions
       → Response back to container
 ```
 
-- **Per-session tokens**: SHA-256, 48 chars, created at launch, revoked on removal
+- **Per-session tokens**: SHA-256, 48 chars, created at launch, revoked on removal. Re-registered on portal restart via `_recover_sessions` (reads token from container env)
 - **Rate limiting**: 30 requests/min per session
 - **Logging**: Every LLM call logged with submission slug for provenance
+- **OpenRouter routing**: if user has OpenRouter key configured, proxy routes to OpenRouter instead of local LLM. Requires `user_id` in session token (dev_launch passes submission owner's user_id)
+- **AI tools**: The chat AI has 4 tools for inspecting pipeline data — `list_data_files`, `read_data_file`, `get_results_summary` (preprocessed viz JSONs), and `browse_samples` (SRA metadata). Tool call deduplication prevents models from spamming identical calls
+- **Single-connection guard**: Only one browser tab drives the chat at a time. Second tab sees "already open" with a takeover button. Old tab gets blocked on next message with same takeover option
 
 ### Results Storage (squashfs)
 
@@ -173,7 +176,8 @@ fir: pipeline completes → mksquashfs results → POST /staging/{slug}/upload-r
 
 - **Transfer**: single `.sqsh` file instead of thousands of loose files
 - **Inode efficiency**: 1 file per submission on both fir scratch and arbutus storage
-- **Session integration**: session manager auto-detects `.sqsh`, mounts via `squashfuse -o allow_other`, falls back to loose files
+- **Session integration**: session manager auto-detects `.sqsh`, mounts via `squashfuse -o allow_other` (using `subprocess.Popen` with full daemon detach — `close_fds=True`, `start_new_session=True`, all streams to `DEVNULL`), falls back to loose files
+- **FUSE gotcha**: asyncio subprocess deadlocks on FUSE daemons because they inherit pipe fds. Must use `Popen` with detach, never `asyncio.create_subprocess_exec`
 - **Re-analysis**: fir uses fuse-overlayfs (squashfs lower + writable upper) for `--resume`
 - **Provenance**: `.sqsh` is a checksummable artifact — hash stored in paper repo `.omc/`
 - **Tracking**: `Submission.results_format` field: `none` → `live` → `archived` → `transferred`
@@ -210,6 +214,8 @@ Chat history persists across container stop/resume and is committed to the paper
 - **Chat state**: Written to `/app/.omc/chat_state.json` inside container (writable layer, never on host)
 - **Resources**: 2GB memory, 1 CPU per container
 - **Lifecycle**: Containers are stopped (not destroyed) when idle — `docker start` resumes with full state including chat history
+- **Live-mounted files**: `chat_app.py`, `tools.py`, `data_layer.py`, `viz_server.py`, `entrypoint.sh`, and `notebooks/` are bind-mounted from host for live editing without rebuilding the image. **Important**: Chainlit caches Python at import time, so code changes require `docker rm` + relaunch, not just `docker restart`
+- **Notebooks writable**: The `notebooks/` mount is read-write so Marimo edit mode can save changes
 
 ### Chainlit Configuration
 
@@ -237,6 +243,9 @@ POST /sessions/{slug}/launch
 POST /sessions/{slug}/save
 POST /sessions/{slug}/stop
 POST /sessions/{slug}/resume
+
+# Hard-reset a session (kills container, remounts squashfuse, restarts portal)
+scripts/reset-session.sh {slug}
 ```
 
 ### Key Files
@@ -248,10 +257,13 @@ POST /sessions/{slug}/resume
 | `session/chat_app.py` | Chainlit app: 4-phase AI-driven author flow with streaming + state persistence |
 | `session/viz_server.py` | Static file server for danaSeq viz SPA (port 8082), strips reverse-proxy prefix |
 | `session/viz/` | danaSeq viz SPA app shell (~7MB): index.html + assets + phylocanvas. Data comes from pipeline results at runtime via symlink |
-| `session/notebooks/explore.py` | Marimo notebook: auto-discovers pipeline outputs, renders plots |
-| `portal/app/sessions.py` | Session manager: Docker lifecycle, triple port allocation, token management, chat persistence |
-| `portal/app/llm_proxy.py` | LLM proxy: auth, rate-limit, forward, stream, log |
+| `session/notebooks/explore.py` | All-in-one tabbed Marimo notebook: 10 tabs matching danaSeq viz views (Overview, Quality, Taxonomy, Contigs, Coverage, KEGG, MGE, Eukaryotic, Biosynthetic, Phylogeny) |
+| `session/notebooks/data_utils.py` | Shared data loader for viz JSON and pipeline TSV files |
+| `session/tools.py` | AI tool definitions: `browse_samples`, `list_data_files`, `read_data_file`, `get_results_summary` |
+| `portal/app/sessions.py` | Session manager: Docker lifecycle, triple port allocation, token management, chat persistence, squashfuse mount |
+| `portal/app/llm_proxy.py` | LLM proxy: auth, rate-limit, forward to LM Studio or OpenRouter, stream, log |
 | `portal/templates/session.html` | Tabbed UI: Chat, Data Explorer (viz SPA), Notebook (Marimo), Split View |
+| `scripts/reset-session.sh` | Hard-reset a session: kill container, unmount squashfuse, restart portal, relaunch |
 
 ## Agent Relay
 
