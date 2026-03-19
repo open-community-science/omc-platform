@@ -168,36 +168,57 @@ async def _run_docker(cmd: list[str]) -> str:
 async def _sqsh_mount(slug: str, sqsh_path: Path) -> Path:
     """Mount a .sqsh file via squashfuse, return the mountpoint."""
     mountpoint = SQSH_MOUNT_BASE / slug
+    print(f"[SESSION] _sqsh_mount {slug}: mountpoint={mountpoint}, exists={mountpoint.exists()}", flush=True)
 
-    # Clean up stale FUSE mountpoints (transport endpoint not connected)
+    # Always try to unmount first (clean slate)
     if mountpoint.exists():
         try:
             contents = list(mountpoint.iterdir())
             if contents:
-                return mountpoint  # already mounted and has files — working
-            # Empty dir — not mounted, fall through to mount below
+                print(f"[SESSION] _sqsh_mount {slug}: already mounted with {len(contents)} entries", flush=True)
+                return mountpoint
         except OSError:
-            # Stale mount — force unmount
-            await asyncio.create_subprocess_exec(
-                "fusermount", "-u", str(mountpoint),
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            try:
-                mountpoint.rmdir()
-            except OSError:
-                pass
+            pass
+        # Empty or stale — force unmount and remove directory
+        proc = await asyncio.create_subprocess_exec(
+            "fusermount", "-u", str(mountpoint),
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.communicate()
+        try:
+            mountpoint.rmdir()
+        except OSError:
+            pass
 
     mountpoint.mkdir(parents=True, exist_ok=True)
+    print(f"[SESSION] _sqsh_mount {slug}: running squashfuse...", flush=True)
 
-    proc = await asyncio.create_subprocess_exec(
-        "squashfuse", "-o", "allow_other", str(sqsh_path), str(mountpoint),
-        stderr=asyncio.subprocess.PIPE,
+    # squashfuse is a FUSE daemon — stays running as the filesystem server.
+    # Must use subprocess.Popen (not asyncio) because asyncio pipe capture
+    # blocks forever on daemon processes that never close their inherited fds.
+    # squashfuse is a FUSE daemon — stays running as the filesystem server.
+    # Must fully detach: close_fds + start_new_session + DEVNULL streams.
+    # asyncio subprocess and capture_output both deadlock because the daemon
+    # inherits pipe fds and never closes them.
+    import subprocess as _sp
+    proc = _sp.Popen(
+        ["squashfuse", "-o", "allow_other", str(sqsh_path), str(mountpoint)],
+        stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+        close_fds=True, start_new_session=True,
     )
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        raise RuntimeError(f"squashfuse failed: {stderr.decode()}")
-    logger.info(f"Mounted {sqsh_path.name} at {mountpoint}")
-    return mountpoint
+    print(f"[SESSION] _sqsh_mount {slug}: squashfuse pid={proc.pid}", flush=True)
+
+    # Wait for the FUSE mount to become visible (daemon needs to initialize)
+    for i in range(30):
+        await asyncio.sleep(0.5)
+        try:
+            if list(mountpoint.iterdir()):
+                print(f"[SESSION] _sqsh_mount {slug}: ready after {(i+1)*0.5:.1f}s", flush=True)
+                return mountpoint
+        except OSError:
+            pass
+
+    raise RuntimeError(f"squashfuse mount at {mountpoint} not ready after 15s")
 
 
 async def _sqsh_unmount(slug: str):
@@ -381,6 +402,9 @@ async def launch_session(slug: str, metadata: dict, user_id: int | None = None) 
     data_mount = ""
     sqsh_mounted = False
     sqsh_path = get_results_path(slug)
+    print(f"[SESSION] {slug}: sqsh_path={sqsh_path}, data_path={data_path}, data_path.exists={data_path.exists()}", flush=True)
+    import time as _time
+    _t0 = _time.time()
     if sqsh_path:
         # Mount squashfs archive via squashfuse on the host
         try:
@@ -438,12 +462,16 @@ async def launch_session(slug: str, metadata: dict, user_id: int | None = None) 
 
     cmd.append(SESSION_IMAGE)
 
+    print(f"[SESSION] {slug}: sqsh_mount took {_time.time()-_t0:.2f}s, data_mount={data_mount}, launching docker...", flush=True)
+    _t1 = _time.time()
     try:
         container_id = await _run_docker(cmd)
     except RuntimeError as e:
+        print(f"[SESSION] {slug}: docker run FAILED after {_time.time()-_t1:.2f}s: {e}", flush=True)
         _release_ports(chat_port, nb_port, viz_port)
         revoke_session_token(slug)
         raise HTTPException(500, f"Failed to launch session: {e}")
+    print(f"[SESSION] {slug}: docker run took {_time.time()-_t1:.2f}s, container={container_id[:12]}", flush=True)
 
     session = SessionInfo(
         slug=slug,
