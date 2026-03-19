@@ -256,6 +256,7 @@ _RESULTS_DIR = Path(settings.local_download_path).parent / "results"
 async def upload_results(
     slug: str, request: Request, authorization: str = Header(default=""),
     part: int | None = None, total: int | None = None,
+    sha256: str | None = None,
 ):
     """Receive a squashfs results archive from fir.
 
@@ -288,27 +289,48 @@ async def upload_results(
     else:
         dest = _RESULTS_DIR / f"{slug}.sqsh"
 
-    # Stream the upload to disk.
+    # Stream the upload to disk, computing SHA-256 on the fly.
     # IMPORTANT: f.write() is blocking — must use asyncio.to_thread() to avoid
     # buffering the entire request body in memory. Without this, uvicorn accepts
     # data from nginx faster than disk writes complete, causing OOM on large uploads.
+    import hashlib
+    hasher = hashlib.sha256()
     bytes_written = 0
     with open(dest, "wb") as f:
         async for chunk in request.stream():
             await asyncio.to_thread(f.write, chunk)
+            hasher.update(chunk)
             bytes_written += len(chunk)
 
     if bytes_written == 0:
         dest.unlink(missing_ok=True)
         raise HTTPException(400, "Empty upload")
 
+    actual_hash = hasher.hexdigest()
+
+    # Verify hash if provided
+    if sha256 and actual_hash != sha256:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(
+            422, f"SHA-256 mismatch: expected {sha256}, got {actual_hash}"
+        )
+
     size_mb = bytes_written / 1_000_000
-    logger.info(f"Received {dest.name} for {slug} ({size_mb:.1f} MB)")
+    logger.info(f"Received {dest.name} for {slug} ({size_mb:.1f} MB, sha256={actual_hash[:12]}...)")
 
     # For chunked uploads, check if all parts have arrived
     if part is not None:
         parts_present = sorted(_RESULTS_DIR.glob(f"{slug}.sqsh.part_*"))
-        if len(parts_present) == total:
+        # Validate: must have exactly the right number of parts (part_01..part_NN)
+        # and all parts must be non-empty. A 504/timeout can leave a partial part
+        # file on disk that would corrupt the assembly.
+        expected_parts = [_RESULTS_DIR / f"{slug}.sqsh.part_{i:02d}" for i in range(1, total + 1)]
+        all_valid = (
+            len(parts_present) == total
+            and all(p.exists() and p.stat().st_size > 0 for p in expected_parts)
+        )
+        if all_valid:
+            parts_present = expected_parts  # use canonical order
             # All parts received — concatenate
             sqsh_path = _RESULTS_DIR / f"{slug}.sqsh"
             logger.info(f"All {total} parts received for {slug}, concatenating...")
@@ -333,11 +355,12 @@ async def upload_results(
         else:
             return {
                 "ok": True, "slug": slug, "file": dest.name,
-                "size_bytes": bytes_written, "part": part, "total": total,
+                "size_bytes": bytes_written, "sha256": actual_hash,
+                "part": part, "total": total,
                 "parts_received": len(parts_present),
             }
 
-    return {"ok": True, "slug": slug, "file": dest.name, "size_bytes": bytes_written}
+    return {"ok": True, "slug": slug, "file": dest.name, "size_bytes": bytes_written, "sha256": actual_hash}
 
 
 @router.get("/results")
