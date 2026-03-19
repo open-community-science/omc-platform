@@ -253,36 +253,91 @@ _RESULTS_DIR = Path(settings.local_download_path).parent / "results"
 
 
 @router.post("/{slug}/upload-results")
-async def upload_results(slug: str, request: Request, authorization: str = Header(default="")):
+async def upload_results(
+    slug: str, request: Request, authorization: str = Header(default=""),
+    part: int | None = None, total: int | None = None,
+):
     """Receive a squashfs results archive from fir.
 
-    Fir streams the .sqsh file as the request body after pipeline completion.
-    Stored at {results_dir}/{slug}.sqsh for squashfuse mounting into session containers.
+    Single upload:  POST /staging/{slug}/upload-results
+    Chunked upload: POST /staging/{slug}/upload-results?part=1&total=5
+
+    For chunked uploads, parts are numbered 1..total. Each part is streamed to
+    {slug}.sqsh.part_NN. When the last part arrives, all parts are concatenated
+    into {slug}.sqsh and the part files are cleaned up.
+
+    HPC side splitting guide (default ~10G chunks):
+      size<=10G  → single upload (no splitting needed)
+      10-20G     → 2 chunks: split -n 2 -d --suffix-length=2 file.sqsh file.sqsh.part_
+      20-30G     → 3 chunks, etc.  (chunks = ceil(size / 10G))
     """
+    import asyncio
+
     _check_staging_key(authorization)
-
     _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    sqsh_path = _RESULTS_DIR / f"{slug}.sqsh"
 
-    # Stream the upload to disk to handle large files.
+    # Validate chunked upload params
+    if (part is None) != (total is None):
+        raise HTTPException(400, "Must provide both 'part' and 'total', or neither")
+    if part is not None and (part < 1 or part > total):
+        raise HTTPException(400, f"part must be 1..{total}")
+
+    # Determine output path
+    if part is not None:
+        dest = _RESULTS_DIR / f"{slug}.sqsh.part_{part:02d}"
+    else:
+        dest = _RESULTS_DIR / f"{slug}.sqsh"
+
+    # Stream the upload to disk.
     # IMPORTANT: f.write() is blocking — must use asyncio.to_thread() to avoid
     # buffering the entire request body in memory. Without this, uvicorn accepts
     # data from nginx faster than disk writes complete, causing OOM on large uploads.
-    import asyncio
     bytes_written = 0
-    with open(sqsh_path, "wb") as f:
+    with open(dest, "wb") as f:
         async for chunk in request.stream():
             await asyncio.to_thread(f.write, chunk)
             bytes_written += len(chunk)
 
     if bytes_written == 0:
-        sqsh_path.unlink(missing_ok=True)
+        dest.unlink(missing_ok=True)
         raise HTTPException(400, "Empty upload")
 
     size_mb = bytes_written / 1_000_000
-    logger.info(f"Received results archive for {slug}: {sqsh_path.name} ({size_mb:.1f} MB)")
+    logger.info(f"Received {dest.name} for {slug} ({size_mb:.1f} MB)")
 
-    return {"ok": True, "slug": slug, "file": sqsh_path.name, "size_bytes": bytes_written}
+    # For chunked uploads, check if all parts have arrived
+    if part is not None:
+        parts_present = sorted(_RESULTS_DIR.glob(f"{slug}.sqsh.part_*"))
+        if len(parts_present) == total:
+            # All parts received — concatenate
+            sqsh_path = _RESULTS_DIR / f"{slug}.sqsh"
+            logger.info(f"All {total} parts received for {slug}, concatenating...")
+            total_bytes = 0
+            with open(sqsh_path, "wb") as out:
+                for p in parts_present:
+                    with open(p, "rb") as inp:
+                        while True:
+                            buf = await asyncio.to_thread(inp.read, 64 * 1024 * 1024)
+                            if not buf:
+                                break
+                            await asyncio.to_thread(out.write, buf)
+                            total_bytes += len(buf)
+            # Clean up part files
+            for p in parts_present:
+                p.unlink()
+            logger.info(f"Assembled {slug}.sqsh ({total_bytes / 1_000_000:.1f} MB) from {total} parts")
+            return {
+                "ok": True, "slug": slug, "file": sqsh_path.name,
+                "size_bytes": total_bytes, "assembled": True, "parts": total,
+            }
+        else:
+            return {
+                "ok": True, "slug": slug, "file": dest.name,
+                "size_bytes": bytes_written, "part": part, "total": total,
+                "parts_received": len(parts_present),
+            }
+
+    return {"ok": True, "slug": slug, "file": dest.name, "size_bytes": bytes_written}
 
 
 @router.get("/results")
