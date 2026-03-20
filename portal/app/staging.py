@@ -344,10 +344,21 @@ async def upload_results(
                                 break
                             await asyncio.to_thread(out.write, buf)
                             total_bytes += len(buf)
+            # Verify assembled file has valid squashfs magic before deleting parts
+            import struct
+            with open(sqsh_path, "rb") as check:
+                magic = struct.unpack("<I", check.read(4))[0]
+            if magic != 0x73717368:  # 'hsqs' little-endian
+                logger.error(f"Assembly verification FAILED for {slug}: bad squashfs magic 0x{magic:08x}")
+                sqsh_path.unlink()
+                return {
+                    "ok": False, "slug": slug, "error": "Assembly failed squashfs verification",
+                    "parts_retained": True,
+                }
             # Clean up part files
             for p in parts_present:
                 p.unlink()
-            logger.info(f"Assembled {slug}.sqsh ({total_bytes / 1_000_000:.1f} MB) from {total} parts")
+            logger.info(f"Assembled and verified {slug}.sqsh ({total_bytes / 1_000_000:.1f} MB) from {total} parts")
             return {
                 "ok": True, "slug": slug, "file": sqsh_path.name,
                 "size_bytes": total_bytes, "assembled": True, "parts": total,
