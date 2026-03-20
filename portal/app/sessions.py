@@ -701,6 +701,106 @@ async def list_sessions(user: User = Depends(require_user)):
     }
 
 
+async def launch_ena_session(user_id: int) -> SessionInfo:
+    """Launch an ENA metadata session (not tied to a submission)."""
+    import hashlib
+    import time
+
+    short_id = hashlib.sha256(f"{user_id}-{time.time()}".encode()).hexdigest()[:8]
+    session_key = f"ena-{user_id}-{short_id}"
+
+    if session_key in _sessions and _sessions[session_key].status == "running":
+        try:
+            await _run_docker(["inspect", f"omc-ena-{user_id}-{short_id}"])
+            return _sessions[session_key]
+        except RuntimeError:
+            _release_ports(_sessions[session_key].chat_port, _sessions[session_key].notebook_port, _sessions[session_key].viz_port)
+            revoke_session_token(session_key)
+            del _sessions[session_key]
+
+    await _ensure_network()
+
+    container_name = f"omc-ena-{user_id}-{short_id}"
+
+    chat_port, nb_port, viz_port = _allocate_ports()
+    session_token = create_session_token(session_key, user_id=user_id)
+    proxy_base_url = f"http://{GATEWAY_IP}:{PORTAL_PORT}/api/llm"
+
+    # Writable workspace for TSV output
+    import tempfile
+    workspace_dir = Path(tempfile.mkdtemp(prefix=f"omc-ena-{user_id}-"))
+
+    cmd = [
+        "run", "-d",
+        "--name", container_name,
+        "--network", SESSION_NETWORK,
+        "-p", f"127.0.0.1:{chat_port}:8080",
+        "-p", f"127.0.0.1:{nb_port}:8081",
+        "-p", f"127.0.0.1:{viz_port}:8082",
+        "-e", f"LLM_BASE_URL={proxy_base_url}",
+        "-e", f"LLM_API_KEY={session_token}",
+        "-e", f"LLM_MODEL={settings.llm_model}",
+        "-e", f"CHAINLIT_AUTH_SECRET={settings.secret_key}",
+        "-e", f"CHAT_ROOT_PATH=/session-proxy/{chat_port}",
+        "-e", f"NB_ROOT_PATH=/session-proxy/{nb_port}",
+        "-e", f"VIZ_ROOT_PATH=/session-proxy/{viz_port}",
+        "-e", "SESSION_TYPE=ena",
+        "-e", f"WORKSPACE_DIR=/workspace",
+        "-v", f"{workspace_dir}:/workspace",
+        "--memory", "2g",
+        "--cpus", "1.0",
+    ]
+
+    # Mount session source files for live editing
+    session_src = Path(__file__).parent.parent.parent / "session"
+    if session_src.exists():
+        cmd.extend(["-v", f"{session_src / 'chat_app.py'}:/app/chat_app.py:ro"])
+        cmd.extend(["-v", f"{session_src / 'tools.py'}:/app/tools.py:ro"])
+        cmd.extend(["-v", f"{session_src / 'data_layer.py'}:/app/data_layer.py:ro"])
+        cmd.extend(["-v", f"{session_src / 'notebooks'}:/app/notebooks"])
+        cmd.extend(["-v", f"{session_src / 'entrypoint.sh'}:/entrypoint.sh:ro"])
+
+    cmd.append(SESSION_IMAGE)
+
+    try:
+        container_id = await _run_docker(cmd)
+    except RuntimeError as e:
+        _release_ports(chat_port, nb_port, viz_port)
+        revoke_session_token(session_key)
+        raise HTTPException(500, f"Failed to launch ENA session: {e}")
+
+    session = SessionInfo(
+        slug=session_key,
+        container_id=container_id[:12],
+        chat_port=chat_port,
+        notebook_port=nb_port,
+        viz_port=viz_port,
+        session_token=session_token,
+        data_mount=str(workspace_dir),
+    )
+    _sessions[session_key] = session
+    logger.info(f"Launched ENA session {session_key} → {container_id[:12]}")
+    return session
+
+
+@router.post("/ena/launch")
+async def launch_ena(
+    request: Request,
+    user: User = Depends(require_user),
+):
+    """Launch an ENA metadata session."""
+    session = await launch_ena_session(user.id)
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        return RedirectResponse(f"/sessions/{session.slug}/chat", status_code=303)
+    return {
+        "session_key": session.slug,
+        "status": session.status,
+        "chat_url": f"/sessions/{session.slug}/chat",
+        "notebook_url": f"/sessions/{session.slug}/notebook",
+    }
+
+
 @router.post("/dev/launch/{slug}")
 async def dev_launch(slug: str, request: Request):
     """DEV ONLY: Launch a session without auth. Remove in production."""

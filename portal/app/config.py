@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # Staging API key (fir cron uses this to pull downloads + push status)
     staging_api_key: str = ""
 
+    # ENA submission proxy (safety default: test server)
+    ena_test_mode: bool = True
+
     # Pipeline paths on HPC
     pipeline_base: str = "/home/rec3141/GENICE/danaSeq"
     pipeline_nanopore_mag: str = "/home/rec3141/GENICE/danaSeq/nanopore_mag/nextflow"

@@ -14,8 +14,13 @@ fi
 # Start viz static server on port 8082
 python3 /app/viz_server.py &
 
-# Start marimo in edit mode on port 8081 (authors can modify and re-run cells)
-marimo edit notebooks/explore.py --host 0.0.0.0 --port 8081 --headless --no-token \
+# Start marimo — pick notebook based on session type
+if [ "${SESSION_TYPE:-}" = "ena" ]; then
+    NOTEBOOK="notebooks/ena_metadata.py"
+else
+    NOTEBOOK="notebooks/explore.py"
+fi
+marimo edit "$NOTEBOOK" --host 0.0.0.0 --port 8081 --headless --no-token \
     ${NB_ROOT:+--base-url "$NB_ROOT"} &
 
 # Start chainlit on port 8080

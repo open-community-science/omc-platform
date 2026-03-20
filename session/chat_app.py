@@ -40,6 +40,7 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "not-needed")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3.5-35b-a3b")
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 MARIMO_URL = os.environ.get("MARIMO_URL", "http://localhost:8081")
+SESSION_TYPE = os.environ.get("SESSION_TYPE", "paper")  # "paper" or "ena"
 
 # ── Chat state persistence ────────────────────────────────────────────────────
 STATE_FILE = Path("/app/.omc/chat_state.json")
@@ -99,6 +100,38 @@ else:
 # ── Phases ───────────────────────────────────────────────────────────────────
 
 PHASES = ["interview", "results_review", "figure_workshop", "manuscript"]
+
+ENA_SYSTEM_PROMPT = """You are the OMC ENA Submission Assistant — an AI that helps researchers
+submit metagenomic data to the European Nucleotide Archive (ENA).
+
+You help with:
+- Choosing the right ENA checklist for their samples (water, soil, sediment, host-associated, etc.)
+- Filling in required and optional metadata fields
+- Understanding ENA field names and ENVO ontology terms
+- Taxonomy lookups (NCBI taxonomy IDs)
+- Preparing sample TSV files for submission
+- Understanding the ENA submission process (study → samples → experiments → runs)
+- FTP upload instructions for sequence files
+- Differences between ENA test and production servers
+
+IMPORTANT CONTEXT:
+- The researcher is using the Notebook tab to fill in metadata in a Marimo dataframe editor
+- Their work is saved to /workspace/ inside this container
+- You do NOT have access to pipeline results — this session is for data submission, not analysis
+- The researcher needs their own ENA Webin account (register at https://www.ebi.ac.uk/ena/submit/webin/accountInfo)
+- We proxy submissions through the portal — the researcher provides credentials per-request
+
+WORKFLOW:
+1. Ask what kind of data they're submitting (environment type, sequencing platform)
+2. Help them pick the right ENA checklist
+3. Guide them through filling metadata in the Notebook tab
+4. Help them validate before submission
+5. Provide FTP upload instructions for their sequence files
+6. Walk them through the submission steps
+
+Be helpful and specific. When they ask about a field, explain what ENA expects and give examples.
+For ENVO terms, suggest specific ontology terms (e.g., "marine biome [ENVO:00000447]").
+"""
 
 SYSTEM_PROMPTS = {
     "interview": """You are the OMC Research Assistant — an AI collaborator that helps
@@ -577,24 +610,34 @@ async def on_start():
     cl.user_session.set("metadata", metadata)
 
     # Fresh session — the data layer + on_chat_resume handles thread persistence
-    cl.user_session.set("phase", "interview")
+    cl.user_session.set("phase", "ena" if SESSION_TYPE == "ena" else "interview")
     cl.user_session.set("interview_summary", "")
     cl.user_session.set("results_summary", "")
     cl.user_session.set("history", [])
 
     # Generate opening message
     client = get_llm_client()
-    system = build_interview_system()
 
-    opening_prompt = (
-        "The researcher just opened their session. "
-        "Greet them warmly and naturally. Mention something specific you noticed "
-        "in their project metadata (a detail about the sampling site, organism, "
-        "or study design — something that shows you've looked at their data). "
-        "Then ask them to tell you a bit about themselves — what's their role, "
-        "how did they get involved in this project? Keep it conversational and "
-        "under 120 words."
-    )
+    if SESSION_TYPE == "ena":
+        system = ENA_SYSTEM_PROMPT
+        opening_prompt = (
+            "The researcher just opened an ENA submission session. "
+            "Greet them and briefly explain what this session is for. "
+            "Ask what kind of data they're submitting (environment type, "
+            "sequencing platform, number of samples). Point them to the "
+            "Notebook tab for the metadata editor. Keep it under 100 words."
+        )
+    else:
+        system = build_interview_system()
+        opening_prompt = (
+            "The researcher just opened their session. "
+            "Greet them warmly and naturally. Mention something specific you noticed "
+            "in their project metadata (a detail about the sampling site, organism, "
+            "or study design — something that shows you've looked at their data). "
+            "Then ask them to tell you a bit about themselves — what's their role, "
+            "how did they get involved in this project? Keep it conversational and "
+            "under 120 words."
+        )
 
     try:
         resp = client.chat.completions.create(
@@ -826,7 +869,9 @@ async def on_message(message: cl.Message):
     history.append({"role": "user", "content": message.content, "timestamp": now})
 
     # Build system prompt for current phase
-    if phase == "interview":
+    if phase == "ena" or SESSION_TYPE == "ena":
+        system = ENA_SYSTEM_PROMPT
+    elif phase == "interview":
         system = build_interview_system()
     elif phase == "results_review":
         system = SYSTEM_PROMPTS["results_review"].format(
