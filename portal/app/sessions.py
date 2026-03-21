@@ -699,6 +699,20 @@ async def stop(
     return {"slug": slug, "status": "stopped"}
 
 
+@router.post("/{slug}/remove")
+async def remove(
+    slug: str,
+    request: Request,
+    user: User = Depends(require_user),
+):
+    """Remove a session permanently."""
+    await remove_session(slug)
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        return RedirectResponse("/dashboard", status_code=303)
+    return {"slug": slug, "status": "removed"}
+
+
 @router.post("/{slug}/resume")
 async def resume(
     slug: str,
