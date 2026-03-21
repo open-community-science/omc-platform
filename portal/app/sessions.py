@@ -559,6 +559,24 @@ async def remove_session(slug: str):
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 
+@router.post("/ena/launch")
+async def launch_ena(
+    request: Request,
+    user: User = Depends(require_user),
+):
+    """Launch an ENA metadata session."""
+    session = await launch_ena_session(user.id)
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        return RedirectResponse(f"/sessions/{session.slug}/chat", status_code=303)
+    return {
+        "session_key": session.slug,
+        "status": session.status,
+        "chat_url": f"/sessions/{session.slug}/chat",
+        "notebook_url": f"/sessions/{session.slug}/notebook",
+    }
+
+
 @router.post("/{slug}/launch")
 async def launch(
     slug: str,
@@ -783,24 +801,6 @@ async def launch_ena_session(user_id: int) -> SessionInfo:
     _sessions[session_key] = session
     logger.info(f"Launched ENA session {session_key} → {container_id[:12]}")
     return session
-
-
-@router.post("/ena/launch")
-async def launch_ena(
-    request: Request,
-    user: User = Depends(require_user),
-):
-    """Launch an ENA metadata session."""
-    session = await launch_ena_session(user.id)
-    accept = request.headers.get("accept", "")
-    if "text/html" in accept:
-        return RedirectResponse(f"/sessions/{session.slug}/chat", status_code=303)
-    return {
-        "session_key": session.slug,
-        "status": session.status,
-        "chat_url": f"/sessions/{session.slug}/chat",
-        "notebook_url": f"/sessions/{session.slug}/notebook",
-    }
 
 
 @router.post("/dev/launch/{slug}")
