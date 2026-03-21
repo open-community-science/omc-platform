@@ -1305,3 +1305,11 @@ body {
 .ena-active-sessions h2 {
     margin-bottom: 1rem;
 }
+
+.ena-dashboard-section {
+    margin-bottom: 2rem;
+}
+
+.ena-dashboard-section h2 {
+    margin-bottom: 1rem;
+}
