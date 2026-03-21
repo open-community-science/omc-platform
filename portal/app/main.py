@@ -129,6 +129,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
             "status": s.status,
             "started_at": s.started_at.strftime("%Y-%m-%d %H:%M"),
             "chat_port": s.chat_port,
+            "display_name": s.display_name,
         }
         for key, s in _sessions.items()
         if key.startswith(f"ena-{user.id}-")

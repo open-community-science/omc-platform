@@ -15,7 +15,7 @@
             {% for key, session in ena_sessions.items() %}
             <div class="submission-card">
                 <div class="submission-info">
-                    <h3><a href="/sessions/{{ key }}/chat">ENA Metadata Session</a></h3>
+                    <h3><a href="/sessions/{{ key }}/chat">{{ session.display_name or 'ENA Metadata Session' }}</a></h3>
                     <p class="accession">{{ key }}</p>
                     <p class="date">Started {{ session.started_at }}</p>
                 </div>

@@ -59,6 +59,7 @@ class SessionInfo:
     started_at: datetime = field(default_factory=datetime.utcnow)
     status: str = "running"  # running, stopped
     chat_state: dict | None = None  # cached chat state for resume without git
+    display_name: str = ""  # user-provided label (ENA sessions)
 
 
 # In-memory session registry (replace with DB/Redis for production)
@@ -572,7 +573,13 @@ async def launch_ena(
     user: User = Depends(require_user),
 ):
     """Launch an ENA metadata session."""
-    session = await launch_ena_session(user.id)
+    name = ""
+    try:
+        body = await request.json()
+        name = body.get("name", "").strip()
+    except Exception:
+        pass
+    session = await launch_ena_session(user.id, name=name)
     accept = request.headers.get("accept", "")
     if "text/html" in accept:
         return RedirectResponse(f"/sessions/{session.slug}/chat", status_code=303)
@@ -742,7 +749,7 @@ async def list_sessions(user: User = Depends(require_user)):
     }
 
 
-async def launch_ena_session(user_id: int) -> SessionInfo:
+async def launch_ena_session(user_id: int, name: str = "") -> SessionInfo:
     """Launch an ENA metadata session (not tied to a submission)."""
     import hashlib
     import time
@@ -818,6 +825,7 @@ async def launch_ena_session(user_id: int) -> SessionInfo:
         viz_port=viz_port,
         session_token=session_token,
         data_mount=str(workspace_dir),
+        display_name=name,
     )
     _sessions[session_key] = session
     logger.info(f"Launched ENA session {session_key} → {container_id[:12]}")
