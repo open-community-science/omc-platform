@@ -618,6 +618,7 @@ async def session_chat(
         )
 
     session = _sessions[slug]
+    is_ena = slug.startswith("ena-")
     return templates.TemplateResponse(
         "session.html",
         {
@@ -627,6 +628,7 @@ async def session_chat(
             "chat_port": session.chat_port,
             "notebook_port": session.notebook_port,
             "viz_port": session.viz_port,
+            "is_ena": is_ena,
         },
     )
 

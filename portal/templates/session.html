@@ -28,14 +28,18 @@
 </style>
 
 <div class="session-header">
+    {% if is_ena %}
+    <span class="brand"><a href="/ena">ENA Submission</a> — Metadata Session</span>
+    {% else %}
     <span class="brand"><a href="/submissions/{{ slug }}">{{ slug }}</a> — Research Session</span>
+    {% endif %}
     <div class="controls">
         <button id="btn-chat" class="tab-active" onclick="showPanel('chat')">Chat</button>
-        {% if viz_port %}
+        {% if viz_port and not is_ena %}
         <button id="btn-viz" onclick="showPanel('viz')">Data Explorer</button>
         {% endif %}
         <button id="btn-notebook" onclick="showPanel('notebook')">Notebook</button>
-        {% if viz_port %}
+        {% if viz_port and not is_ena %}
         <button id="btn-split" onclick="showPanel('split')">Split View</button>
         {% endif %}
         <button onclick="stopSession()">Save &amp; Close</button>
@@ -131,7 +135,7 @@
             console.warn('Save failed, stopping anyway:', e);
         }
         await fetch('/sessions/{{ slug }}/stop', { method: 'POST', credentials: 'same-origin' });
-        window.location.href = '/submissions/{{ slug }}';
+        window.location.href = {% if is_ena %}'/ena'{% else %}'/submissions/{{ slug }}'{% endif %};
     }
 </script>
 {% endblock %}

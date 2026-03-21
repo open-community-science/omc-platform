@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Submit to ENA - OMC{% endblock %}
+
+{% block content %}
+<div class="ena-page">
+    <div class="ena-header">
+        <h1>Submit Data to ENA</h1>
+        <p class="ena-subtitle">Prepare and submit metagenomic sequence data to the European Nucleotide Archive.
+            You bring your own Webin credentials — OMC provides an AI assistant and metadata editor to help
+            you through the process.</p>
+    </div>
+
+    <div class="ena-workflow">
+        <h2>How it works</h2>
+        <ol class="steps">
+            <li>
+                <strong>Launch a session</strong>
+                <p>An isolated container with an AI chat assistant and a Marimo metadata editor</p>
+            </li>
+            <li>
+                <strong>Prepare your metadata</strong>
+                <p>The AI helps you pick the right ENA checklist and fill in required fields in the Notebook tab</p>
+            </li>
+            <li>
+                <strong>Upload your files</strong>
+                <p>FTP your sequence files to ENA directly — the assistant generates the commands for you</p>
+            </li>
+            <li>
+                <strong>Submit</strong>
+                <p>Register your study, samples, experiments, and runs through the portal's ENA proxy</p>
+            </li>
+        </ol>
+    </div>
+
+    <div class="ena-launch-section">
+        <div class="ena-launch-card">
+            <h3>Start an ENA Session</h3>
+            <p>The session gives you:</p>
+            <ul class="ena-feature-list">
+                <li><strong>Chat</strong> — AI assistant for ENA metadata questions, checklist selection, ENVO ontology guidance</li>
+                <li><strong>Notebook</strong> — Marimo dataframe editor pre-populated with the right columns for your checklist</li>
+                <li><strong>Workspace</strong> — writable directory for exporting TSV files and study metadata</li>
+            </ul>
+
+            <div class="ena-requirements">
+                <p><strong>You'll need:</strong></p>
+                <ul>
+                    <li>An ENA Webin account — <a href="https://www.ebi.ac.uk/ena/submit/webin/accountInfo" target="_blank">register here</a> if you don't have one</li>
+                    <li>Your sequence files ready for FTP upload</li>
+                    <li>MD5 checksums for each file</li>
+                </ul>
+            </div>
+
+            <button class="btn btn-primary btn-large" id="launch-btn" onclick="launchEnaSession()">
+                Launch ENA Session
+            </button>
+            <p class="ena-status" id="status"></p>
+        </div>
+    </div>
+
+    {% if active_sessions %}
+    <div class="ena-active-sessions">
+        <h2>Active ENA Sessions</h2>
+        <div class="submissions-list">
+            {% for key, session in active_sessions.items() %}
+            <div class="submission-card">
+                <div class="submission-info">
+                    <h3><a href="/sessions/{{ key }}/chat">{{ key }}</a></h3>
+                    <p class="date">Started {{ session.started_at }}</p>
+                </div>
+                <div class="submission-status">
+                    <span class="status-badge status-{{ session.status }}">{{ session.status }}</span>
+                    <a href="/sessions/{{ key }}/chat" class="btn btn-secondary btn-sm">Open</a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function launchEnaSession() {
+        const btn = document.getElementById('launch-btn');
+        const status = document.getElementById('status');
+        btn.disabled = true;
+        btn.textContent = 'Launching...';
+        status.textContent = 'Starting your ENA submission environment...';
+
+        try {
+            const resp = await fetch('/sessions/ena/launch', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Accept': 'application/json' },
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                status.textContent = 'Session ready! Redirecting...';
+                window.location.href = data.chat_url;
+            } else {
+                status.textContent = 'Error: ' + (data.detail || 'Failed to launch session');
+                btn.disabled = false;
+                btn.textContent = 'Retry';
+            }
+        } catch (e) {
+            status.textContent = 'Connection error: ' + e.message;
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+        }
+    }
+</script>
+{% endblock %}

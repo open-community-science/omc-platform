@@ -10,13 +10,19 @@ SUBMISSION XML + object XML (PROJECT, SAMPLE, EXPERIMENT, RUN) to
 """
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
+from .auth import get_current_user
+from .database import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ena", tags=["ena"])
@@ -142,6 +148,38 @@ async def _ena_get(
         return resp.json()
     except Exception:
         return {"status_code": resp.status_code, "body": resp.text[:1000]}
+
+
+# ── Page ──────────────────────────────────────────────────────────────────────
+
+_BASE_DIR = Path(__file__).parent.parent
+_templates = Jinja2Templates(directory=_BASE_DIR / "templates")
+
+
+@router.get("/", response_class=HTMLResponse)
+async def ena_page(request: Request, db: AsyncSession = Depends(get_db)):
+    """ENA submission page — launch an ENA metadata session."""
+    user = await get_current_user(request, db)
+    if not user:
+        return _templates.TemplateResponse(
+            "login_required.html",
+            {"request": request},
+        )
+
+    from .sessions import _sessions
+    active_sessions = {
+        key: {
+            "status": s.status,
+            "started_at": s.started_at.strftime("%Y-%m-%d %H:%M"),
+        }
+        for key, s in _sessions.items()
+        if key.startswith(f"ena-{user.id}-") and s.status == "running"
+    }
+
+    return _templates.TemplateResponse(
+        "ena.html",
+        {"request": request, "user": user, "active_sessions": active_sessions},
+    )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
