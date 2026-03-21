@@ -8,6 +8,33 @@
         <h1>Your Submissions</h1>
     </div>
 
+    {% if ena_sessions %}
+    <div class="ena-dashboard-section">
+        <h2>ENA Submission Sessions</h2>
+        <div class="submissions-list">
+            {% for key, session in ena_sessions.items() %}
+            <div class="submission-card">
+                <div class="submission-info">
+                    <h3><a href="/sessions/{{ key }}/chat">ENA Metadata Session</a></h3>
+                    <p class="accession">{{ key }}</p>
+                    <p class="date">Started {{ session.started_at }}</p>
+                </div>
+                <div class="submission-status">
+                    <span class="status-badge status-{{ session.status }}">{{ session.status }}</span>
+                    {% if session.status == 'running' %}
+                    <a href="/sessions/{{ key }}/chat" class="btn btn-primary btn-sm">Open</a>
+                    {% else %}
+                    <form action="/sessions/{{ key }}/resume" method="POST" style="display:inline">
+                        <button type="submit" class="btn btn-secondary btn-sm">Resume</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     {% if submissions %}
     <div class="submissions-list">
         {% for sub in submissions %}

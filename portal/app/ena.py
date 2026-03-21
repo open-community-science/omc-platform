@@ -166,19 +166,9 @@ async def ena_page(request: Request, db: AsyncSession = Depends(get_db)):
             {"request": request},
         )
 
-    from .sessions import _sessions
-    active_sessions = {
-        key: {
-            "status": s.status,
-            "started_at": s.started_at.strftime("%Y-%m-%d %H:%M"),
-        }
-        for key, s in _sessions.items()
-        if key.startswith(f"ena-{user.id}-") and s.status == "running"
-    }
-
     return _templates.TemplateResponse(
         "ena.html",
-        {"request": request, "user": user, "active_sessions": active_sessions},
+        {"request": request, "user": user},
     )
 
 

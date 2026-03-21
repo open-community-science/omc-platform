@@ -122,9 +122,21 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(stmt)
     submissions = result.scalars().all()
 
+    # Find active ENA sessions for this user
+    from .sessions import _sessions
+    ena_sessions = {
+        key: {
+            "status": s.status,
+            "started_at": s.started_at.strftime("%Y-%m-%d %H:%M"),
+            "chat_port": s.chat_port,
+        }
+        for key, s in _sessions.items()
+        if key.startswith(f"ena-{user.id}-")
+    }
+
     return templates.TemplateResponse(
         "dashboard.html",
-        {"request": request, "user": user, "submissions": submissions},
+        {"request": request, "user": user, "submissions": submissions, "ena_sessions": ena_sessions},
     )
 
 

@@ -86,9 +86,10 @@ def _release_ports(chat_port: int, notebook_port: int, viz_port: int = 0):
 async def _recover_sessions():
     """Recover session state from running Docker containers after portal restart."""
     try:
+        # Recover both paper sessions (omc-session-*) and ENA sessions (omc-ena-*)
         output = await _run_docker([
-            "ps", "--filter", "name=omc-session-", "--format",
-            "{{.Names}}\t{{.Ports}}\t{{.Status}}",
+            "ps", "-a", "--filter", "name=omc-session-", "--filter", "name=omc-ena-",
+            "--format", "{{.Names}}\t{{.Ports}}\t{{.Status}}",
         ])
         if not output.strip():
             return
@@ -96,8 +97,14 @@ async def _recover_sessions():
             parts = line.split("\t")
             if len(parts) < 2:
                 continue
-            name = parts[0]  # omc-session-{slug}
-            slug = name.removeprefix("omc-session-")
+            name = parts[0]
+            # Derive session key from container name
+            if name.startswith("omc-session-"):
+                slug = name.removeprefix("omc-session-")
+            elif name.startswith("omc-ena-"):
+                slug = name.removeprefix("omc-")  # key is "ena-{user_id}-{short_id}"
+            else:
+                continue
             ports_str = parts[1]
             status = parts[2] if len(parts) > 2 else ""
 
