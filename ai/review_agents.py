@@ -145,6 +145,140 @@ Respond in the JSON format specified.""",
     return _parse_review(response, "clarity")
 
 
+async def completeness_review(
+    manuscript: dict,
+    results_data: dict,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
+) -> dict:
+    """Review manuscript completeness — all required sections, figures, data availability."""
+    client = get_client(base_url=base_url, api_key=api_key)
+
+    full_text = _truncate_manuscript(manuscript, max_chars=8000)
+    data_summary = json.dumps(
+        {k: type(v).__name__ if not isinstance(v, (str, int, float, bool)) else v
+         for k, v in (results_data or {}).items()},
+        indent=2, default=str,
+    )[:1500] if results_data else 'Not available'
+
+    response = chat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for COMPLETENESS:
+
+{full_text}
+
+AVAILABLE PIPELINE DATA KEYS:
+{data_summary}
+
+Check for:
+1. Are all standard sections present? (Abstract, Introduction, Methods, Results, Discussion)
+2. Are all figures and tables referenced in the text actually described?
+3. Is there a Data Availability statement with accession numbers?
+4. Are all pipeline outputs mentioned in the results? Compare the data keys above to what's discussed.
+5. Are sample sizes, sequencing depth, and quality metrics reported?
+6. Are software versions and database versions cited in Methods?
+7. Is there an author contributions section or acknowledgments?
+8. Are key findings from Results reflected in the Abstract and Discussion?
+
+This review is about MISSING content, not quality. Flag anything that should be there but isn't.
+
+Respond in the JSON format specified.""",
+        model=model, max_tokens=2000, temperature=0.5)
+
+    return _parse_review(response, "completeness")
+
+
+async def biological_plausibility_review(
+    manuscript: dict,
+    results_data: dict,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
+) -> dict:
+    """Review biological plausibility — do the results make ecological sense?"""
+    client = get_client(base_url=base_url, api_key=api_key)
+
+    results_text = (manuscript.get('results', '') or '')[:4000]
+    discussion_text = (manuscript.get('discussion', '') or '')[:3000]
+    methods_text = (manuscript.get('methods', '') or '')[:2000]
+    data_text = json.dumps(results_data, indent=2, default=str)[:2000] if results_data else 'Not available'
+
+    response = chat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for BIOLOGICAL PLAUSIBILITY:
+
+METHODS:
+{methods_text}
+
+RESULTS:
+{results_text}
+
+DISCUSSION:
+{discussion_text}
+
+PIPELINE DATA:
+{data_text}
+
+You are an expert microbial ecologist. Check for:
+1. Do the reported taxa make ecological sense for the stated environment?
+   - Flag unexpected taxa that could indicate contamination (e.g., human skin microbes in deep ocean)
+   - Flag known kit contaminants (Bradyrhizobium, Ralstonia, etc.) if they appear as major findings
+2. Are diversity values plausible for the environment type?
+   - Shannon diversity <1 in a complex environment is suspicious
+   - Very high diversity in a host-associated sample may indicate contamination
+3. Are MAG quality claims reasonable?
+   - >99% completeness with 0% contamination should be flagged as possibly chimeric
+   - Genome sizes far outside expected range for the claimed taxon
+4. Do claimed metabolic capabilities match the organism's known biology?
+5. Are any results likely artifacts of the bioinformatics pipeline?
+   - Assembly artifacts, chimeric sequences, database misannotation
+6. Are ecological interpretations supported by the data?
+   - Correlation claimed as causation
+   - Over-interpretation of relative abundance data
+
+Be specific about which taxa or claims concern you, and explain what the expected biology would be.
+
+Respond in the JSON format specified.""",
+        model=model, max_tokens=2500, temperature=0.5)
+
+    return _parse_review(response, "biological_plausibility")
+
+
+async def citation_review(
+    manuscript: dict,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
+) -> dict:
+    """Review citation usage — do references support claims, are key refs missing?"""
+    client = get_client(base_url=base_url, api_key=api_key)
+
+    full_text = _truncate_manuscript(manuscript, max_chars=8000)
+
+    response = chat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for CITATION quality:
+
+{full_text}
+
+Check for:
+1. Are major claims supported by citations? Flag unsupported assertions.
+2. Are there key references missing that any reviewer in microbial ecology would expect?
+   - Foundational methods papers (e.g., DADA2, MetaBAT2, GTDB-Tk, CheckM2)
+   - Seminal ecology papers relevant to the study system
+   - Recent reviews that provide context
+3. Are any cited references potentially outdated? (e.g., citing old taxonomy when GTDB exists)
+4. Are self-citations excessive or appropriate?
+5. Does the Introduction establish sufficient context with references?
+6. Are software tools cited with versions in Methods?
+7. Are [CITE] or [CITATION NEEDED] placeholders still present? (These indicate the AI draft
+   didn't resolve all citations — flag each one.)
+
+For missing references, suggest specific papers or topics to search for when possible.
+For example: "The claim about SAR11 dominance should cite Giovannoni (2017) Science or
+Morris et al. (2002) Nature."
+
+Respond in the JSON format specified.""",
+        model=model, max_tokens=2500, temperature=0.5)
+
+    return _parse_review(response, "citation")
+
+
 async def run_all_reviews(
     manuscript: dict,
     results_data: dict,
@@ -160,6 +294,9 @@ async def run_all_reviews(
     reviews.append(await statistical_review(manuscript, results_data, **kwargs))
     reviews.append(await methodological_review(manuscript, pipeline_config, **kwargs))
     reviews.append(await clarity_review(manuscript, **kwargs))
+    reviews.append(await completeness_review(manuscript, results_data, **kwargs))
+    reviews.append(await biological_plausibility_review(manuscript, results_data, **kwargs))
+    reviews.append(await citation_review(manuscript, **kwargs))
 
     return reviews
 

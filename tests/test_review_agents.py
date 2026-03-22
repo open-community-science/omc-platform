@@ -3,7 +3,11 @@ import sys
 import pytest
 
 sys.path.insert(0, "/data/omc/omc-platform")
-from ai.review_agents import statistical_review, methodological_review, clarity_review, run_all_reviews
+from ai.review_agents import (
+    statistical_review, methodological_review, clarity_review,
+    completeness_review, biological_plausibility_review, citation_review,
+    run_all_reviews,
+)
 
 pytestmark = pytest.mark.ai
 
@@ -60,3 +64,39 @@ async def test_clarity_review():
     assert result["review_type"] == "clarity"
     assert len(result["comments"]) > 0
     print(f"\nClarity review: {len(result['comments'])} comments")
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(120)
+async def test_completeness_review():
+    result = await completeness_review(MANUSCRIPT, RESULTS_DATA)
+    assert result["review_type"] == "completeness"
+    assert "comments" in result
+    assert isinstance(result["comments"], list)
+    print(f"\nCompleteness review: {len(result['comments'])} comments")
+    for c in result["comments"][:3]:
+        print(f"  [{c.get('severity', '?')}] {c.get('issue', '?')[:80]}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(120)
+async def test_biological_plausibility_review():
+    result = await biological_plausibility_review(MANUSCRIPT, RESULTS_DATA)
+    assert result["review_type"] == "biological_plausibility"
+    assert "comments" in result
+    assert isinstance(result["comments"], list)
+    print(f"\nBiological plausibility review: {len(result['comments'])} comments")
+    for c in result["comments"][:3]:
+        print(f"  [{c.get('severity', '?')}] {c.get('issue', '?')[:80]}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(120)
+async def test_citation_review():
+    result = await citation_review(MANUSCRIPT)
+    assert result["review_type"] == "citation"
+    assert "comments" in result
+    assert isinstance(result["comments"], list)
+    print(f"\nCitation review: {len(result['comments'])} comments")
+    for c in result["comments"][:3]:
+        print(f"  [{c.get('severity', '?')}] {c.get('issue', '?')[:80]}")
