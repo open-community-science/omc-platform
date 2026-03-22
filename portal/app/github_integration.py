@@ -134,8 +134,10 @@ async def create_review_pr(
         )
         base_sha = ref_resp.json()["object"]["sha"]
 
-        # Create review branch
-        branch_name = f"review/{review_type}"
+        # Create review branch (delete existing if re-running)
+        import time as _time
+        branch_name = f"review/{review_type}-{int(_time.time())}"
+
         await client.post(
             f"{GITHUB_API}/repos/{repo_full_name}/git/refs",
             headers=headers,

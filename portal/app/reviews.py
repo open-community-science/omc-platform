@@ -76,12 +76,18 @@ async def run_reviews(
     has_github_repo = bool(submission.github_repo)
 
     # Parse pipeline outputs for statistical review
+    # Check local squashfuse mount first, then loose files
     pipeline_outputs = {}
     try:
-        results_path = Path(settings.results_path) / submission.slug
-        pipeline_outputs = parse_pipeline_outputs(
-            submission.pipeline.value, results_path
-        )
+        for base in [
+            Path("/mnt/omc-sessions") / submission.slug,
+            Path(settings.local_download_path) / submission.slug,
+        ]:
+            if base.exists():
+                pipeline_outputs = parse_pipeline_outputs(
+                    submission.pipeline.value, base
+                )
+                break
     except Exception:
         pass
 
@@ -121,7 +127,7 @@ async def run_reviews(
                 logger.error(f"Failed to create {review_type} review PR: {e}")
                 pr_urls.append({"review_type": review_type, "error": str(e)})
     else:
-        logger.info(f"No GitHub repo for submission {submission_id} — reviews saved without PRs")
+        logger.info(f"No GitHub repo for {slug} — reviews saved without PRs")
 
     # Store review results and PR URLs in interview_data
     interview_data["_reviews"] = reviews
@@ -161,13 +167,18 @@ async def generate_manuscript(
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
 
-    # Parse pipeline outputs
+    # Parse pipeline outputs — check local sqsh mount first, then loose files
     pipeline_outputs = {}
     try:
-        results_path = Path(settings.results_path) / submission.slug
-        pipeline_outputs = parse_pipeline_outputs(
-            submission.pipeline.value, results_path
-        )
+        for base in [
+            Path("/mnt/omc-sessions") / submission.slug,
+            Path(settings.local_download_path) / submission.slug,
+        ]:
+            if base.exists():
+                pipeline_outputs = parse_pipeline_outputs(
+                    submission.pipeline.value, base
+                )
+                break
     except Exception:
         pass
 
@@ -198,7 +209,7 @@ async def generate_manuscript(
 
     # Create GitHub paper repo and push manuscript files
     repo_url = None
-    if settings.github_token:
+    if settings.github_token or settings.github_app_id:
         try:
             from .github_integration import create_paper_repo_from_files
             files = _manuscript_to_files(sections, submission, figures_json)
