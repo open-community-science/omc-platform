@@ -170,9 +170,21 @@ async def submission_detail(
             status_code=404,
         )
 
+    # Try to load pipeline versions.yml from results
+    pipeline_versions = None
+    for base in [Path("/mnt/omc-sessions") / slug, Path(settings.local_download_path) / slug]:
+        versions_path = base / "pipeline_info" / "versions.yml"
+        if versions_path.exists():
+            try:
+                import yaml
+                pipeline_versions = yaml.safe_load(versions_path.read_text())
+            except Exception:
+                pass
+            break
+
     return templates.TemplateResponse(
         "submission_detail.html",
-        {"request": request, "user": user, "submission": submission},
+        {"request": request, "user": user, "submission": submission, "pipeline_versions": pipeline_versions},
     )
 
 
