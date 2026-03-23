@@ -468,6 +468,13 @@
                 </button>
             </div>
             <p id="session-status" class="wf-step-desc" style="display:none; margin-top: 0.5rem;"></p>
+
+            {# ── Generation progress log (inside step 3) ── #}
+            <div id="gen-progress" style="display:none; margin-top: 1rem;">
+                <div id="gen-terminal" style="background: #0a0a0a; border-radius: 0.5rem; padding: 1rem 1.25rem; font-family: var(--font-mono); font-size: 0.8125rem; max-height: 500px; overflow-y: auto;">
+                    <div id="gen-log" style="color: #4ade80; line-height: 1.7; white-space: pre-wrap;"></div>
+                </div>
+            </div>
             {% endif %}
         </div>
 
@@ -552,12 +559,6 @@
         <p id="action-message">Working...</p>
     </div>
 
-    {# ── Generation progress log ── #}
-    <div id="gen-progress" style="display:none; margin-bottom: 2rem;">
-        <div style="background: #0a0a0a; border-radius: 0.5rem; padding: 1rem 1.25rem; font-family: var(--font-mono); font-size: 0.8125rem; max-height: 300px; overflow-y: auto;">
-            <div id="gen-log" style="color: #4ade80; line-height: 1.8; white-space: pre-wrap;"></div>
-        </div>
-    </div>
 
     {# ── Footer actions ── #}
     <div class="wf-footer-actions">
@@ -1181,12 +1182,31 @@ async function generateManuscript() {
     logDiv.innerHTML = '';
     showPersistentStatus('Generating manuscript...');
 
+    let currentTokenSpan = null;
+
     function appendLog(text, color) {
+        // Close any open token stream
+        currentTokenSpan = null;
         const line = document.createElement('div');
         line.style.color = color || '#4ade80';
         line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
         logDiv.appendChild(line);
-        logDiv.parentElement.scrollTop = logDiv.parentElement.scrollHeight;
+        scrollLog();
+    }
+
+    function appendToken(text) {
+        if (!currentTokenSpan) {
+            currentTokenSpan = document.createElement('span');
+            currentTokenSpan.style.color = '#a3e635';
+            logDiv.appendChild(currentTokenSpan);
+        }
+        currentTokenSpan.textContent += text;
+        scrollLog();
+    }
+
+    function scrollLog() {
+        const term = document.getElementById('gen-terminal');
+        term.scrollTop = term.scrollHeight;
     }
 
     appendLog('Starting manuscript generation...');
@@ -1213,16 +1233,19 @@ async function generateManuscript() {
             buffer += decoder.decode(value, { stream: true });
 
             const lines = buffer.split('\n');
-            buffer = lines.pop(); // keep incomplete line in buffer
+            buffer = lines.pop();
 
             for (const line of lines) {
                 if (!line.startsWith('data: ')) continue;
                 try {
                     const msg = JSON.parse(line.slice(6));
-                    if (msg.event === 'start') {
+                    if (msg.event === 'token') {
+                        appendToken(msg.detail);
+                    } else if (msg.event === 'start') {
                         appendLog(msg.detail, '#4ade80');
                         showPersistentStatus(msg.detail);
                     } else if (msg.event === 'done') {
+                        currentTokenSpan = null;
                         appendLog(msg.detail, '#86efac');
                     } else if (msg.event === 'complete') {
                         appendLog(msg.detail, '#22c55e');

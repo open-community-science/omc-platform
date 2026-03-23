@@ -3,20 +3,70 @@ import asyncio
 import inspect
 import json
 import logging
+import re
 from functools import partial
-from .llm_client import get_client, chat
+from .llm_client import get_client, chat, _strip_think, _effective_tokens, DEFAULT_MODEL
 from .citation_resolver import find_cite_contexts, generate_search_queries, format_bibtex_entry, format_inline_citation
 
 log = logging.getLogger(__name__)
 
 
-async def _achat(client, system, user, model=None, max_tokens=2000):
-    """Run the synchronous chat() in a thread pool to avoid blocking the event loop."""
+async def _achat(client, system, user, model=None, max_tokens=2000, on_token=None):
+    """Generate a chat completion, optionally streaming tokens via on_token callback.
+
+    on_token: async callable(chunk_text) called for each streamed chunk.
+    Returns the full response text.
+    """
+    if on_token is None:
+        # Non-streaming path — run in thread pool
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            partial(chat, client, system, user, model=model, max_tokens=max_tokens),
+        )
+
+    # Streaming path — use OpenAI streaming API in a thread, push chunks to async queue
+    m = model or DEFAULT_MODEL
+    tokens = _effective_tokens(max_tokens, m)
+
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
-        None,
-        partial(chat, client, system, user, model=model, max_tokens=max_tokens),
-    )
+    queue = asyncio.Queue()
+
+    def _stream_in_thread():
+        try:
+            stream = client.chat.completions.create(
+                model=m,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                max_tokens=tokens,
+                temperature=0.7,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    loop.call_soon_threadsafe(queue.put_nowait, delta.content)
+            loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel
+        except Exception as e:
+            loop.call_soon_threadsafe(queue.put_nowait, e)
+
+    thread_future = loop.run_in_executor(None, _stream_in_thread)
+
+    full_text = []
+    while True:
+        item = await queue.get()
+        if item is None:
+            break
+        if isinstance(item, Exception):
+            raise item
+        full_text.append(item)
+        await on_token(item)
+
+    await thread_future  # ensure thread is done
+    result = "".join(full_text)
+    return _strip_think(result)
 
 
 SYSTEM_PROMPT = """You are a scientific writing assistant for microbial ecology research.
@@ -54,6 +104,14 @@ async def generate_manuscript_draft(
         if on_progress:
             await on_progress(event, detail)
 
+    async def token_cb(chunk):
+        """Forward streamed tokens to progress callback."""
+        if on_progress:
+            await on_progress("token", chunk)
+
+    # Only stream tokens if we have a progress callback
+    stream_tokens = token_cb if on_progress else None
+
     results_summary = _summarize_results(pipeline_outputs)
     interview_context = _format_interview(interview_data)
 
@@ -76,7 +134,7 @@ Write 2-3 paragraphs that:
 3. Briefly preview the approach
 
 Use [CITE] placeholders where literature citations would go.""",
-        model=model, max_tokens=2000)
+        model=model, max_tokens=2000, on_token=stream_tokens)
 
     await emit("done", f"Introduction complete ({len(sections['introduction'])} chars)")
 
@@ -102,7 +160,7 @@ Write a Methods section covering:
 4. Statistical approaches used
 
 Be specific about tools and versions where inferable.""",
-        model=model, max_tokens=2000)
+        model=model, max_tokens=2000, on_token=stream_tokens)
 
     await emit("done", f"Methods complete ({len(sections['methods'])} chars)")
 
@@ -123,7 +181,7 @@ Write a Results section that:
 4. Follows a logical flow from overview to specific findings
 
 Do not interpret results - save that for Discussion.""",
-        model=model, max_tokens=3000)
+        model=model, max_tokens=3000, on_token=stream_tokens)
 
     await emit("done", f"Results complete ({len(sections['results'])} chars)")
 
@@ -152,7 +210,7 @@ Write a Discussion that:
 5. Suggests future directions
 
 Use [CITE] placeholders for literature references.""",
-        model=model, max_tokens=3000)
+        model=model, max_tokens=3000, on_token=stream_tokens)
 
     await emit("done", f"Discussion complete ({len(sections['discussion'])} chars)")
 
@@ -178,7 +236,7 @@ Write a single paragraph (200-300 words) covering:
 2. Methods
 3. Key results
 4. Conclusions""",
-        model=model, max_tokens=500)
+        model=model, max_tokens=500, on_token=stream_tokens)
     await emit("done", f"Abstract complete ({len(sections['abstract'])} chars)")
     log.info("All sections generated.")
 
