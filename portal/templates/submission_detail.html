@@ -464,7 +464,7 @@
             {% if step3_state != 'locked' %}
             <div class="wf-step-actions">
                 <button class="btn btn-secondary" onclick="generateManuscript()"
-                    {% if not has_interview %}title="Complete the AI session first" disabled{% endif %}>
+                    {% if not has_pipeline_results and not has_interview %}title="Waiting for pipeline results" disabled{% endif %}>
                     {% if has_draft %}Regenerate Manuscript{% else %}Generate Manuscript{% endif %}
                 </button>
                 {% if has_draft %}
