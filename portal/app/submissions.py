@@ -382,6 +382,18 @@ async def update_submission(
                 submission.interview_data = interview_data
                 attributes.flag_modified(submission, "interview_data")
 
+    # Manuscript section edits (from preview page)
+    if "manuscript_section" in body and "manuscript_text" in body:
+        section_name = body["manuscript_section"]
+        section_text = body["manuscript_text"]
+        interview_data = dict(submission.interview_data or {})
+        manuscript = dict(interview_data.get("_manuscript", {}))
+        if section_name in ("abstract", "introduction", "methods", "results", "discussion", "bibliography"):
+            manuscript[section_name] = section_text
+            interview_data["_manuscript"] = manuscript
+            submission.interview_data = interview_data
+            attributes.flag_modified(submission, "interview_data")
+
     await db.commit()
     return JSONResponse({"ok": True, "title": submission.title, "pipeline": submission.pipeline.value})
 

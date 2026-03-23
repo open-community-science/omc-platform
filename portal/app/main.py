@@ -223,6 +223,43 @@ async def interview_page(
     )
 
 
+@app.get("/submissions/{slug}/manuscript", response_class=HTMLResponse)
+async def manuscript_preview(
+    slug: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Manuscript preview page — view and edit before publishing to GitHub."""
+    user = await get_current_user(request, db)
+    if not user:
+        return templates.TemplateResponse("login_required.html", {"request": request})
+
+    stmt = select(Submission).where(
+        Submission.slug == slug,
+        Submission.user_id == user.id,
+        Submission.deleted_at.is_(None),
+    )
+    result = await db.execute(stmt)
+    submission = result.scalar_one_or_none()
+    if not submission:
+        return templates.TemplateResponse("404.html", {"request": request, "user": user}, status_code=404)
+
+    interview_data = submission.interview_data or {}
+    manuscript = interview_data.get("_manuscript")
+    if not manuscript:
+        return RedirectResponse(f"/submissions/{slug}", status_code=303)
+
+    return templates.TemplateResponse(
+        "manuscript_preview.html",
+        {
+            "request": request,
+            "user": user,
+            "submission": submission,
+            "manuscript": manuscript,
+        },
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

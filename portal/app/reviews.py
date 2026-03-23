@@ -256,31 +256,17 @@ async def generate_manuscript(
         model=llm["model"],
     )
 
-    # Store manuscript in interview_data
+    # Store manuscript in interview_data (but don't publish yet)
     interview_data["_manuscript"] = sections
     submission.interview_data = interview_data
     attributes.flag_modified(submission, "interview_data")
-
-    # Create GitHub paper repo and push manuscript files
-    repo_url = None
-    if settings.github_token or settings.github_app_id:
-        try:
-            from .github_integration import create_paper_repo_from_files
-            files = _manuscript_to_files(sections, submission, figures_json)
-            repo_url = await create_paper_repo_from_files(submission, files)
-            submission.github_repo = repo_url
-            logger.info(f"Created paper repo: {repo_url}")
-        except Exception as e:
-            logger.error(f"GitHub repo creation failed: {e}")
-            repo_url = None
-
     await db.commit()
 
     return {
         "slug": slug,
         "sections": {k: len(v) for k, v in sections.items()},
         "manuscript": sections,
-        "github_repo": repo_url,
+        "preview_url": f"/submissions/{slug}/manuscript",
     }
 
 
@@ -383,45 +369,93 @@ async def generate_manuscript_stream(
             yield f"data: {json.dumps({'event': 'start', 'detail': 'Saving manuscript...'})}\n\n"
 
             try:
-                # Generate figures
-                figures_json = {}
-                try:
-                    from ai.figure_generator import generate_figures
-                    figures_json = generate_figures(pipeline_outputs, sub_pipeline)
-                except Exception:
-                    pass
-
                 interview_data = dict(sub_interview)
                 interview_data["_manuscript"] = sections
 
-                # Save to DB in a fresh session
                 async with async_session() as save_db:
                     save_stmt = select(Submission).where(Submission.id == sub_id)
                     save_result = await save_db.execute(save_stmt)
                     sub = save_result.scalar_one()
                     sub.interview_data = interview_data
                     attributes.flag_modified(sub, "interview_data")
-
-                    # Create GitHub repo
-                    repo_url = None
-                    if settings.github_token or settings.github_app_id:
-                        try:
-                            from .github_integration import create_paper_repo_from_files
-                            yield f"data: {json.dumps({'event': 'start', 'detail': 'Creating GitHub paper repo...'})}\n\n"
-                            files = _manuscript_to_files(sections, sub, figures_json)
-                            repo_url = await create_paper_repo_from_files(sub, files)
-                            sub.github_repo = repo_url
-                            yield f"data: {json.dumps({'event': 'done', 'detail': f'Paper repo created: {repo_url}'})}\n\n"
-                        except Exception as e:
-                            yield f"data: {json.dumps({'event': 'done', 'detail': f'GitHub repo failed: {e}'})}\n\n"
-
                     await save_db.commit()
 
-                yield f"data: {json.dumps({'event': 'complete', 'detail': 'Manuscript saved', 'github_repo': repo_url})}\n\n"
+                preview_url = f"/submissions/{sub_slug}/manuscript"
+                yield f"data: {json.dumps({'event': 'complete', 'detail': 'Manuscript saved — redirecting to preview', 'preview_url': preview_url})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'event': 'error', 'detail': f'Save failed: {e}'})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/{slug}/publish")
+async def publish_manuscript(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Publish the manuscript to a GitHub paper repo.
+
+    Only called after the user has previewed and is ready to commit.
+    Creates the repo, pushes all files, enables GitHub Pages.
+    """
+    from .github_integration import create_paper_repo_from_files
+    from ai.pipeline_parser import parse_pipeline_outputs
+    from pathlib import Path
+
+    stmt = select(Submission).where(
+        Submission.slug == slug,
+        Submission.user_id == user.id,
+    )
+    result = await db.execute(stmt)
+    submission = result.scalar_one_or_none()
+    if not submission:
+        raise HTTPException(404, "Submission not found")
+
+    interview_data = submission.interview_data or {}
+    manuscript = interview_data.get("_manuscript")
+    if not manuscript:
+        raise HTTPException(400, "No manuscript to publish. Generate one first.")
+
+    # Generate figures
+    pipeline_outputs = {}
+    try:
+        from .staging import get_results_path
+        from .sessions import _sqsh_mount, SQSH_MOUNT_BASE
+
+        sqsh_mount = SQSH_MOUNT_BASE / submission.slug
+        sqsh_path = get_results_path(submission.slug)
+        if sqsh_path and not _dir_has_content(sqsh_mount):
+            try:
+                sqsh_mount = await _sqsh_mount(submission.slug, sqsh_path)
+            except Exception:
+                pass
+        for base in [sqsh_mount, Path(settings.local_download_path) / submission.slug]:
+            if _dir_has_content(base):
+                pipeline_outputs = parse_pipeline_outputs(submission.pipeline.value, base)
+                break
+    except Exception:
+        pass
+
+    figures_json = {}
+    try:
+        from ai.figure_generator import generate_figures
+        figures_json = generate_figures(pipeline_outputs, submission.pipeline.value)
+    except Exception:
+        pass
+
+    files = _manuscript_to_files(manuscript, submission, figures_json)
+
+    try:
+        repo_url = await create_paper_repo_from_files(submission, files)
+        submission.github_repo = repo_url
+        attributes.flag_modified(submission, "interview_data")
+        await db.commit()
+        logger.info(f"Published manuscript for {slug} to {repo_url}")
+        return {"slug": slug, "github_repo": repo_url}
+    except Exception as e:
+        logger.error(f"Publish failed for {slug}: {e}")
+        raise HTTPException(500, f"Failed to publish: {e}")
 
 
 def _manuscript_to_files(sections: dict, submission, figures: dict | None = None) -> dict:

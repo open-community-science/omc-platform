@@ -7,6 +7,7 @@
 {% set has_accession = submission.bioproject_accession is not none %}
 {% set has_pipeline_results = s in ['processing', 'drafting', 'review', 'published'] %}
 {% set has_manuscript = submission.github_repo is not none %}
+{% set has_draft = (submission.interview_data or {}).get('_manuscript') is not none %}
 {% set has_interview = submission.interview_data is not none and submission.interview_data | length > 0 %}
 {% set interview_prs = (submission.interview_data or {}).get('_review_prs', []) %}
 
@@ -440,7 +441,7 @@
         {# ── Step 3: Author Interview & Manuscript ── #}
         {% set step3_available = has_accession %}
         {% set step3_current = s == 'drafting' %}
-        {% set step3_done = s in ['review', 'published'] or has_manuscript %}
+        {% set step3_done = s in ['review', 'published'] or has_manuscript or has_draft %}
         {% set step3_state = 'completed' if step3_done else ('current' if step3_current else ('available' if step3_available else 'locked')) %}
         <div class="wf-step {{ step3_state }}">
             <div class="wf-step-header">
@@ -464,8 +465,11 @@
             <div class="wf-step-actions">
                 <button class="btn btn-secondary" onclick="generateManuscript()"
                     {% if not has_interview %}title="Complete the AI session first" disabled{% endif %}>
-                    Generate Manuscript
+                    {% if has_draft %}Regenerate Manuscript{% else %}Generate Manuscript{% endif %}
                 </button>
+                {% if has_draft %}
+                <a href="/submissions/{{ submission.slug }}/manuscript" class="btn btn-primary">View Manuscript</a>
+                {% endif %}
             </div>
             <p id="session-status" class="wf-step-desc" style="display:none; margin-top: 0.5rem;"></p>
 
@@ -481,7 +485,7 @@
         {# ── Step 4: Peer Review ── #}
         {% set step4_current = s == 'review' %}
         {% set step4_done = s == 'published' %}
-        {% set step4_available = has_manuscript %}
+        {% set step4_available = has_manuscript or has_draft %}
         {% set step4_state = 'completed' if step4_done else ('current' if step4_current else ('available' if step4_available else 'locked')) %}
         <div class="wf-step {{ step4_state }}">
             <div class="wf-step-header">
@@ -1249,12 +1253,12 @@ async function generateManuscript() {
                         appendLog(msg.detail, '#86efac');
                     } else if (msg.event === 'complete') {
                         appendLog(msg.detail, '#22c55e');
-                        if (msg.github_repo) {
-                            showStatus(`Done! Paper repo: ${msg.github_repo}`);
+                        showStatus('Manuscript saved! Redirecting to preview...');
+                        if (msg.preview_url) {
+                            setTimeout(() => window.location.href = msg.preview_url, 1500);
                         } else {
-                            showStatus('Manuscript generated and saved.');
+                            setTimeout(() => location.reload(), 2000);
                         }
-                        setTimeout(() => location.reload(), 3000);
                     } else if (msg.event === 'error') {
                         appendLog(`ERROR: ${msg.detail}`, '#ef4444');
                         showStatus(`Error: ${msg.detail}`);

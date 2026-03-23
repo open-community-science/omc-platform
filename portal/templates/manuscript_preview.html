@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}Manuscript Preview — {{ submission.title or submission.slug }} - OMC{% endblock %}
+
+{% block head %}
+<style>
+    .manuscript-preview { max-width: 900px; }
+    .manuscript-header { margin-bottom: 2rem; }
+    .manuscript-header h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .manuscript-header-meta { font-size: 0.875rem; color: var(--color-text-muted); }
+    .manuscript-header-meta a { color: var(--color-primary); text-decoration: none; }
+
+    .manuscript-actions {
+        display: flex; gap: 0.75rem; align-items: center;
+        padding: 1rem 0; border-bottom: 1px solid var(--color-border);
+        margin-bottom: 2rem; position: sticky; top: 60px;
+        background: var(--color-bg); z-index: 10;
+    }
+    .manuscript-actions .btn { font-size: 0.9375rem; }
+    .publish-status { font-size: 0.875rem; color: var(--color-text-muted); }
+
+    .ms-section {
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 0.5rem;
+        margin-bottom: 1.5rem;
+        overflow: hidden;
+    }
+    .ms-section-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0.75rem 1.25rem;
+        background: var(--color-bg);
+        border-bottom: 1px solid var(--color-border);
+        cursor: pointer; user-select: none;
+    }
+    .ms-section-header h2 { font-size: 1rem; margin: 0; }
+    .ms-section-header .char-count {
+        font-size: 0.75rem; color: var(--color-text-muted);
+        font-family: var(--font-mono);
+    }
+    .ms-section-body { padding: 1.25rem; line-height: 1.8; }
+    .ms-section-body p { margin-bottom: 1rem; }
+
+    /* Edit mode */
+    .ms-section-edit {
+        display: none;
+        padding: 0.75rem 1.25rem;
+        border-top: 1px solid var(--color-border);
+    }
+    .ms-section-edit textarea {
+        width: 100%; min-height: 200px; padding: 0.75rem;
+        border: 1px solid var(--color-border); border-radius: 0.375rem;
+        font-family: var(--font-mono); font-size: 0.875rem;
+        line-height: 1.6; resize: vertical;
+    }
+    .ms-section-edit .edit-actions {
+        display: flex; gap: 0.5rem; margin-top: 0.5rem; justify-content: flex-end;
+    }
+
+    /* Rendered markdown-ish styling */
+    .ms-section-body h3 { font-size: 1rem; margin: 1.25rem 0 0.5rem; }
+    .ms-section-body ul, .ms-section-body ol { margin: 0.5rem 0 1rem 1.5rem; }
+    .ms-section-body code { font-family: var(--font-mono); background: #f1f5f9; padding: 0.15em 0.3em; border-radius: 0.2em; font-size: 0.875em; }
+    .ms-section-body blockquote { border-left: 3px solid var(--color-border); padding-left: 1rem; color: var(--color-text-muted); margin: 1rem 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="manuscript-preview">
+    <div class="manuscript-header">
+        <h1>{{ submission.title or 'Untitled Manuscript' }}</h1>
+        <p class="manuscript-header-meta">
+            <a href="/submissions/{{ submission.slug }}">{{ submission.slug }}</a>
+            {% if submission.bioproject_accession %}
+            &middot; {{ submission.bioproject_accession }}
+            {% endif %}
+            &middot; {{ submission.pipeline.value }}
+        </p>
+    </div>
+
+    <div class="manuscript-actions">
+        <a href="/submissions/{{ submission.slug }}" class="btn btn-secondary">Back to Submission</a>
+        <button class="btn btn-secondary" onclick="regenerate()">Regenerate</button>
+        {% if submission.github_repo %}
+        <a href="{{ submission.github_repo }}" target="_blank" class="btn btn-secondary">View on GitHub</a>
+        <button class="btn btn-primary" onclick="publish()">Update on GitHub</button>
+        {% else %}
+        <button class="btn btn-primary" onclick="publish()">Publish to GitHub</button>
+        {% endif %}
+        <span id="publish-status" class="publish-status"></span>
+    </div>
+
+    {% set section_order = ['abstract', 'introduction', 'methods', 'results', 'discussion'] %}
+    {% for name in section_order %}
+    {% if manuscript.get(name) %}
+    <div class="ms-section" id="section-{{ name }}">
+        <div class="ms-section-header" onclick="toggleSection('{{ name }}')">
+            <h2>{{ name | title }}</h2>
+            <span class="char-count">{{ manuscript[name] | length }} chars</span>
+        </div>
+        <div class="ms-section-body" id="body-{{ name }}">
+            {{ manuscript[name] | replace('\n\n', '</p><p>') | replace('\n', '<br>') | safe }}
+        </div>
+        <div class="ms-section-edit" id="edit-{{ name }}">
+            <textarea id="textarea-{{ name }}">{{ manuscript[name] }}</textarea>
+            <div class="edit-actions">
+                <button class="btn btn-secondary btn-sm" onclick="cancelEdit('{{ name }}')">Cancel</button>
+                <button class="btn btn-primary btn-sm" onclick="saveEdit('{{ name }}')">Save</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    {% if manuscript.get('bibliography') %}
+    <div class="ms-section">
+        <div class="ms-section-header">
+            <h2>Bibliography</h2>
+            <span class="char-count">{{ manuscript.bibliography | length }} chars</span>
+        </div>
+        <div class="ms-section-body">
+            <pre style="white-space: pre-wrap; font-size: 0.8125rem;">{{ manuscript.bibliography }}</pre>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const subId = '{{ submission.slug }}';
+
+function toggleSection(name) {
+    const editDiv = document.getElementById('edit-' + name);
+    const bodyDiv = document.getElementById('body-' + name);
+    if (editDiv.style.display === 'block') {
+        cancelEdit(name);
+    } else {
+        editDiv.style.display = 'block';
+        bodyDiv.style.display = 'none';
+    }
+}
+
+function cancelEdit(name) {
+    document.getElementById('edit-' + name).style.display = 'none';
+    document.getElementById('body-' + name).style.display = '';
+}
+
+async function saveEdit(name) {
+    const textarea = document.getElementById('textarea-' + name);
+    const text = textarea.value;
+    const statusEl = document.getElementById('publish-status');
+    statusEl.textContent = 'Saving...';
+
+    try {
+        const resp = await fetch(`/submissions/${subId}/update`, {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ manuscript_section: name, manuscript_text: text }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            // Update the rendered view
+            const bodyDiv = document.getElementById('body-' + name);
+            bodyDiv.innerHTML = text.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
+            cancelEdit(name);
+            // Update char count
+            const section = document.getElementById('section-' + name);
+            section.querySelector('.char-count').textContent = text.length + ' chars';
+            statusEl.textContent = 'Saved';
+            setTimeout(() => statusEl.textContent = '', 2000);
+        } else {
+            statusEl.textContent = 'Error: ' + (data.error || 'Save failed');
+        }
+    } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+    }
+}
+
+async function publish() {
+    const statusEl = document.getElementById('publish-status');
+    statusEl.textContent = 'Publishing to GitHub...';
+
+    try {
+        const resp = await fetch(`/reviews/${subId}/publish`, {
+            method: 'POST', credentials: 'same-origin',
+        });
+        const data = await resp.json();
+        if (data.github_repo) {
+            statusEl.textContent = 'Published!';
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            statusEl.textContent = 'Error: ' + (data.detail || 'Publish failed');
+        }
+    } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+    }
+}
+
+function regenerate() {
+    if (confirm('Regenerate the manuscript? This will overwrite the current draft.')) {
+        window.location.href = `/submissions/${subId}`;
+    }
+}
+</script>
+{% endblock %}
