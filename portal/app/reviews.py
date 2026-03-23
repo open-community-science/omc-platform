@@ -4,14 +4,17 @@ Reviews always produce GitHub PRs on the paper's repository.
 Each review type (statistical, methodological, clarity) gets its own PR
 with structured comments, matching OMC's git-native review model.
 """
+import asyncio
+import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes
 from sqlalchemy import select
 
 from .config import get_settings
-from .database import get_db, Submission, User
+from .database import get_db, async_session, Submission, User
 from .auth import require_user
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
@@ -260,6 +263,139 @@ async def generate_manuscript(
         "manuscript": sections,
         "github_repo": repo_url,
     }
+
+
+@router.post("/{slug}/generate-stream")
+async def generate_manuscript_stream(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Generate manuscript with SSE progress streaming."""
+    from ai.manuscript_generator import generate_manuscript_draft
+    from ai.pipeline_parser import parse_pipeline_outputs
+    from pathlib import Path
+
+    stmt = select(Submission).where(
+        Submission.slug == slug,
+        Submission.user_id == user.id,
+    )
+    result = await db.execute(stmt)
+    submission = result.scalar_one_or_none()
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    # Capture submission data before we leave the db session scope
+    sub_slug = submission.slug
+    sub_pipeline = submission.pipeline.value
+    sub_accession = submission.bioproject_accession
+    sub_interview = dict(submission.interview_data or {})
+    sub_github_repo = submission.github_repo
+    sub_title = submission.title
+    sub_id = submission.id
+
+    # Parse pipeline outputs
+    pipeline_outputs = {}
+    try:
+        from .staging import get_results_path
+        from .sessions import _sqsh_mount, SQSH_MOUNT_BASE
+
+        sqsh_mount = SQSH_MOUNT_BASE / sub_slug
+        sqsh_path = get_results_path(sub_slug)
+
+        if sqsh_path and not _dir_has_content(sqsh_mount):
+            try:
+                sqsh_mount = await _sqsh_mount(sub_slug, sqsh_path)
+            except Exception:
+                pass
+
+        for base in [sqsh_mount, Path(settings.local_download_path) / sub_slug]:
+            if _dir_has_content(base):
+                pipeline_outputs = parse_pipeline_outputs(sub_pipeline, base)
+                break
+    except Exception:
+        pass
+
+    result_holder = {}
+
+    async def event_stream():
+        progress_queue = asyncio.Queue()
+
+        async def on_progress(event, detail):
+            await progress_queue.put({"event": event, "detail": detail})
+
+        async def run_generation():
+            try:
+                sections = await generate_manuscript_draft(
+                    pipeline_outputs=pipeline_outputs,
+                    interview_data=sub_interview,
+                    pipeline_type=sub_pipeline,
+                    bioproject_accession=sub_accession,
+                    base_url=settings.llm_base_url,
+                    api_key=settings.llm_api_key,
+                    model=settings.llm_model,
+                    on_progress=on_progress,
+                )
+                result_holder["sections"] = sections
+            except Exception as e:
+                result_holder["error"] = str(e)
+                await progress_queue.put({"event": "error", "detail": str(e)})
+            finally:
+                await progress_queue.put(None)
+
+        asyncio.create_task(run_generation())
+
+        while True:
+            msg = await progress_queue.get()
+            if msg is None:
+                break
+            yield f"data: {json.dumps(msg)}\n\n"
+
+        # Save results to DB
+        if "sections" in result_holder:
+            sections = result_holder["sections"]
+            yield f"data: {json.dumps({'event': 'start', 'detail': 'Saving manuscript...'})}\n\n"
+
+            try:
+                # Generate figures
+                figures_json = {}
+                try:
+                    from ai.figure_generator import generate_figures
+                    figures_json = generate_figures(pipeline_outputs, sub_pipeline)
+                except Exception:
+                    pass
+
+                interview_data = dict(sub_interview)
+                interview_data["_manuscript"] = sections
+
+                # Save to DB in a fresh session
+                async with async_session() as save_db:
+                    save_stmt = select(Submission).where(Submission.id == sub_id)
+                    save_result = await save_db.execute(save_stmt)
+                    sub = save_result.scalar_one()
+                    sub.interview_data = interview_data
+                    attributes.flag_modified(sub, "interview_data")
+
+                    # Create GitHub repo
+                    repo_url = None
+                    if settings.github_token or settings.github_app_id:
+                        try:
+                            from .github_integration import create_paper_repo_from_files
+                            yield f"data: {json.dumps({'event': 'start', 'detail': 'Creating GitHub paper repo...'})}\n\n"
+                            files = _manuscript_to_files(sections, sub, figures_json)
+                            repo_url = await create_paper_repo_from_files(sub, files)
+                            sub.github_repo = repo_url
+                            yield f"data: {json.dumps({'event': 'done', 'detail': f'Paper repo created: {repo_url}'})}\n\n"
+                        except Exception as e:
+                            yield f"data: {json.dumps({'event': 'done', 'detail': f'GitHub repo failed: {e}'})}\n\n"
+
+                    await save_db.commit()
+
+                yield f"data: {json.dumps({'event': 'complete', 'detail': 'Manuscript saved', 'github_repo': repo_url})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'event': 'error', 'detail': f'Save failed: {e}'})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 def _manuscript_to_files(sections: dict, submission, figures: dict | None = None) -> dict:

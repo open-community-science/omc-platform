@@ -552,6 +552,13 @@
         <p id="action-message">Working...</p>
     </div>
 
+    {# ── Generation progress log ── #}
+    <div id="gen-progress" style="display:none; margin-bottom: 2rem;">
+        <div style="background: #0a0a0a; border-radius: 0.5rem; padding: 1rem 1.25rem; font-family: var(--font-mono); font-size: 0.8125rem; max-height: 300px; overflow-y: auto;">
+            <div id="gen-log" style="color: #4ade80; line-height: 1.8; white-space: pre-wrap;"></div>
+        </div>
+    </div>
+
     {# ── Footer actions ── #}
     <div class="wf-footer-actions">
         {% if submission.github_repo %}
@@ -1168,22 +1175,72 @@ async function launchSession() {
 }
 
 async function generateManuscript() {
-    showPersistentStatus('Generating manuscript... this takes a few minutes. Do not close this page.');
+    const progressDiv = document.getElementById('gen-progress');
+    const logDiv = document.getElementById('gen-log');
+    progressDiv.style.display = '';
+    logDiv.innerHTML = '';
+    showPersistentStatus('Generating manuscript...');
+
+    function appendLog(text, color) {
+        const line = document.createElement('div');
+        line.style.color = color || '#4ade80';
+        line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+        logDiv.appendChild(line);
+        logDiv.parentElement.scrollTop = logDiv.parentElement.scrollHeight;
+    }
+
+    appendLog('Starting manuscript generation...');
+
     try {
-        const resp = await fetch(`/reviews/${subId}/generate`, { method: 'POST', credentials: 'same-origin' });
+        const resp = await fetch(`/reviews/${subId}/generate-stream`, {
+            method: 'POST', credentials: 'same-origin',
+        });
+
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
+            appendLog(`ERROR: ${err.detail || resp.statusText}`, '#ef4444');
             showStatus(`Error: ${err.detail || resp.statusText}`);
             return;
         }
-        const data = await resp.json();
-        if (data.github_repo) {
-            showStatus(`Manuscript generated and pushed to ${data.github_repo}`);
-        } else {
-            showStatus(`Manuscript generated (${Object.keys(data.sections || {}).length} sections).`);
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // keep incomplete line in buffer
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const msg = JSON.parse(line.slice(6));
+                    if (msg.event === 'start') {
+                        appendLog(msg.detail, '#4ade80');
+                        showPersistentStatus(msg.detail);
+                    } else if (msg.event === 'done') {
+                        appendLog(msg.detail, '#86efac');
+                    } else if (msg.event === 'complete') {
+                        appendLog(msg.detail, '#22c55e');
+                        if (msg.github_repo) {
+                            showStatus(`Done! Paper repo: ${msg.github_repo}`);
+                        } else {
+                            showStatus('Manuscript generated and saved.');
+                        }
+                        setTimeout(() => location.reload(), 3000);
+                    } else if (msg.event === 'error') {
+                        appendLog(`ERROR: ${msg.detail}`, '#ef4444');
+                        showStatus(`Error: ${msg.detail}`);
+                    }
+                } catch (e) {}
+            }
         }
-        setTimeout(() => location.reload(), 2000);
     } catch (e) {
+        appendLog(`Connection error: ${e.message}`, '#ef4444');
         showStatus(`Error: ${e.message}`);
     }
 }

@@ -40,13 +40,19 @@ async def generate_manuscript_draft(
     base_url: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
+    on_progress=None,
 ) -> dict:
     """
     Generate a manuscript draft from pipeline outputs and author interview.
 
+    on_progress: optional async callable(event, detail) for streaming progress.
     Returns a dict with sections: abstract, introduction, methods, results, discussion
     """
     client = get_client(base_url=base_url, api_key=api_key)
+
+    async def emit(event, detail=""):
+        if on_progress:
+            await on_progress(event, detail)
 
     results_summary = _summarize_results(pipeline_outputs)
     interview_context = _format_interview(interview_data)
@@ -54,6 +60,7 @@ async def generate_manuscript_draft(
     sections = {}
 
     # Introduction
+    await emit("start", "Generating Introduction...")
     log.info(f"Generating introduction for {bioproject_accession}...")
     sections["introduction"] = await _achat(client, SYSTEM_PROMPT, f"""Generate an Introduction section for a paper with this context:
 
@@ -71,7 +78,10 @@ Write 2-3 paragraphs that:
 Use [CITE] placeholders where literature citations would go.""",
         model=model, max_tokens=2000)
 
+    await emit("done", f"Introduction complete ({len(sections['introduction'])} chars)")
+
     # Methods
+    await emit("start", "Generating Methods...")
     log.info("Generating methods...")
     sections["methods"] = await _achat(client, SYSTEM_PROMPT, f"""Generate a Methods section for this analysis:
 
@@ -94,7 +104,10 @@ Write a Methods section covering:
 Be specific about tools and versions where inferable.""",
         model=model, max_tokens=2000)
 
+    await emit("done", f"Methods complete ({len(sections['methods'])} chars)")
+
     # Results
+    await emit("start", "Generating Results...")
     log.info("Generating results...")
     sections["results"] = await _achat(client, SYSTEM_PROMPT, f"""Generate a Results section based on these pipeline outputs:
 
@@ -112,7 +125,10 @@ Write a Results section that:
 Do not interpret results - save that for Discussion.""",
         model=model, max_tokens=3000)
 
+    await emit("done", f"Results complete ({len(sections['results'])} chars)")
+
     # Discussion
+    await emit("start", "Generating Discussion...")
     log.info("Generating discussion...")
     sections["discussion"] = await _achat(client, SYSTEM_PROMPT, f"""Generate a Discussion section:
 
@@ -138,7 +154,10 @@ Write a Discussion that:
 Use [CITE] placeholders for literature references.""",
         model=model, max_tokens=3000)
 
+    await emit("done", f"Discussion complete ({len(sections['discussion'])} chars)")
+
     # Abstract (written last, based on all sections)
+    await emit("start", "Generating Abstract...")
     log.info("Generating abstract...")
     sections["abstract"] = await _achat(client, SYSTEM_PROMPT, f"""Write an abstract for this manuscript:
 
@@ -160,9 +179,11 @@ Write a single paragraph (200-300 words) covering:
 3. Key results
 4. Conclusions""",
         model=model, max_tokens=500)
+    await emit("done", f"Abstract complete ({len(sections['abstract'])} chars)")
     log.info("All sections generated.")
 
     # Resolve [CITE] placeholders via PubMed search (non-blocking)
+    await emit("start", "Resolving citations via PubMed...")
     try:
         from .pubmed_search import search_pubmed
         sections, bibliography = await resolve_citations(
@@ -175,9 +196,12 @@ Write a single paragraph (200-300 words) covering:
         )
         if bibliography:
             sections["bibliography"] = bibliography
+        await emit("done", "Citations resolved")
     except Exception as e:
         log.warning(f"Citation resolution failed (manuscript preserved): {e}")
+        await emit("done", f"Citation resolution skipped: {e}")
 
+    await emit("complete", f"Manuscript complete — {len(sections)} sections")
     return sections
 
 
