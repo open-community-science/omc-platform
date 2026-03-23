@@ -99,7 +99,7 @@
             <span class="char-count">{{ manuscript[name] | length }} chars</span>
         </div>
         <div class="ms-section-body" id="body-{{ name }}">
-            {{ manuscript[name] | replace('\n\n', '</p><p>') | replace('\n', '<br>') | safe }}
+            {{ manuscript_html[name] | safe }}
         </div>
         <div class="ms-section-edit" id="edit-{{ name }}">
             <textarea id="textarea-{{ name }}">{{ manuscript[name] }}</textarea>
@@ -160,15 +160,8 @@ async function saveEdit(name) {
         });
         const data = await resp.json();
         if (data.ok) {
-            // Update the rendered view
-            const bodyDiv = document.getElementById('body-' + name);
-            bodyDiv.innerHTML = text.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
-            cancelEdit(name);
-            // Update char count
-            const section = document.getElementById('section-' + name);
-            section.querySelector('.char-count').textContent = text.length + ' chars';
-            statusEl.textContent = 'Saved';
-            setTimeout(() => statusEl.textContent = '', 2000);
+            statusEl.textContent = 'Saved — reloading...';
+            setTimeout(() => location.reload(), 500);
         } else {
             statusEl.textContent = 'Error: ' + (data.error || 'Save failed');
         }

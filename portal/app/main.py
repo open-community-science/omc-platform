@@ -249,6 +249,17 @@ async def manuscript_preview(
     if not manuscript:
         return RedirectResponse(f"/submissions/{slug}", status_code=303)
 
+    # Render markdown to HTML for display
+    import markdown
+    manuscript_html = {}
+    for name, text in manuscript.items():
+        if isinstance(text, str):
+            manuscript_html[name] = markdown.markdown(
+                text, extensions=["tables", "fenced_code"],
+            )
+        else:
+            manuscript_html[name] = text
+
     return templates.TemplateResponse(
         "manuscript_preview.html",
         {
@@ -256,6 +267,7 @@ async def manuscript_preview(
             "user": user,
             "submission": submission,
             "manuscript": manuscript,
+            "manuscript_html": manuscript_html,
         },
     )
 
