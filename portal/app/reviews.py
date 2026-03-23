@@ -540,12 +540,6 @@ format:
     css: styles.css
     code-fold: true
     fig-responsive: true
-  pdf:
-    documentclass: article
-    geometry:
-      - margin=1in
-    fontsize: 11pt
-    colorlinks: true
 """
 
     # BibTeX bibliography
@@ -572,15 +566,8 @@ jobs:
 
       - uses: quarto-dev/quarto-actions/setup@v2
 
-      - name: Install TinyTeX
-        run: quarto install tinytex
-
       - name: Render HTML
-        run: quarto render manuscript.qmd --to html
-
-      - name: Render PDF
-        run: quarto render manuscript.qmd --to pdf
-        continue-on-error: true
+        run: quarto render manuscript.qmd
 
       - name: Deploy to GitHub Pages
         if: github.ref == 'refs/heads/main'
