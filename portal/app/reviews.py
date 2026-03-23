@@ -458,6 +458,63 @@ async def publish_manuscript(
         raise HTTPException(500, f"Failed to publish: {e}")
 
 
+def _sanitize_for_latex(text: str) -> str:
+    """Sanitize AI-generated text so it compiles under pdflatex.
+
+    Strategy: find contiguous runs of LaTeX commands (backslash sequences
+    with nested braces) and wrap them in $...$. Also escape bare underscores.
+    """
+    import re
+
+    # Split on existing math delimiters to avoid double-wrapping
+    parts = re.split(r'(\$\$.*?\$\$|\$[^$]+?\$)', text, flags=re.DOTALL)
+    result = []
+
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            # Inside existing math delimiters — leave alone
+            result.append(part)
+        else:
+            # Outside math — find and wrap bare LaTeX expressions
+            part = _wrap_bare_latex(part)
+            # Escape bare underscores in prose (not URLs, not already escaped)
+            part = re.sub(r'(?<!\\)(?<!/)(\w)_(\w)', r'\1\\_\2', part)
+            result.append(part)
+
+    return "".join(result)
+
+
+def _wrap_bare_latex(text: str) -> str:
+    """Find contiguous LaTeX command sequences and wrap them in $...$."""
+    import re
+
+    # Match a LaTeX expression: starts with \command, may have {nested} args,
+    # subscripts, superscripts, and more \commands chained together
+    LATEX_CMD = re.compile(
+        r'(\\(?:[a-zA-Z]+))'   # \command
+        r'((?:\s*[\{_^]'       # followed by { or _ or ^
+        r'(?:[^{}]*'           # content without braces
+        r'(?:\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}[^{}]*)*'  # nested braces up to 2 levels
+        r')'
+        r'}?)*)'               # repeated args
+    )
+
+    def _needs_wrapping(m):
+        full = m.group(0)
+        # Simple standalone commands like \alpha, \beta — always wrap
+        # Complex expressions with braces — also wrap
+        return f"${full}$"
+
+    # Find runs that start with \ and contain LaTeX-like content
+    # Greedily match: \cmd{...}{...} chains, \cmd_x^y, etc.
+    result = LATEX_CMD.sub(_needs_wrapping, text)
+
+    # Clean up any $$ that got created by adjacent wrappings: $\a$$\b$ → $\a\b$
+    result = re.sub(r'\$\$(?![\s\n])', '', result)  # remove $$ at wrapping boundaries
+
+    return result
+
+
 def _manuscript_to_files(sections: dict, submission, figures: dict | None = None) -> dict:
     """Convert manuscript sections to Quarto paper repo files.
 
@@ -474,8 +531,11 @@ def _manuscript_to_files(sections: dict, submission, figures: dict | None = None
 
     files = {}
 
+    # Sanitize sections for LaTeX compatibility
+    safe = {k: _sanitize_for_latex(v) if isinstance(v, str) else v for k, v in sections.items()}
+
     # Quarto manuscript (.qmd)
-    abstract = sections.get("abstract", "").replace('"', '\\"')
+    abstract = safe.get("abstract", "").replace('"', '\\"')
     qmd = f"""---
 title: "{title}"
 author:
@@ -497,19 +557,19 @@ citation:
 
 ## Introduction
 
-{sections.get('introduction', '')}
+{safe.get('introduction', '')}
 
 ## Methods
 
-{sections.get('methods', '')}
+{safe.get('methods', '')}
 
 ## Results
 
-{sections.get('results', '')}
+{safe.get('results', '')}
 
 ## Discussion
 
-{sections.get('discussion', '')}
+{safe.get('discussion', '')}
 
 ## Data Availability
 
@@ -540,6 +600,12 @@ format:
     css: styles.css
     code-fold: true
     fig-responsive: true
+  pdf:
+    documentclass: article
+    geometry:
+      - margin=1in
+    fontsize: 11pt
+    colorlinks: true
 """
 
     # BibTeX bibliography
@@ -566,7 +632,19 @@ jobs:
 
       - uses: quarto-dev/quarto-actions/setup@v2
 
-      - name: Render HTML
+      - name: Cache TinyTeX
+        uses: actions/cache@v4
+        id: tinytex-cache
+        with:
+          path: |
+            ~/.TinyTeX
+          key: tinytex-${{ runner.os }}-v1
+
+      - name: Install TinyTeX
+        if: steps.tinytex-cache.outputs.cache-hit != 'true'
+        run: quarto install tinytex
+
+      - name: Render HTML + PDF
         run: quarto render manuscript.qmd
 
       - name: Deploy to GitHub Pages
