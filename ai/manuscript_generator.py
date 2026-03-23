@@ -11,7 +11,7 @@ from .citation_resolver import find_cite_contexts, generate_search_queries, form
 log = logging.getLogger(__name__)
 
 
-async def _achat(client, system, user, model=None, max_tokens=2000, on_token=None):
+async def _achat(client, system, user, model=None, max_tokens=20000, on_token=None):
     """Generate a chat completion, optionally streaming tokens via on_token callback.
 
     on_token: async callable(chunk_text) called for each streamed chunk.
@@ -134,7 +134,7 @@ Write 2-3 paragraphs that:
 3. Briefly preview the approach
 
 Use [CITE] placeholders where literature citations would go.""",
-        model=model, max_tokens=2000, on_token=stream_tokens)
+        model=model, max_tokens=20000, on_token=stream_tokens)
 
     await emit("done", f"Introduction complete ({len(sections['introduction'])} chars)")
 
@@ -160,7 +160,7 @@ Write a Methods section covering:
 4. Statistical approaches used
 
 Be specific about tools and versions where inferable.""",
-        model=model, max_tokens=2000, on_token=stream_tokens)
+        model=model, max_tokens=20000, on_token=stream_tokens)
 
     await emit("done", f"Methods complete ({len(sections['methods'])} chars)")
 
@@ -181,7 +181,7 @@ Write a Results section that:
 4. Follows a logical flow from overview to specific findings
 
 Do not interpret results - save that for Discussion.""",
-        model=model, max_tokens=3000, on_token=stream_tokens)
+        model=model, max_tokens=30000, on_token=stream_tokens)
 
     await emit("done", f"Results complete ({len(sections['results'])} chars)")
 
@@ -210,7 +210,7 @@ Write a Discussion that:
 5. Suggests future directions
 
 Use [CITE] placeholders for literature references.""",
-        model=model, max_tokens=3000, on_token=stream_tokens)
+        model=model, max_tokens=30000, on_token=stream_tokens)
 
     await emit("done", f"Discussion complete ({len(sections['discussion'])} chars)")
 
@@ -236,7 +236,7 @@ Write a single paragraph (200-300 words) covering:
 2. Methods
 3. Key results
 4. Conclusions""",
-        model=model, max_tokens=500, on_token=stream_tokens)
+        model=model, max_tokens=5000, on_token=stream_tokens)
     await emit("done", f"Abstract complete ({len(sections['abstract'])} chars)")
     log.info("All sections generated.")
 
