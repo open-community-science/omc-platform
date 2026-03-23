@@ -22,6 +22,23 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
+async def _get_llm_config(user_id: int) -> dict:
+    """Get LLM base_url, api_key, model — prefer user's OpenRouter if connected."""
+    from .llm_proxy import _get_openrouter_config
+    or_config = await _get_openrouter_config(user_id)
+    if or_config:
+        return {
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": or_config["key"],
+            "model": or_config["model"],
+        }
+    return {
+        "base_url": settings.llm_base_url,
+        "api_key": settings.llm_api_key,
+        "model": settings.llm_model,
+    }
+
+
 def _dir_has_content(path) -> bool:
     """Check if a directory exists and has files (not just an empty mountpoint)."""
     from pathlib import Path
@@ -119,13 +136,14 @@ async def run_reviews(
         "accession": submission.bioproject_accession,
     }
 
+    llm = await _get_llm_config(user.id)
     reviews = await run_all_reviews(
         manuscript,
         pipeline_outputs,
         pipeline_config,
-        base_url=settings.llm_base_url,
-        api_key=settings.llm_api_key,
-        model=settings.llm_model,
+        base_url=llm["base_url"],
+        api_key=llm["api_key"],
+        model=llm["model"],
     )
 
     # Create PRs if the paper has a GitHub repo
@@ -227,14 +245,15 @@ async def generate_manuscript(
 
     interview_data = dict(submission.interview_data or {})
 
+    llm = await _get_llm_config(user.id)
     sections = await generate_manuscript_draft(
         pipeline_outputs=pipeline_outputs,
         interview_data=interview_data,
         pipeline_type=submission.pipeline.value,
         bioproject_accession=submission.bioproject_accession,
-        base_url=settings.llm_base_url,
-        api_key=settings.llm_api_key,
-        model=settings.llm_model,
+        base_url=llm["base_url"],
+        api_key=llm["api_key"],
+        model=llm["model"],
     )
 
     # Store manuscript in interview_data
@@ -294,6 +313,9 @@ async def generate_manuscript_stream(
     sub_title = submission.title
     sub_id = submission.id
 
+    # Resolve LLM config (OpenRouter if user has it, else local)
+    llm = await _get_llm_config(user.id)
+
     # Parse pipeline outputs
     pipeline_outputs = {}
     try:
@@ -321,6 +343,10 @@ async def generate_manuscript_stream(
     async def event_stream():
         progress_queue = asyncio.Queue()
 
+        # Announce which backend we're using
+        backend = "OpenRouter" if "openrouter" in llm["base_url"] else "local LLM"
+        await progress_queue.put({"event": "start", "detail": f"Using {backend} ({llm['model']})"})
+
         async def on_progress(event, detail):
             await progress_queue.put({"event": event, "detail": detail})
 
@@ -331,9 +357,9 @@ async def generate_manuscript_stream(
                     interview_data=sub_interview,
                     pipeline_type=sub_pipeline,
                     bioproject_accession=sub_accession,
-                    base_url=settings.llm_base_url,
-                    api_key=settings.llm_api_key,
-                    model=settings.llm_model,
+                    base_url=llm["base_url"],
+                    api_key=llm["api_key"],
+                    model=llm["model"],
                     on_progress=on_progress,
                 )
                 result_holder["sections"] = sections
