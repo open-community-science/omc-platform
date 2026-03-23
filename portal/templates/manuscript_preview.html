@@ -82,8 +82,12 @@
         <a href="/submissions/{{ submission.slug }}" class="btn btn-secondary">Back to Submission</a>
         <button class="btn btn-secondary" onclick="regenerate()">Regenerate</button>
         {% if submission.github_repo %}
+        {% set pages_base = submission.github_repo.replace('github.com', 'github.io').replace('/' + submission.github_repo.split('/')[-2] + '/', '/' + submission.github_repo.split('/')[-2] + '.github.io/') %}
+        {% set org = submission.github_repo.split('/')[-2] %}
+        {% set repo_name = submission.github_repo.split('/')[-1] %}
+        <a href="https://{{ org }}.github.io/{{ repo_name }}/" target="_blank" class="btn btn-primary">View Publication</a>
         <a href="{{ submission.github_repo }}" target="_blank" class="btn btn-secondary">View on GitHub</a>
-        <button class="btn btn-primary" onclick="publish()">Update on GitHub</button>
+        <button class="btn btn-secondary" onclick="publish()">Update on GitHub</button>
         {% else %}
         <button class="btn btn-primary" onclick="publish()">Publish to GitHub</button>
         {% endif %}
