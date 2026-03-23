@@ -4,9 +4,11 @@ Takes manuscript text with [CITE] markers, uses the surrounding context
 to search PubMed for relevant references, and replaces placeholders
 with proper citations. Generates a BibTeX bibliography.
 """
+import asyncio
 import re
 import json
 import logging
+from functools import partial
 from .llm_client import get_client, chat
 
 log = logging.getLogger(__name__)
@@ -44,7 +46,7 @@ def find_cite_contexts(text: str, window: int = 200) -> list[dict]:
     return contexts
 
 
-def generate_search_queries(
+async def generate_search_queries(
     contexts: list[dict],
     pipeline_type: str = "",
     base_url: str | None = None,
@@ -65,7 +67,8 @@ def generate_search_queries(
         for c in contexts[:15]  # Limit to 15 citations per batch
     ])
 
-    response = chat(client,
+    loop = asyncio.get_event_loop()
+    response = await loop.run_in_executor(None, partial(chat, client,
         "You are a scientific literature search expert for microbial ecology.",
         f"""For each citation placeholder below, generate a PubMed search query
 that would find the most relevant reference paper.
@@ -78,7 +81,7 @@ Example: ["metagenome-assembled genome quality CheckM", "nanopore long-read meta
 
 Return ONLY the JSON array.""",
         model=model, max_tokens=1000, temperature=0.3,
-    )
+    ))
 
     try:
         text = response.strip()

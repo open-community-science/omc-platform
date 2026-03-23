@@ -3,10 +3,20 @@ import asyncio
 import inspect
 import json
 import logging
+from functools import partial
 from .llm_client import get_client, chat
 from .citation_resolver import find_cite_contexts, generate_search_queries, format_bibtex_entry, format_inline_citation
 
 log = logging.getLogger(__name__)
+
+
+async def _achat(client, system, user, model=None, max_tokens=2000):
+    """Run the synchronous chat() in a thread pool to avoid blocking the event loop."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        partial(chat, client, system, user, model=model, max_tokens=max_tokens),
+    )
 
 
 SYSTEM_PROMPT = """You are a scientific writing assistant for microbial ecology research.
@@ -44,7 +54,8 @@ async def generate_manuscript_draft(
     sections = {}
 
     # Introduction
-    sections["introduction"] = chat(client, SYSTEM_PROMPT, f"""Generate an Introduction section for a paper with this context:
+    log.info(f"Generating introduction for {bioproject_accession}...")
+    sections["introduction"] = await _achat(client, SYSTEM_PROMPT, f"""Generate an Introduction section for a paper with this context:
 
 RESEARCH CONTEXT FROM AUTHOR:
 {interview_context}
@@ -61,7 +72,8 @@ Use [CITE] placeholders where literature citations would go.""",
         model=model, max_tokens=2000)
 
     # Methods
-    sections["methods"] = chat(client, SYSTEM_PROMPT, f"""Generate a Methods section for this analysis:
+    log.info("Generating methods...")
+    sections["methods"] = await _achat(client, SYSTEM_PROMPT, f"""Generate a Methods section for this analysis:
 
 Pipeline: {pipeline_type}
 BioProject: {bioproject_accession}
@@ -83,7 +95,8 @@ Be specific about tools and versions where inferable.""",
         model=model, max_tokens=2000)
 
     # Results
-    sections["results"] = chat(client, SYSTEM_PROMPT, f"""Generate a Results section based on these pipeline outputs:
+    log.info("Generating results...")
+    sections["results"] = await _achat(client, SYSTEM_PROMPT, f"""Generate a Results section based on these pipeline outputs:
 
 {json.dumps(pipeline_outputs, indent=2, default=str) if pipeline_outputs else 'No pipeline outputs available yet.'}
 
@@ -100,7 +113,8 @@ Do not interpret results - save that for Discussion.""",
         model=model, max_tokens=3000)
 
     # Discussion
-    sections["discussion"] = chat(client, SYSTEM_PROMPT, f"""Generate a Discussion section:
+    log.info("Generating discussion...")
+    sections["discussion"] = await _achat(client, SYSTEM_PROMPT, f"""Generate a Discussion section:
 
 KEY RESULTS:
 {sections['results'][:1500]}
@@ -125,7 +139,8 @@ Use [CITE] placeholders for literature references.""",
         model=model, max_tokens=3000)
 
     # Abstract (written last, based on all sections)
-    sections["abstract"] = chat(client, SYSTEM_PROMPT, f"""Write an abstract for this manuscript:
+    log.info("Generating abstract...")
+    sections["abstract"] = await _achat(client, SYSTEM_PROMPT, f"""Write an abstract for this manuscript:
 
 INTRODUCTION (summary):
 {sections['introduction'][:500]}
@@ -145,6 +160,7 @@ Write a single paragraph (200-300 words) covering:
 3. Key results
 4. Conclusions""",
         model=model, max_tokens=500)
+    log.info("All sections generated.")
 
     # Resolve [CITE] placeholders via PubMed search (non-blocking)
     try:
@@ -220,7 +236,7 @@ async def resolve_citations(
         return sections, ""
 
     # Generate search queries from contexts
-    queries = generate_search_queries(
+    queries = await generate_search_queries(
         contexts,
         pipeline_type=pipeline_type,
         base_url=base_url,

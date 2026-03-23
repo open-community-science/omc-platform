@@ -3,8 +3,19 @@
 Each agent reviews a different aspect and returns structured feedback
 with an uncertainty index (0-1) indicating confidence in each comment.
 """
+import asyncio
 import json
+from functools import partial
 from .llm_client import get_client, chat
+
+
+async def _achat(client, system, user, model=None, max_tokens=2000, temperature=0.5):
+    """Run the synchronous chat() in a thread pool to avoid blocking the event loop."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        partial(chat, client, system, user, model=model, max_tokens=max_tokens, temperature=temperature),
+    )
 
 
 REVIEW_SYSTEM = """You are a peer reviewer for microbial ecology manuscripts.
@@ -45,7 +56,7 @@ async def statistical_review(
     results_text = (manuscript.get('results', '') or '')[:3000]
     data_text = json.dumps(results_data, indent=2, default=str)[:2000] if results_data else 'Not available'
 
-    response = chat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for statistical issues:
+    response = await _achat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for statistical issues:
 
 METHODS:
 {methods_text}
@@ -80,7 +91,7 @@ async def methodological_review(
     """Review methodological rigor and reproducibility."""
     client = get_client(base_url=base_url, api_key=api_key)
 
-    response = chat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for methodological issues:
+    response = await _achat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for methodological issues:
 
 METHODS:
 {manuscript.get('methods', '')}
@@ -127,7 +138,7 @@ async def clarity_review(
 
     full_text = _truncate_manuscript(manuscript)
 
-    response = chat(client, REVIEW_SYSTEM, f"""Review this manuscript for clarity and readability:
+    response = await _achat(client, REVIEW_SYSTEM, f"""Review this manuscript for clarity and readability:
 
 {full_text}
 
@@ -162,7 +173,7 @@ async def completeness_review(
         indent=2, default=str,
     )[:1500] if results_data else 'Not available'
 
-    response = chat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for COMPLETENESS:
+    response = await _achat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for COMPLETENESS:
 
 {full_text}
 
@@ -202,7 +213,7 @@ async def biological_plausibility_review(
     methods_text = (manuscript.get('methods', '') or '')[:2000]
     data_text = json.dumps(results_data, indent=2, default=str)[:2000] if results_data else 'Not available'
 
-    response = chat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for BIOLOGICAL PLAUSIBILITY:
+    response = await _achat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for BIOLOGICAL PLAUSIBILITY:
 
 METHODS:
 {methods_text}
@@ -252,7 +263,7 @@ async def citation_review(
 
     full_text = _truncate_manuscript(manuscript, max_chars=8000)
 
-    response = chat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for CITATION quality:
+    response = await _achat(client, REVIEW_SYSTEM, f"""Review this microbial ecology manuscript for CITATION quality:
 
 {full_text}
 
