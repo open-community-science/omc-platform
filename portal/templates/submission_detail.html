@@ -683,6 +683,14 @@ function showStatus(msg) {
     el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, 4000);
 }
 
+function showPersistentStatus(msg) {
+    const el = document.getElementById('action-status');
+    el.style.display = '';
+    document.getElementById('action-message').textContent = msg;
+    clearTimeout(el._hideTimer);
+    // No auto-hide — stays visible until replaced by showStatus
+}
+
 /* ── Title editing ── */
 function startEditTitle() {
     document.getElementById('title-display').style.display = 'none';
@@ -1160,9 +1168,14 @@ async function launchSession() {
 }
 
 async function generateManuscript() {
-    showStatus('Generating manuscript... this may take a minute.');
+    showPersistentStatus('Generating manuscript... this takes a few minutes. Do not close this page.');
     try {
-        const resp = await fetch(`/reviews/${subId}/generate`, { method: 'POST' });
+        const resp = await fetch(`/reviews/${subId}/generate`, { method: 'POST', credentials: 'same-origin' });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            showStatus(`Error: ${err.detail || resp.statusText}`);
+            return;
+        }
         const data = await resp.json();
         if (data.github_repo) {
             showStatus(`Manuscript generated and pushed to ${data.github_repo}`);
@@ -1176,9 +1189,9 @@ async function generateManuscript() {
 }
 
 async function runReviews() {
-    showStatus('Running AI reviews... this may take a few minutes.');
+    showPersistentStatus('Running AI reviews... this takes a few minutes. Do not close this page.');
     try {
-        const resp = await fetch(`/reviews/${subId}/run`, { method: 'POST' });
+        const resp = await fetch(`/reviews/${subId}/run`, { method: 'POST', credentials: 'same-origin' });
         const data = await resp.json();
         const prs = (data.pull_requests || []).filter(p => p.pr_url);
         if (prs.length) {

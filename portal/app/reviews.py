@@ -19,6 +19,18 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
+def _dir_has_content(path) -> bool:
+    """Check if a directory exists and has files (not just an empty mountpoint)."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.exists():
+        return False
+    try:
+        return any(p.iterdir())
+    except OSError:
+        return False
+
+
 def _format_review_as_markdown(review: dict) -> str:
     """Convert a structured review dict into a readable markdown comment."""
     review_type = review.get("review_type", "general")
@@ -75,21 +87,29 @@ async def run_reviews(
 
     has_github_repo = bool(submission.github_repo)
 
-    # Parse pipeline outputs for statistical review
-    # Check local squashfuse mount first, then loose files
+    # Parse pipeline outputs for statistical review — mount sqsh if needed
     pipeline_outputs = {}
     try:
-        for base in [
-            Path("/mnt/omc-sessions") / submission.slug,
-            Path(settings.local_download_path) / submission.slug,
-        ]:
-            if base.exists():
+        from .staging import get_results_path
+        from .sessions import _sqsh_mount, SQSH_MOUNT_BASE
+
+        sqsh_mount = SQSH_MOUNT_BASE / submission.slug
+        sqsh_path = get_results_path(submission.slug)
+
+        if sqsh_path and not _dir_has_content(sqsh_mount):
+            try:
+                sqsh_mount = await _sqsh_mount(submission.slug, sqsh_path)
+            except Exception as e:
+                logger.warning(f"Could not mount sqsh for {submission.slug}: {e}")
+
+        for base in [sqsh_mount, Path(settings.local_download_path) / submission.slug]:
+            if _dir_has_content(base):
                 pipeline_outputs = parse_pipeline_outputs(
                     submission.pipeline.value, base
                 )
                 break
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Pipeline output parsing failed for {submission.slug}: {e}")
 
     pipeline_config = {
         "pipeline": submission.pipeline.value,
@@ -167,20 +187,32 @@ async def generate_manuscript(
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
 
-    # Parse pipeline outputs — check local sqsh mount first, then loose files
+    # Parse pipeline outputs — mount sqsh if needed, check loose files
     pipeline_outputs = {}
+    results_base = None
     try:
-        for base in [
-            Path("/mnt/omc-sessions") / submission.slug,
-            Path(settings.local_download_path) / submission.slug,
-        ]:
-            if base.exists():
+        from .staging import get_results_path
+        from .sessions import _sqsh_mount, SQSH_MOUNT_BASE
+
+        sqsh_mount = SQSH_MOUNT_BASE / submission.slug
+        sqsh_path = get_results_path(submission.slug)
+
+        # If sqsh exists but not mounted, mount it
+        if sqsh_path and not _dir_has_content(sqsh_mount):
+            try:
+                sqsh_mount = await _sqsh_mount(submission.slug, sqsh_path)
+            except Exception as e:
+                logger.warning(f"Could not mount sqsh for {submission.slug}: {e}")
+
+        for base in [sqsh_mount, Path(settings.local_download_path) / submission.slug]:
+            if _dir_has_content(base):
+                results_base = base
                 pipeline_outputs = parse_pipeline_outputs(
                     submission.pipeline.value, base
                 )
                 break
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Pipeline output parsing failed for {submission.slug}: {e}")
 
     # Generate figures from pipeline data
     figures_json = {}
