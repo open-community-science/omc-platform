@@ -138,6 +138,43 @@ async def list_samples(accession: str):
     }
 
 
+def _run_accession(run) -> Optional[str]:
+    """Pull an SRA run accession out of a selected_runs entry (str or dict)."""
+    if isinstance(run, str):
+        return run
+    if isinstance(run, dict):
+        return run.get("accession") or run.get("run_accession") or run.get("run")
+    return None
+
+
+async def _resolve_primers(submission: Submission):
+    """Resolve amplicon primers for a microscape submission (tiers: manual >
+    metadata > inferred-from-reads). Best-effort — never blocks submission."""
+    import asyncio
+    from . import primers as pm
+
+    existing = submission.primers or {}
+    if existing.get("source") == "manual" and existing.get("fwd") and existing.get("rev"):
+        return  # user-specified on the submission sheet — respect it
+
+    resolved = pm.parse_metadata_primers(submission.sample_metadata)
+    if not resolved:
+        runs = submission.selected_runs or []
+        acc = _run_accession(runs[0]) if runs else None
+        if acc:
+            try:
+                sample = await asyncio.get_event_loop().run_in_executor(
+                    None, pm.fetch_read_sample, acc, 1000
+                )
+                if sample:
+                    r1, r2 = sample
+                    resolved = pm.detect_from_reads(r1, r2)
+            except Exception:
+                resolved = None
+    if resolved:
+        submission.primers = resolved
+
+
 async def _launch_download(slug: str):
     """Background task: launch the local download and update DB with job ID."""
     from .database import async_session
@@ -148,6 +185,10 @@ async def _launch_download(slug: str):
         if not submission:
             return  # deleted before download started
         try:
+            # Resolve amplicon primers before the pipeline script is built.
+            if submission.pipeline == PipelineType.MICROSCAPE:
+                await _resolve_primers(submission)
+                await db.commit()
             job_id = await submit_local_download_job(submission)
             submission.slurm_job_id = job_id
             await db.commit()
@@ -290,6 +331,37 @@ async def get_status(
         html += '<script>setTimeout(() => location.reload(), 1000);</script>'
 
     return HTMLResponse(html)
+
+
+@router.post("/{slug}/primers")
+async def set_primers(
+    slug: str,
+    fwd: str = Form(""),
+    rev: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Set (or clear) manual amplicon primers on a microscape submission.
+
+    Blank fields clear manual primers, re-enabling metadata/inferred resolution
+    at submit time. Sequences are validated as IUPAC nucleotide strings.
+    """
+    import re
+    submission = await _get_submission(slug, user, db)
+    fwd, rev = fwd.strip().upper(), rev.strip().upper()
+
+    if not fwd and not rev:
+        submission.primers = None
+    else:
+        if not re.fullmatch(r"[ACGTRYSWKMBDHVN]{10,40}", fwd) or \
+           not re.fullmatch(r"[ACGTRYSWKMBDHVN]{10,40}", rev):
+            raise HTTPException(400, "Primers must be IUPAC nucleotide sequences (10–40 bp)")
+        submission.primers = {
+            "fwd": fwd, "rev": rev, "fwd_name": "manual", "rev_name": "manual",
+            "region": "", "source": "manual", "confidence": None,
+        }
+    await db.commit()
+    return RedirectResponse(url=f"/submissions/{slug}", status_code=302)
 
 
 @router.post("/{slug}/update")

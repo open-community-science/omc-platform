@@ -19,7 +19,29 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
-def _build_pipeline_cmd(pipeline: PipelineType) -> str:
+def _microscape_primer_prelude(submission: Submission) -> tuple[str, str]:
+    """Return (shell_prelude, primer_args) for microscape from submission.primers.
+
+    If the submission has resolved forward/reverse primers, write them to FASTA
+    files on the compute node and pass --primers_fwd/--primers_rev. Otherwise the
+    prelude is empty and microscape falls back to its own auto-detection.
+    """
+    p = submission.primers or {}
+    fwd, rev = (p.get("fwd") or "").strip(), (p.get("rev") or "").strip()
+    if not (fwd and rev):
+        return "", ""
+    name = f"{p.get('fwd_name', '?')}/{p.get('rev_name', '?')}"
+    prelude = f"""echo ">>> Using primers {name} (source: {p.get('source', '?')})"
+mkdir -p "${{OUTPUT_DIR}}/primers"
+printf '>fwd\\n{fwd}\\n' > "${{OUTPUT_DIR}}/primers/fwd.fa"
+printf '>rev\\n{rev}\\n' > "${{OUTPUT_DIR}}/primers/rev.fa"
+"""
+    args = (' \\\n    --primers_fwd "${OUTPUT_DIR}/primers/fwd.fa"'
+            ' \\\n    --primers_rev "${OUTPUT_DIR}/primers/rev.fa"')
+    return prelude, args
+
+
+def _build_pipeline_cmd(submission: Submission) -> str:
     """Return the shell command block that runs a given OMC pipeline.
 
     OMC's user-facing pipelines compose danaSeq building blocks:
@@ -32,6 +54,7 @@ def _build_pipeline_cmd(pipeline: PipelineType) -> str:
     ${OUTPUT_DIR} exported by the surrounding sbatch script. Each danaSeq
     run-*.sh --apptainer resolves its component's rebuilt .danaseq-*.sif.
     """
+    pipeline = submission.pipeline
     nano = settings.pipeline_nanopore_assembly
     illu = settings.pipeline_illumina_assembly
     mag = settings.pipeline_mag_analysis
@@ -89,18 +112,19 @@ done
         # The image bakes its Nextflow framework jar and, via the entrypoint, forces the
         # CA bundle to the Ubuntu path, a writable NXF_HOME, and the legacy syntax parser.
         # We still set the CA env here defensively (an older SIF may lack the entrypoint fix).
-        # --primers auto lets microscape select a primer set; without primers, primer
-        # removal fails for every sample and the run finishes empty.
+        # Primers come from OMC's resolver (metadata / manual / inferred from reads) and are
+        # passed explicitly; without them microscape's own auto-detection runs (and is flaky),
+        # so a resolved primer pair is strongly preferred.
+        primer_prelude, primer_args = _microscape_primer_prelude(submission)
         return f"""echo ">>> Illumina amplicon analysis (microscape)"
-apptainer run \\
+{primer_prelude}apptainer run \\
     --env CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
     --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \\
     --env REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
     --bind "${{OUTPUT_DIR}}:${{OUTPUT_DIR}}","${{INPUT_DIR}}/fastq:${{INPUT_DIR}}/fastq:ro" \\
     "{micro_sif}" \\
     run /pipeline/main.nf \\
-    --input "${{INPUT_DIR}}/fastq" \\
-    --primers auto \\
+    --input "${{INPUT_DIR}}/fastq"{primer_args} \\
     --outdir "${{OUTPUT_DIR}}\""""
 
     raise NotImplementedError(
@@ -121,7 +145,7 @@ def _build_pipeline_script(submission: Submission) -> str:
     accession = submission.bioproject_accession
 
     # Pipeline-specific run command (assembly->mag chain, or microscape SIF)
-    pipeline_cmd = _build_pipeline_cmd(submission.pipeline)
+    pipeline_cmd = _build_pipeline_cmd(submission)
 
     return f"""#!/bin/bash
 #SBATCH --job-name=omc-run-{submission.slug}

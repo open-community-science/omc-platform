@@ -153,6 +153,51 @@
             </details>
             {% endif %}
 
+            {% if submission.pipeline and submission.pipeline.value == 'microscape' %}
+            {% set pr = submission.primers %}
+            <details class="wf-details" open>
+                <summary>Amplicon primers</summary>
+                <div class="wf-details-body">
+                    {% if pr and pr.get('fwd') %}
+                    <dl class="wf-meta-grid">
+                        <dt>Detected</dt>
+                        <dd>
+                            <strong>{{ pr.fwd_name }}</strong> / <strong>{{ pr.rev_name }}</strong>
+                            {% if pr.region %}<span class="muted">· {{ pr.region }}</span>{% endif %}
+                            <span class="primer-src primer-src-{{ pr.source }}">{{ pr.source }}{% if pr.confidence %} · {{ (pr.confidence * 100)|round|int }}%{% endif %}</span>
+                        </dd>
+                        <dt>Forward</dt><dd><code>{{ pr.fwd }}</code></dd>
+                        <dt>Reverse</dt><dd><code>{{ pr.rev }}</code></dd>
+                    </dl>
+                    {% if pr.source and pr.source.startswith('inferred') %}
+                    <p class="section-hint">Inferred from the read data — edit below and re-run if this is wrong.</p>
+                    {% endif %}
+                    {% else %}
+                    <p class="section-hint">No primers set. If you leave these blank, we'll try to identify them from the read data (matching a primer database, then inferring from the read 5′ ends) and use the best guess automatically.</p>
+                    {% endif %}
+
+                    {% if submission.status.value in ['draft', 'submitted', 'queued'] %}
+                    <form action="/submissions/{{ submission.slug }}/primers" method="POST" class="primer-form">
+                        <div class="primer-fields">
+                            <label>Forward (5′→3′)
+                                <input type="text" name="fwd" placeholder="e.g. CCTACGGGNGGCWGCAG"
+                                       value="{% if pr and pr.source == 'manual' %}{{ pr.fwd }}{% endif %}"
+                                       pattern="[ACGTRYSWKMBDHVNacgtryswkmbdhvn]{10,40}">
+                            </label>
+                            <label>Reverse (5′→3′)
+                                <input type="text" name="rev" placeholder="e.g. GACTACHVGGGTATCTAATCC"
+                                       value="{% if pr and pr.source == 'manual' %}{{ pr.rev }}{% endif %}"
+                                       pattern="[ACGTRYSWKMBDHVNacgtryswkmbdhvn]{10,40}">
+                            </label>
+                        </div>
+                        <button type="submit" class="btn btn-secondary btn-sm">Save primers</button>
+                        <span class="muted">Leave both blank to auto-detect.</span>
+                    </form>
+                    {% endif %}
+                </div>
+            </details>
+            {% endif %}
+
             {% if submission.sample_metadata and submission.sample_metadata.get('breakdown') %}
             <div class="wf-data-selection">
                 <h3 class="wf-section-label">Data Type</h3>

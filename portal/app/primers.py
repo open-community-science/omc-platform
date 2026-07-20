@@ -1,0 +1,263 @@
+"""Primer resolution for amplicon (microscape) submissions.
+
+Amplicon reads still carry their PCR primers at the 5' end; microscape needs to
+know them to trim before denoising. We resolve them in three tiers:
+
+  1. metadata  — parse primer names/sequences from SRA/ENA/BioSample fields
+  2. manual    — user-entered forward/reverse sequences (set via the submission
+                 sheet; handled in the route, stored on the submission)
+  3. inferred  — guess from a sample of reads:
+                 (a) match 5' ends against a curated primer database, and if
+                     nothing scores well,
+                 (b) de-novo: build a degenerate IUPAC consensus of the 5'
+                     prefix (the conserved primer) across the sampled reads.
+
+The resolved primers are stored on ``Submission.primers`` as
+``{fwd, rev, fwd_name, rev_name, region, source, confidence}`` and wired into
+microscape as ``--primers_fwd``/``--primers_rev``.
+"""
+from __future__ import annotations
+
+import gzip
+import math
+import re
+import subprocess
+from collections import Counter
+
+# IUPAC nucleotide codes → the set of bases each represents.
+IUPAC = {
+    "A": "A", "C": "C", "G": "G", "T": "T",
+    "R": "AG", "Y": "CT", "S": "GC", "W": "AT", "K": "GT", "M": "AC",
+    "B": "CGT", "D": "AGT", "H": "ACT", "V": "ACG", "N": "ACGT",
+}
+# Reverse map: frozenset of bases → the tightest IUPAC code.
+_IUPAC_REV = {frozenset(v): k for k, v in IUPAC.items()}
+
+# Curated primer database — common 16S/18S/ITS amplicon primers (5'->3'),
+# mirroring microscape's bundled sets plus a few widely used pairs. Sequences
+# use IUPAC degeneracy; the reverse primer is written 5'->3' as synthesised.
+PRIMER_DB = [
+    {"name": "341F", "rev_name": "805R", "region": "16S V3-V4",
+     "fwd": "CCTACGGGNGGCWGCAG", "rev": "GACTACHVGGGTATCTAATCC"},
+    {"name": "515F", "rev_name": "806R", "region": "16S V4",
+     "fwd": "GTGYCAGCMGCCGCGGTAA", "rev": "GGACTACNVGGGTWTCTAAT"},
+    {"name": "515F", "rev_name": "926R", "region": "16S V4-V5",
+     "fwd": "GTGYCAGCMGCCGCGGTAA", "rev": "CCGYCAATTYMTTTRAGTTT"},
+    {"name": "27F", "rev_name": "1492R", "region": "16S (near full length)",
+     "fwd": "AGAGTTTGATCMTGGCTCAG", "rev": "TACGGYTACCTTGTTACGACTT"},
+    {"name": "Euk1391F", "rev_name": "EukBr", "region": "18S V9",
+     "fwd": "GTACACACCGCCCGTC", "rev": "TGATCCTTCTGCAGGTTCACCTAC"},
+    {"name": "TAReuk454FWD1", "rev_name": "TAReukREV3", "region": "18S V4",
+     "fwd": "CCAGCASCYGCGGTAATTCC", "rev": "ACTTTCGTTCTTGATYRA"},
+    {"name": "ITS1F", "rev_name": "ITS2", "region": "fungal ITS1",
+     "fwd": "CTTGGTCATTTAGAGGAAGTAA", "rev": "GCTGCGTTCTTCATCGATGC"},
+]
+
+_DB_MATCH_MIN = 0.6   # min fraction of reads whose 5' matches a DB forward primer
+_CONSENSUS_STOP_ENTROPY = 1.7  # bits; above this a column is "biological", stop
+
+
+def _iupac_regex(seq: str) -> re.Pattern:
+    """Compile an IUPAC-aware regex matching `seq` against plain-ACGT reads."""
+    return re.compile("".join(f"[{IUPAC.get(b, b)}]" for b in seq.upper()))
+
+
+def sample_reads(fastq_path: str, n: int = 500) -> list[str]:
+    """Return up to `n` sequence lines from a (optionally gzipped) FASTQ."""
+    reads: list[str] = []
+    opener = gzip.open if str(fastq_path).endswith(".gz") else open
+    try:
+        with opener(fastq_path, "rt") as f:
+            for i, line in enumerate(f):
+                if i % 4 == 1:
+                    reads.append(line.strip().upper())
+                    if len(reads) >= n:
+                        break
+    except (OSError, EOFError):
+        pass
+    return reads
+
+
+def _match_fraction(reads: list[str], primer: str, max_offset: int = 3) -> float:
+    """Fraction of reads whose 5' end matches `primer` (small offset allowed)."""
+    if not reads:
+        return 0.0
+    rx = _iupac_regex(primer)
+    L = len(primer)
+    hits = 0
+    for r in reads:
+        for off in range(max_offset + 1):
+            seg = r[off:off + L]
+            if len(seg) == L and rx.match(seg):
+                hits += 1
+                break
+    return hits / len(reads)
+
+
+def _consensus_primer(reads: list[str], length: int = 25, cover: float = 0.9) -> str:
+    """De-novo degenerate consensus of the first `length` bp across `reads`.
+
+    At each position, pick the smallest set of bases covering `cover` of the
+    reads and emit its IUPAC code. Stop at the first high-entropy column — that
+    is where the conserved primer ends and the biological (variable) region
+    begins.
+    """
+    out: list[str] = []
+    for i in range(length):
+        col = [r[i] for r in reads if len(r) > i and r[i] in "ACGT"]
+        if len(col) < max(10, 0.5 * len(reads)):
+            break
+        counts = Counter(col)
+        tot = len(col)
+        ent = -sum((c / tot) * math.log2(c / tot) for c in counts.values())
+        bases: list[str] = []
+        acc = 0
+        for b, c in counts.most_common():
+            bases.append(b)
+            acc += c
+            if acc / tot >= cover:
+                break
+        if ent > _CONSENSUS_STOP_ENTROPY and len(bases) >= 3:
+            break
+        out.append(_IUPAC_REV.get(frozenset(bases), "N"))
+    return "".join(out)
+
+
+def detect_from_reads(r1_path: str, r2_path: str | None = None, n: int = 500) -> dict | None:
+    """Tier 3. Infer primers from a sample of reads.
+
+    Returns a primer dict, or None if there aren't enough reads to try.
+    """
+    r1 = sample_reads(r1_path, n)
+    if len(r1) < 20:
+        return None
+    r2 = sample_reads(r2_path, n) if r2_path else []
+
+    # 3a — database match: score each pair by forward match on R1 (and, if we
+    # have R2, reverse match on R2), keep the best.
+    best = None
+    for p in PRIMER_DB:
+        fwd_frac = _match_fraction(r1, p["fwd"])
+        rev_frac = _match_fraction(r2, p["rev"]) if r2 else None
+        score = fwd_frac if rev_frac is None else (fwd_frac + rev_frac) / 2
+        if best is None or score > best["score"]:
+            best = {**p, "score": score, "fwd_frac": fwd_frac, "rev_frac": rev_frac}
+    if best and best["fwd_frac"] >= _DB_MATCH_MIN:
+        return {
+            "fwd": best["fwd"], "rev": best["rev"],
+            "fwd_name": best["name"], "rev_name": best["rev_name"],
+            "region": best["region"], "source": "inferred-db",
+            "confidence": round(best["score"], 2),
+        }
+
+    # 3b — de-novo consensus of the conserved 5' prefix.
+    fwd = _consensus_primer(r1)
+    rev = _consensus_primer(r2) if r2 else ""
+    if len(fwd) < 8:
+        return None
+    return {
+        "fwd": fwd, "rev": rev, "fwd_name": "inferred", "rev_name": "inferred",
+        "region": "unknown", "source": "inferred-denovo", "confidence": None,
+    }
+
+
+# ── Tier 1: metadata ────────────────────────────────────────────────────────
+
+# Named-primer lookup for when metadata gives a name but not a sequence.
+# First occurrence wins so a bare "515F" resolves to the standard V4 (806R) pair,
+# not a later V4-V5 variant sharing the forward-primer name.
+_NAME_TO_PRIMER: dict[str, dict] = {}
+for _p in PRIMER_DB:
+    _NAME_TO_PRIMER.setdefault(_p["name"].lower(), _p)
+# Region phrases → a representative primer pair.
+_REGION_HINTS = [
+    (re.compile(r"v3.?v4", re.I), "341F"),
+    (re.compile(r"\bv4\b", re.I), "515F"),
+    (re.compile(r"v4.?v5", re.I), "515F"),
+    (re.compile(r"\bits\b", re.I), "ITS1F"),
+    (re.compile(r"18s|eukary", re.I), "TAReuk454FWD1"),
+]
+_SEQ_RE = re.compile(r"[ACGTRYSWKMBDHVN]{15,30}", re.I)
+
+
+def parse_metadata_primers(metadata: dict | None) -> dict | None:
+    """Tier 1. Extract primers from SRA/ENA/BioSample metadata fields.
+
+    Looks for explicit forward/reverse sequences first, then named primers or a
+    target region in free-text fields (e.g. library_construction_protocol).
+    Returns a primer dict or None.
+    """
+    if not metadata:
+        return None
+    # Flatten string values we might search (top level + a nested 'attributes'/
+    # 'samples' bag if present).
+    text_fields: list[str] = []
+    kv: dict[str, str] = {}
+    for k, v in metadata.items():
+        if isinstance(v, str):
+            kv[k.lower()] = v
+            text_fields.append(v)
+    for key in ("pcr_primers", "primers", "primer"):
+        if key in kv:
+            seqs = _SEQ_RE.findall(kv[key])
+            if len(seqs) >= 2:
+                return {"fwd": seqs[0].upper(), "rev": seqs[1].upper(),
+                        "fwd_name": "metadata", "rev_name": "metadata",
+                        "region": kv.get("target_subfragment", "") or kv.get("target_gene", ""),
+                        "source": "metadata", "confidence": None}
+    blob = " ".join(text_fields)
+    # Named primer, e.g. "341F/805R" in the protocol text.
+    for name, p in _NAME_TO_PRIMER.items():
+        if re.search(rf"\b{re.escape(name)}\b", blob, re.I):
+            return {"fwd": p["fwd"], "rev": p["rev"], "fwd_name": p["name"],
+                    "rev_name": p["rev_name"], "region": p["region"],
+                    "source": "metadata", "confidence": None}
+    # Region phrase.
+    for rx, pname in _REGION_HINTS:
+        if rx.search(blob):
+            p = _NAME_TO_PRIMER[pname.lower()]
+            return {"fwd": p["fwd"], "rev": p["rev"], "fwd_name": p["name"],
+                    "rev_name": p["rev_name"], "region": p["region"],
+                    "source": "metadata", "confidence": None}
+    return None
+
+
+def fetch_read_sample(run_accession: str, spots: int = 1000) -> tuple[str, str] | None:
+    """Download a small read sample for one run via sra-toolkit (fast, offline
+    later). Returns (r1_path, r2_path) of gzipped FASTQs in a temp dir, or None.
+    """
+    import tempfile
+    d = tempfile.mkdtemp(prefix="omc-primer-")
+    try:
+        subprocess.run(
+            ["fasterq-dump", "-X", str(spots), "--split-files", "-e", "2",
+             "-O", d, run_accession],
+            check=True, capture_output=True, timeout=300,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    import os
+    r1 = os.path.join(d, f"{run_accession}_1.fastq")
+    r2 = os.path.join(d, f"{run_accession}_2.fastq")
+    if os.path.exists(r1):
+        return (r1, r2 if os.path.exists(r2) else None)
+    return None
+
+
+def resolve(metadata: dict | None, manual: dict | None,
+            fastq_r1: str | None = None, fastq_r2: str | None = None) -> dict | None:
+    """Resolve primers by tier precedence: manual > metadata > inferred.
+
+    `manual` is {fwd, rev} from the submission sheet (empty strings ignored).
+    Read paths, if given, enable the inferred tier. Returns a primer dict or None.
+    """
+    if manual and manual.get("fwd") and manual.get("rev"):
+        return {"fwd": manual["fwd"].upper(), "rev": manual["rev"].upper(),
+                "fwd_name": "manual", "rev_name": "manual", "region": "",
+                "source": "manual", "confidence": None}
+    meta = parse_metadata_primers(metadata)
+    if meta:
+        return meta
+    if fastq_r1:
+        return detect_from_reads(fastq_r1, fastq_r2)
+    return None

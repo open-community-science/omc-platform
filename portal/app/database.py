@@ -87,6 +87,10 @@ class Submission(Base):
     title = Column(String(500))
     sample_metadata = Column(JSON)
 
+    # Amplicon primers (microscape): {fwd, rev, fwd_name, rev_name, region,
+    # source: metadata|manual|inferred-db|inferred-denovo, confidence}
+    primers = Column(JSON)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     submitted_at = Column(DateTime)
@@ -154,6 +158,13 @@ async def init_db():
                 "ALTER TABLE submissions ADD COLUMN results_format VARCHAR(20) DEFAULT 'none'"
             ))
             logging.getLogger(__name__).info("Added results_format column to submissions")
+
+        # Migration: add primers column to submissions
+        try:
+            await conn.execute(text("SELECT primers FROM submissions LIMIT 1"))
+        except Exception:
+            await conn.execute(text("ALTER TABLE submissions ADD COLUMN primers JSON"))
+            logging.getLogger(__name__).info("Added primers column to submissions")
 
         # Migration: add openrouter columns to users
         try:
