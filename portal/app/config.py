@@ -49,13 +49,20 @@ class Settings(BaseSettings):
     # ENA submission proxy (safety default: test server)
     ena_test_mode: bool = True
 
-    # Pipeline paths on HPC
+    # Pipeline paths on HPC.
+    # The danaSeq repo is organised into building-block pipelines. OMC's
+    # user-facing pipelines compose them:
+    #   Nanopore Metagenome (NANOPORE_MAG) = nanopore_assembly -> mag_analysis
+    #   Illumina Metagenome (ILLUMINA_MAG) = illumina_assembly -> mag_analysis
+    #   Illumina Amplicons  (MICROSCAPE)   = microscape-nf (runs from its SIF)
     pipeline_base: str = "/home/rec3141/GENICE/danaSeq"
-    pipeline_nanopore_mag: str = "/home/rec3141/GENICE/danaSeq/nanopore_mag/nextflow"
-    pipeline_microscape: str = "/home/rec3141/GENICE/danaSeq/microscape"
-    pipeline_illumina_mag: str = ""
+    pipeline_nanopore_assembly: str = "/home/rec3141/GENICE/danaSeq/nanopore_assembly"
+    pipeline_illumina_assembly: str = "/home/rec3141/GENICE/danaSeq/illumina_assembly"
+    pipeline_mag_analysis: str = "/home/rec3141/GENICE/danaSeq/mag_analysis"
+    # microscape ships as a self-contained SIF (pipeline code baked into the image)
+    microscape_sif: str = "/home/rec3141/GENICE/microscape-nf.sif"
+    # rnaseq (illumina_rna) is on hold; isolate genomes are submitted as metagenomes
     pipeline_rnaseq: str = ""
-    pipeline_isolate_genome: str = ""
 
     # HPC paths
     hpc_scratch: str = "/home/rec3141/scratch"

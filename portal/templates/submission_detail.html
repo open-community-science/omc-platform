@@ -329,11 +329,12 @@
                 <label class="wf-edit-label" for="pipeline-select">Pipeline</label>
                 <div class="wf-edit-field">
                     <select id="pipeline-select" class="inline-edit-select" onchange="savePipeline()">
-                        <option value="nanopore_mag" {% if submission.pipeline and submission.pipeline.value == 'nanopore_mag' %}selected{% endif %}>nanopore_mag</option>
-                        <option value="illumina_mag" {% if submission.pipeline and submission.pipeline.value == 'illumina_mag' %}selected{% endif %}>illumina_mag</option>
-                        <option value="microscape" {% if submission.pipeline and submission.pipeline.value == 'microscape' %}selected{% endif %}>microscape</option>
-                        <option value="rnaseq" {% if submission.pipeline and submission.pipeline.value == 'rnaseq' %}selected{% endif %}>rnaseq</option>
-                        <option value="isolate_genome" {% if submission.pipeline and submission.pipeline.value == 'isolate_genome' %}selected{% endif %}>isolate_genome</option>
+                        <option value="nanopore_mag" {% if submission.pipeline and submission.pipeline.value == 'nanopore_mag' %}selected{% endif %}>Nanopore Metagenome</option>
+                        <option value="illumina_mag" {% if submission.pipeline and submission.pipeline.value == 'illumina_mag' %}selected{% endif %}>Illumina Metagenome</option>
+                        <option value="microscape" {% if submission.pipeline and submission.pipeline.value == 'microscape' %}selected{% endif %}>Illumina Amplicons</option>
+                        {# rnaseq (illumina_rna) on hold; isolate genomes are submitted as metagenomes #}
+                        {% if submission.pipeline and submission.pipeline.value == 'rnaseq' %}<option value="rnaseq" selected>RNA-Seq (in development)</option>{% endif %}
+                        {% if submission.pipeline and submission.pipeline.value == 'isolate_genome' %}<option value="isolate_genome" selected>Isolate Genome (in development)</option>{% endif %}
                     </select>
                 </div>
             </div>
@@ -581,42 +582,42 @@ const subId = '{{ submission.slug }}';
 const PIPELINES = {
     nanopore_mag: {
         name: 'nanopore_mag',
-        title: 'Long-read MAG Assembly',
-        desc: 'Assembles metagenome-assembled genomes (MAGs) from Oxford Nanopore or PacBio long reads. Produces binned genomes with taxonomic classification and quality metrics.',
+        title: 'Nanopore Metagenome',
+        desc: 'Long-read metagenome assembly (Flye/metaMDBG/myloasm) followed by MAG recovery: multi-binner consensus, taxonomy, annotation, and quality metrics. Isolate genomes can be submitted here too.',
         status: 'Implemented',
-        github: 'https://github.com/rec3141/danaSeq/tree/main/nanopore_mag',
-        needs: { platforms: ['OXFORD_NANOPORE', 'PACBIO_SMRT'], sources: ['METAGENOMIC', 'METATRANSCRIPTOMIC'], strategies: ['WGS', 'WGA', 'OTHER'] },
+        github: 'https://github.com/rec3141/danaSeq/tree/main/nanopore_assembly',
+        needs: { platforms: ['OXFORD_NANOPORE', 'PACBIO_SMRT'], sources: ['METAGENOMIC', 'METATRANSCRIPTOMIC', 'GENOMIC'], strategies: ['WGS', 'WGA', 'OTHER'] },
     },
     illumina_mag: {
         name: 'illumina_mag',
-        title: 'Short-read MAG Assembly',
-        desc: 'Assembles MAGs from Illumina short reads using metaSPAdes or MEGAHIT. Co-assembly and differential coverage binning across samples.',
-        status: 'In development',
-        github: 'https://github.com/rec3141/danaSeq/tree/main/illumina_mag',
-        needs: { platforms: ['ILLUMINA', 'BGISEQ'], sources: ['METAGENOMIC', 'METATRANSCRIPTOMIC'], strategies: ['WGS', 'WGA', 'OTHER'] },
+        title: 'Illumina Metagenome',
+        desc: 'Short-read metagenome assembly (multi-assembler consensus) followed by per-sample MAG recovery: multi-binner consensus, taxonomy, and annotation. Isolate genomes can be submitted here too.',
+        status: 'Implemented',
+        github: 'https://github.com/rec3141/danaSeq/tree/main/illumina_assembly',
+        needs: { platforms: ['ILLUMINA', 'BGISEQ'], sources: ['METAGENOMIC', 'METATRANSCRIPTOMIC', 'GENOMIC'], strategies: ['WGS', 'WGA', 'OTHER'] },
     },
     microscape: {
         name: 'microscape',
-        title: 'Amplicon Analysis',
-        desc: 'Processes 16S/18S/ITS amplicon data. DADA2 denoising, taxonomy assignment, diversity analysis, and community composition.',
-        status: 'Planned',
-        github: 'https://github.com/rec3141/microscape',
-        needs: { platforms: null, sources: null, strategies: ['AMPLICON'] },
+        title: 'Illumina Amplicons',
+        desc: 'Processes 16S/18S/ITS amplicon data. Primer trimming, DADA2 denoising, taxonomy assignment, and community composition.',
+        status: 'Implemented',
+        github: 'https://github.com/rec3141/microscape-nf',
+        needs: { platforms: ['ILLUMINA', 'BGISEQ'], sources: null, strategies: ['AMPLICON'] },
     },
     rnaseq: {
         name: 'rnaseq',
-        title: 'RNA-Seq Differential Expression',
-        desc: 'Quantifies gene expression from RNA-Seq data. Alignment, counting, normalization, and differential expression analysis.',
+        title: 'RNA-Seq (on hold)',
+        desc: 'Metatranscriptomic RNA-Seq against reference genomes (illumina_rna). On hold — not yet available for submission.',
         status: 'In development',
-        github: 'https://github.com/rec3141/rnaseq',
+        github: 'https://github.com/rec3141/danaSeq/tree/main/illumina_rna',
         needs: { platforms: null, sources: null, strategies: ['RNA-SEQ', 'RNA_SEQ'] },
     },
     isolate_genome: {
         name: 'isolate_genome',
-        title: 'Isolate Genome Assembly',
-        desc: 'Assembles and annotates individual microbial isolate genomes. Quality assessment, gene prediction, and functional annotation.',
+        title: 'Isolate Genome (in development)',
+        desc: 'A dedicated isolate pipeline is not ready yet — submit isolate genomes through the Nanopore or Illumina Metagenome pipeline for now.',
         status: 'In development',
-        github: 'https://github.com/rec3141/isolate_genome',
+        github: 'https://github.com/rec3141/danaSeq',
         needs: { platforms: null, sources: ['GENOMIC'], strategies: ['WGS', 'WGA'] },
     },
 };

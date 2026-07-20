@@ -19,22 +19,76 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
-def _get_pipeline_path(pipeline: PipelineType) -> str:
-    """Return the HPC path for a given pipeline type."""
-    pipeline_paths = {
-        PipelineType.NANOPORE_MAG: settings.pipeline_nanopore_mag,
-        PipelineType.MICROSCAPE: settings.pipeline_microscape,
-        PipelineType.ILLUMINA_MAG: settings.pipeline_illumina_mag,
-        PipelineType.RNASEQ: settings.pipeline_rnaseq,
-        PipelineType.ISOLATE_GENOME: settings.pipeline_isolate_genome,
-    }
+def _build_pipeline_cmd(pipeline: PipelineType) -> str:
+    """Return the shell command block that runs a given OMC pipeline.
 
-    path = pipeline_paths.get(pipeline)
-    if not path:
-        raise NotImplementedError(
-            f"Pipeline '{pipeline.value}' is not yet available for HPC submission."
-        )
-    return path
+    OMC's user-facing pipelines compose danaSeq building blocks:
+      NANOPORE_MAG (Nanopore Metagenome) = nanopore_assembly -> mag_analysis
+      ILLUMINA_MAG (Illumina Metagenome) = illumina_assembly -> mag_analysis
+      MICROSCAPE   (Illumina Amplicons)  = microscape-nf (self-contained SIF)
+
+    The returned block is executed inside a `set -e` subshell, so any step
+    failing aborts the pipeline with its exit code. Uses ${INPUT_DIR},
+    ${OUTPUT_DIR} exported by the surrounding sbatch script. Each danaSeq
+    run-*.sh --apptainer resolves its component's rebuilt .danaseq-*.sif.
+    """
+    nano = settings.pipeline_nanopore_assembly
+    illu = settings.pipeline_illumina_assembly
+    mag = settings.pipeline_mag_analysis
+    db_dir = settings.hpc_db_dir
+    micro_sif = settings.microscape_sif
+
+    if pipeline == PipelineType.NANOPORE_MAG:
+        # Single co-assembly: results/assembly/assembly.fasta + results/mapping/depths.txt
+        return f"""ASM="${{OUTPUT_DIR}}/assembly"; MAG="${{OUTPUT_DIR}}/mag"
+echo ">>> Step 1/2: nanopore assembly"
+"{nano}/run-nanopore-assembly.sh" --apptainer \\
+    --input "${{INPUT_DIR}}/fastq" \\
+    --outdir "$ASM"
+echo ">>> Step 2/2: MAG analysis"
+"{mag}/run-mag-analysis.sh" --apptainer \\
+    --assembly "$ASM/assembly/assembly.fasta" \\
+    --depths "$ASM/mapping/depths.txt" \\
+    --bam_dir "$ASM/mapping/" \\
+    --outdir "$MAG" \\
+    --all --db_dir "{db_dir}\""""
+
+    if pipeline == PipelineType.ILLUMINA_MAG:
+        # Per-sample: results/assembly/<s>/<s>.dedupe.fasta + results/mapping/<s>/<s>.depths.txt
+        return f"""ASM="${{OUTPUT_DIR}}/assembly"; MAG="${{OUTPUT_DIR}}/mag"
+echo ">>> Step 1/2: illumina assembly"
+"{illu}/run-illumina-assembly.sh" --apptainer \\
+    --input "${{INPUT_DIR}}/fastq" \\
+    --outdir "$ASM"
+echo ">>> Step 2/2: MAG analysis (per sample)"
+shopt -s nullglob
+found=0
+for asm in "$ASM"/assembly/*/*.dedupe.fasta; do
+    found=1
+    s=$(basename "$(dirname "$asm")")
+    echo "  --- MAG analysis for sample: $s ---"
+    "{mag}/run-mag-analysis.sh" --apptainer \\
+        --assembly "$asm" \\
+        --depths "$ASM/mapping/$s/$s.depths.txt" \\
+        --bam_dir "$ASM/mapping/$s/" \\
+        --outdir "$MAG/$s" \\
+        --all --db_dir "{db_dir}"
+done
+[ "$found" -eq 1 ] || {{ echo "ERROR: assembly produced no *.dedupe.fasta"; exit 1; }}"""
+
+    if pipeline == PipelineType.MICROSCAPE:
+        # microscape-nf runs entirely from its SIF (pipeline code baked in at /pipeline)
+        return f"""echo ">>> Illumina amplicon analysis (microscape)"
+apptainer run \\
+    --bind "${{OUTPUT_DIR}}:${{OUTPUT_DIR}}","${{INPUT_DIR}}/fastq:${{INPUT_DIR}}/fastq:ro" \\
+    "{micro_sif}" \\
+    run /pipeline/main.nf \\
+    --input "${{INPUT_DIR}}/fastq" \\
+    --outdir "${{OUTPUT_DIR}}\""""
+
+    raise NotImplementedError(
+        f"Pipeline '{pipeline.value}' is not yet available for HPC submission."
+    )
 
 
 def _build_pipeline_script(submission: Submission) -> str:
@@ -43,36 +97,14 @@ def _build_pipeline_script(submission: Submission) -> str:
     The pipeline script also pushes status updates back to arbutus
     via the staging API so the portal can track progress without SSH.
     """
-    pipeline_path = _get_pipeline_path(submission.pipeline)
     scratch = settings.hpc_scratch
-    db_dir = settings.hpc_db_dir
     output_dir = f"{settings.results_path}/{submission.slug}"
     input_dir = f"{scratch}/sra_downloads/{submission.slug}"
     work_dir = f"{scratch}/omc_work/{submission.slug}"
     accession = submission.bioproject_accession
 
-    # Pipeline-specific run command
-    if submission.pipeline == PipelineType.NANOPORE_MAG:
-        pipeline_cmd = f"""{pipeline_path}/run-mag.sh --apptainer \\
-    --all \\
-    --run_sendsketch false \\
-    --run_vamb_tax false \\
-    --input ${{INPUT_DIR}}/fastq \\
-    --outdir ${{OUTPUT_DIR}} \\
-    --workdir ${{WORK_DIR}} \\
-    --db_dir {db_dir} \\
-    --assembly_memory '100 GB' \\
-    --assembly_cpus 32"""
-    elif submission.pipeline == PipelineType.MICROSCAPE:
-        pipeline_cmd = f"""cd {pipeline_path}
-nextflow run main.nf \\
-    --input ${{INPUT_DIR}}/fastq \\
-    --outdir ${{OUTPUT_DIR}} \\
-    -w ${{WORK_DIR}} \\
-    -profile apptainer"""
-    else:
-        pipeline_cmd = f"""echo "Pipeline {submission.pipeline.value} not yet implemented"
-exit 1"""
+    # Pipeline-specific run command (assembly->mag chain, or microscape SIF)
+    pipeline_cmd = _build_pipeline_cmd(submission.pipeline)
 
     return f"""#!/bin/bash
 #SBATCH --job-name=omc-run-{submission.slug}
@@ -137,22 +169,28 @@ fi
 echo "running" > ${{OUTPUT_DIR}}/.status
 push_status "running" ',\\"job_id\\":\\"'$SLURM_JOB_ID'\\",\\"slurm_state\\":\\"RUNNING\\"'
 
-echo "=== OMC Pipeline: {submission.pipeline.value} (--all) ==="
+echo "=== OMC Pipeline: {submission.pipeline.value} ==="
 echo "Accession: {accession}"
 echo "Slug: {submission.slug}"
 echo "Input files: $NUM_FILES"
 echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# Capture exit code — don't let set -e kill the script before writing markers
-{pipeline_cmd} && PIPELINE_EXIT=0 || PIPELINE_EXIT=$?
+# Run the pipeline in a `set -e` subshell so any step in a multi-step chain
+# aborts with its exit code; capture it without killing this wrapper.
+(
+set -e
+{pipeline_cmd}
+)
+PIPELINE_EXIT=$?
 
 echo "--- Pipeline finished with exit code $PIPELINE_EXIT ---"
 echo "Completed: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Apptainer squashfuse_ll cleanup can return exit 2 even on success
-# (github.com/apptainer/apptainer#2216). Treat as success if outputs exist.
-if [ $PIPELINE_EXIT -ne 0 ] && [ -d "${{OUTPUT_DIR}}/assembly" ]; then
-    echo "WARNING: Pipeline exited $PIPELINE_EXIT but outputs exist — treating as success (likely Apptainer cleanup timeout)"
+# (github.com/apptainer/apptainer#2216). Only downgrade that specific code,
+# and only when the pipeline actually produced outputs.
+if [ $PIPELINE_EXIT -eq 2 ] && [ -n "$(ls -A "${{OUTPUT_DIR}}" 2>/dev/null)" ]; then
+    echo "WARNING: Pipeline exited 2 but outputs exist — treating as success (likely Apptainer cleanup timeout)"
     PIPELINE_EXIT=0
 fi
 
