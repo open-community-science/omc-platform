@@ -630,9 +630,14 @@ async def poll_all_running_jobs(db_session) -> list:
         # Update status based on phase
         if phase == "running" and sub.status != SubmissionStatus.RUNNING:
             sub.status = SubmissionStatus.RUNNING
-        elif phase == "completed":
+        elif phase in ("completed", "transferred", "archiving"):
+            # Pipeline finished on HPC. "transferred" means results are already on
+            # arbutus (the pickup reconciler pushes it directly, skipping "completed").
             sub.status = SubmissionStatus.PROCESSING
-            logger.info(f"Submission {sub.slug} completed successfully")
+            if phase == "transferred":
+                from .database import ResultsFormat
+                sub.results_format = ResultsFormat.TRANSFERRED
+            logger.info(f"Submission {sub.slug} finished on HPC (phase={phase})")
             completed.append(sub.slug)
         elif phase == "failed":
             sub.status = SubmissionStatus.FAILED
