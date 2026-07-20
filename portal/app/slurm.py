@@ -56,6 +56,14 @@ echo ">>> Step 2/2: MAG analysis"
     if pipeline == PipelineType.ILLUMINA_MAG:
         # Per-sample: results/assembly/<s>/<s>.dedupe.fasta + results/mapping/<s>/<s>.depths.txt
         return f"""ASM="${{OUTPUT_DIR}}/assembly"; MAG="${{OUTPUT_DIR}}/mag"
+# illumina_assembly discovers pairs via *_R1_*/*_R2_*; SRA delivers _1/_2.
+# Add relative symlinks (relative so they resolve inside the read-only bind mount).
+( shopt -s nullglob; cd "${{INPUT_DIR}}/fastq" || exit 0
+  for f1 in *_1.fastq.gz; do
+    b=${{f1%_1.fastq.gz}}
+    ln -sf "$f1" "${{b}}_R1_001.fastq.gz"
+    [ -e "${{b}}_2.fastq.gz" ] && ln -sf "${{b}}_2.fastq.gz" "${{b}}_R2_001.fastq.gz"
+  done )
 echo ">>> Step 1/2: illumina assembly"
 "{illu}/run-illumina-assembly.sh" --apptainer \\
     --input "${{INPUT_DIR}}/fastq" \\
