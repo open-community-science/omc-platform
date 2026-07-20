@@ -147,7 +147,9 @@ echo "$READY_JSON" | jq -c '.ready_runs[]' 2>/dev/null | while IFS= read -r slug
             continue
         fi
 
-        PIPELINE_JOB_ID=$(echo "$SBATCH_OUT" | awk '{print $NF}')
+        # Parse only the "Submitted batch job N" line — sbatch also emits a
+        # memory-unit NOTE ending in "1000M." that awk '{print $NF}' would grab.
+        PIPELINE_JOB_ID=$(echo "$SBATCH_OUT" | awk '/Submitted batch job/{print $NF; exit}')
         echo "pipeline=${PIPELINE_JOB_ID}" > "${OUTPUT_DIR}/job_ids.txt"
         echo "pipeline_queued" > "${OUTPUT_DIR}/.status"
         date -u +%Y-%m-%dT%H:%M:%SZ > "${OUTPUT_DIR}/.pipeline-submitted"
