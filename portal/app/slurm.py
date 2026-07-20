@@ -130,14 +130,16 @@ done
                 if d:
                     ref_binds += f',"{d}:{d}:ro"'
         return f"""echo ">>> Illumina amplicon analysis (microscape)"
+mkdir -p "${{WORK_DIR}}"
 {primer_prelude}apptainer run \\
     --env CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
     --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \\
     --env REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
-    --bind "${{OUTPUT_DIR}}:${{OUTPUT_DIR}}","${{INPUT_DIR}}/fastq:${{INPUT_DIR}}/fastq:ro"{ref_binds} \\
+    --bind "${{OUTPUT_DIR}}:${{OUTPUT_DIR}}","${{WORK_DIR}}:${{WORK_DIR}}","${{INPUT_DIR}}/fastq:${{INPUT_DIR}}/fastq:ro"{ref_binds} \\
     "{micro_sif}" \\
     run /pipeline/main.nf \\
     --input "${{INPUT_DIR}}/fastq"{primer_args}{ref_arg} \\
+    -work-dir "${{WORK_DIR}}" \\
     --outdir "${{OUTPUT_DIR}}\""""
 
     raise NotImplementedError(
