@@ -86,11 +86,11 @@ done
 
     if pipeline == PipelineType.MICROSCAPE:
         # microscape-nf runs entirely from its SIF (pipeline code baked in at /pipeline).
-        # Its Nextflow self-bootstraps the framework jar on first run; compute nodes are
-        # offline, so the jar is pre-seeded in ~/.nextflow (shared Lustre home) and found
-        # via the default HOME mount. Force the CA bundle to the container's Ubuntu path
-        # (matches danaSeq) — the image otherwise defaults to a RHEL path that doesn't
-        # exist, which broke any HTTPS Nextflow attempted (curl error 77).
+        # The image bakes its Nextflow framework jar and, via the entrypoint, forces the
+        # CA bundle to the Ubuntu path, a writable NXF_HOME, and the legacy syntax parser.
+        # We still set the CA env here defensively (an older SIF may lack the entrypoint fix).
+        # --primers auto lets microscape select a primer set; without primers, primer
+        # removal fails for every sample and the run finishes empty.
         return f"""echo ">>> Illumina amplicon analysis (microscape)"
 apptainer run \\
     --env CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
@@ -100,6 +100,7 @@ apptainer run \\
     "{micro_sif}" \\
     run /pipeline/main.nf \\
     --input "${{INPUT_DIR}}/fastq" \\
+    --primers auto \\
     --outdir "${{OUTPUT_DIR}}\""""
 
     raise NotImplementedError(
