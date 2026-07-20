@@ -1307,9 +1307,208 @@ body {
 }
 
 .ena-dashboard-section {
+    margin-top: 2.5rem;
     margin-bottom: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-border);
 }
 
 .ena-dashboard-section h2 {
+    margin-bottom: 0.25rem;
+}
+
+.section-hint {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
     margin-bottom: 1rem;
 }
+
+/* ── Dashboard submission controls (sort / filter) ── */
+.sub-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.sub-search {
+    flex: 1 1 220px;
+    min-width: 180px;
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    font-family: var(--font-sans);
+    font-size: 0.9rem;
+}
+
+.sub-select {
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-surface);
+    font-family: var(--font-sans);
+    font-size: 0.9rem;
+    color: var(--color-text);
+}
+
+.sub-search:focus, .sub-select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+}
+
+.sub-count {
+    margin-left: auto;
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+/* ── Admin panel ── */
+.admin-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+}
+
+.admin-generated {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.75rem;
+    margin: 1rem 0;
+}
+
+.stat-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+    text-align: center;
+}
+
+.stat-num {
+    font-size: 1.6rem;
+    font-weight: 600;
+    line-height: 1.1;
+    font-family: var(--font-mono);
+}
+
+.stat-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-text-muted);
+    margin-top: 0.25rem;
+}
+
+.stat-n { text-transform: none; letter-spacing: 0; opacity: 0.7; }
+.stat-active .stat-num { color: var(--color-primary); }
+.stat-ok .stat-num { color: var(--color-success); }
+.stat-bad .stat-num { color: var(--color-error); }
+.stat-warn { border-color: var(--color-warning); background: #fffbeb; }
+.stat-warn .stat-num { color: #b45309; }
+
+.admin-note {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    margin-bottom: 1.5rem;
+}
+
+.admin-section {
+    margin-bottom: 2rem;
+}
+
+.admin-section h2 {
+    font-size: 1.15rem;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.issue-h {
+    font-size: 0.9rem;
+    margin: 1rem 0 0.5rem;
+    color: var(--color-text);
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.admin-table th, .admin-table td {
+    padding: 0.5rem 0.6rem;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+}
+
+.admin-table thead th {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-text-muted);
+    border-bottom: 2px solid var(--color-border);
+}
+
+.admin-table tbody tr:hover { background: var(--color-bg); }
+.admin-table .row-warn { background: #fffbeb; }
+.admin-table .row-bad { background: #fef2f2; }
+.admin-table .err-cell {
+    white-space: normal;
+    max-width: 360px;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: #991b1b;
+}
+
+.muted { color: var(--color-text-muted); }
+
+/* Pipeline × stage matrix */
+.matrix .matrix-col { text-align: center; }
+.matrix .matrix-cell {
+    text-align: center;
+    color: var(--color-text-muted);
+    font-family: var(--font-mono);
+}
+.matrix .matrix-cell.has-val { color: var(--color-text); font-weight: 600; }
+.matrix .matrix-row-label { font-weight: 600; }
+.matrix .matrix-total {
+    text-align: center;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    background: var(--color-bg);
+}
+.matrix tfoot td { border-top: 2px solid var(--color-border); }
+
+/* User cells + count pills */
+.user-cell { display: flex; align-items: center; gap: 0.5rem; }
+.avatar-sm {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.pill {
+    display: inline-block;
+    min-width: 1.4rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-align: center;
+    font-family: var(--font-mono);
+}
+.pill-active { background: #dbeafe; color: #1e40af; }
+.pill-ok { background: #dcfce7; color: #166534; }
+.pill-bad { background: #fee2e2; color: #991b1b; }

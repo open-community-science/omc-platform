@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     debug: bool = False
     secret_key: str = "change-me-in-production"
 
+    # Admin access — comma-separated GitHub logins granted the /admin panel.
+    # Deliberately not hardcoded: set ADMIN_GITHUB_LOGINS in .env (e.g. "rec3141").
+    # Empty means no admins in production (dev mode always grants the dev user).
+    admin_github_logins: str = ""
+
     # GitHub OAuth
     github_client_id: str = ""
     github_client_secret: str = ""
@@ -68,6 +73,11 @@ class Settings(BaseSettings):
     hpc_scratch: str = "/home/rec3141/scratch"
     hpc_db_dir: str = "/home/rec3141/scratch/databases"
     results_path: str = "/home/rec3141/scratch/omc_results"
+
+    @property
+    def admin_logins(self) -> set[str]:
+        """Parsed, lowercased set of admin GitHub logins."""
+        return {x.strip().lower() for x in self.admin_github_logins.split(",") if x.strip()}
 
     class Config:
         env_file = ".env"

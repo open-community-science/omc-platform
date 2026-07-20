@@ -135,3 +135,24 @@ async def require_user(request: Request, db: AsyncSession = Depends(get_db)) -> 
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return user
+
+
+def is_admin(user: User | None) -> bool:
+    """Whether a user has admin access.
+
+    Admins are configured via ADMIN_GITHUB_LOGINS (comma-separated), not
+    hardcoded. The dev-mode user is always an admin for local testing.
+    """
+    if not user:
+        return False
+    if _is_dev_mode():
+        return True
+    return (user.github_login or "").lower() in settings.admin_logins
+
+
+async def require_admin(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    """Require an admin user - raises 403 if not authorized."""
+    user = await get_current_user(request, db)
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user

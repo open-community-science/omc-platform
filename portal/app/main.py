@@ -20,8 +20,8 @@ import asyncio
 import logging
 
 from .config import get_settings
-from .database import init_db, get_db, async_session, Submission, User
-from .auth import router as auth_router, get_current_user
+from .database import init_db, get_db, async_session, Submission, User, SubmissionStatus, PipelineType
+from .auth import router as auth_router, get_current_user, is_admin, require_admin
 from .submissions import router as submissions_router
 from .interviews import router as interviews_router
 from .reviews import router as reviews_router
@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 # Setup paths
 BASE_DIR = Path(__file__).parent.parent
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+# Expose is_admin() to all templates (e.g. to gate the Admin nav link)
+templates.env.globals["is_admin"] = is_admin
 
 
 async def _poll_hpc_jobs():
@@ -138,6 +140,222 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     return templates.TemplateResponse(
         "dashboard.html",
         {"request": request, "user": user, "submissions": submissions, "ena_sessions": ena_sessions},
+    )
+
+
+# Stages in pipeline order, and how they roll up for the summary cards.
+_STAGE_ORDER = [
+    SubmissionStatus.DRAFT, SubmissionStatus.SUBMITTED, SubmissionStatus.QUEUED,
+    SubmissionStatus.RUNNING, SubmissionStatus.PROCESSING, SubmissionStatus.DRAFTING,
+    SubmissionStatus.REVIEW, SubmissionStatus.PUBLISHED, SubmissionStatus.FAILED,
+]
+_ACTIVE_STATES = {
+    SubmissionStatus.SUBMITTED, SubmissionStatus.QUEUED, SubmissionStatus.RUNNING,
+    SubmissionStatus.PROCESSING, SubmissionStatus.DRAFTING, SubmissionStatus.REVIEW,
+}
+# Active jobs older than this (hours) are flagged as possibly stuck.
+_STUCK_HOURS = 24.0
+
+
+def _hours_between(a, b):
+    """Whole-hours float between two datetimes, or None if either is missing."""
+    if not a or not b:
+        return None
+    return (b - a).total_seconds() / 3600.0
+
+
+def _pctl(values, p):
+    """Simple nearest-rank percentile on a list of floats (p in 0..100)."""
+    if not values:
+        return None
+    s = sorted(values)
+    if p <= 0:
+        return s[0]
+    if p >= 100:
+        return s[-1]
+    import math
+    k = max(0, math.ceil(p / 100.0 * len(s)) - 1)
+    return s[k]
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
+    """Site-owner admin panel: users, per-stage job matrix, operational stats.
+
+    Access is gated to configured admins (ADMIN_GITHUB_LOGINS); dev mode grants
+    the dev user. All figures are derived from the portal DB plus the HPC status
+    JSON pushed by fir — no SSH to the cluster.
+    """
+    from datetime import datetime
+    from .staging import get_hpc_status
+
+    user = await get_current_user(request, db)
+    if not is_admin(user):
+        # Distinguish "log in" from "not allowed" for a nicer UX.
+        if not user:
+            return templates.TemplateResponse("login_required.html", {"request": request})
+        return templates.TemplateResponse(
+            "404.html", {"request": request, "user": user}, status_code=403,
+        )
+
+    now = datetime.utcnow()
+
+    # Pull all users and their (non-deleted) submissions.
+    users = (await db.execute(select(User))).scalars().all()
+    subs = (await db.execute(
+        select(Submission).where(Submission.deleted_at.is_(None))
+    )).scalars().all()
+
+    users_by_id = {u.id: u for u in users}
+
+    # ── Per-user rollup ─────────────────────────────────────────────
+    def _blank_stage_counts():
+        return {s.value: 0 for s in _STAGE_ORDER}
+
+    per_user = {}
+    for u in users:
+        per_user[u.id] = {
+            "login": u.github_login,
+            "name": u.github_name or "",
+            "avatar": u.github_avatar_url or "",
+            "last_login": u.last_login,
+            "total": 0,
+            "active": 0,
+            "published": 0,
+            "failed": 0,
+            "stages": _blank_stage_counts(),
+            "pipelines": {},  # pipeline value -> count
+        }
+
+    # ── Pipeline × stage matrix (global) ────────────────────────────
+    matrix = {}  # pipeline value -> {stage value -> count}
+    pipelines_present = set()
+
+    # ── Duration samples ────────────────────────────────────────────
+    turnaround_h = []   # published: submitted -> completed
+    fail_time_h = []    # failed: submitted -> completed
+    active_rows = []    # live jobs with age
+    failure_rows = []   # recent failures with detail
+
+    for s in subs:
+        status = s.status if isinstance(s.status, SubmissionStatus) else SubmissionStatus(s.status)
+        pipe = (s.pipeline.value if s.pipeline else "unassigned")
+        pipelines_present.add(pipe)
+        stage_v = status.value
+
+        bucket = per_user.get(s.user_id)
+        if bucket is not None:
+            bucket["total"] += 1
+            bucket["stages"][stage_v] = bucket["stages"].get(stage_v, 0) + 1
+            bucket["pipelines"][pipe] = bucket["pipelines"].get(pipe, 0) + 1
+            if status in _ACTIVE_STATES:
+                bucket["active"] += 1
+            elif status == SubmissionStatus.PUBLISHED:
+                bucket["published"] += 1
+            elif status == SubmissionStatus.FAILED:
+                bucket["failed"] += 1
+
+        matrix.setdefault(pipe, _blank_stage_counts())
+        matrix[pipe][stage_v] = matrix[pipe].get(stage_v, 0) + 1
+
+        # Durations
+        if status == SubmissionStatus.PUBLISHED:
+            d = _hours_between(s.submitted_at or s.created_at, s.completed_at)
+            if d is not None and d >= 0:
+                turnaround_h.append(d)
+        elif status == SubmissionStatus.FAILED:
+            d = _hours_between(s.submitted_at or s.created_at, s.completed_at)
+            if d is not None and d >= 0:
+                fail_time_h.append(d)
+
+        # Live jobs + issues need the pushed HPC status.
+        if status in _ACTIVE_STATES or status == SubmissionStatus.FAILED:
+            hpc = get_hpc_status(s.slug) or {}
+            age = _hours_between(s.submitted_at or s.created_at, now)
+            owner = users_by_id.get(s.user_id)
+            row = {
+                "slug": s.slug,
+                "login": owner.github_login if owner else "?",
+                "pipeline": pipe,
+                "status": stage_v,
+                "age_h": age,
+                "hpc_phase": hpc.get("phase", ""),
+                "detail": hpc.get("detail", "") or hpc.get("slurm_state", ""),
+            }
+            if status in _ACTIVE_STATES:
+                row["stuck"] = age is not None and age > _STUCK_HOURS
+                active_rows.append(row)
+            else:  # FAILED
+                row["reason"] = hpc.get("reason", "")
+                row["exit_code"] = hpc.get("exit_code", "")
+                row["error"] = (s.error_message or "")[:400]
+                row["when"] = s.completed_at or s.submitted_at or s.created_at
+                failure_rows.append(row)
+
+    # Order the matrix rows/columns and compute totals.
+    stage_values = [s.value for s in _STAGE_ORDER]
+    matrix_rows = []
+    col_totals = {sv: 0 for sv in stage_values}
+    grand = 0
+    for pipe in sorted(pipelines_present):
+        counts = matrix.get(pipe, {})
+        row_total = 0
+        cells = []
+        for sv in stage_values:
+            n = counts.get(sv, 0)
+            cells.append(n)
+            col_totals[sv] += n
+            row_total += n
+        grand += row_total
+        matrix_rows.append({"pipeline": pipe, "cells": cells, "total": row_total})
+
+    # Summary + issues.
+    active_total = sum(u["active"] for u in per_user.values())
+    published_total = sum(u["published"] for u in per_user.values())
+    failed_total = sum(u["failed"] for u in per_user.values())
+    terminal = published_total + failed_total
+
+    active_rows.sort(key=lambda r: (r.get("age_h") or 0), reverse=True)
+    failure_rows.sort(key=lambda r: (r["when"] or now), reverse=True)
+    stuck_rows = [r for r in active_rows if r.get("stuck")]
+
+    stats = {
+        "n_users": len(users),
+        "total": len(subs),
+        "active": active_total,
+        "published": published_total,
+        "failed": failed_total,
+        "failure_rate": (100.0 * failed_total / terminal) if terminal else None,
+        "turnaround_median_h": _pctl(turnaround_h, 50),
+        "turnaround_p90_h": _pctl(turnaround_h, 90),
+        "turnaround_max_h": _pctl(turnaround_h, 100),
+        "turnaround_n": len(turnaround_h),
+        "fail_time_median_h": _pctl(fail_time_h, 50),
+        "fail_time_n": len(fail_time_h),
+        "stuck": len(stuck_rows),
+    }
+
+    # Users sorted by total desc, then login.
+    user_list = sorted(
+        per_user.values(), key=lambda u: (-u["total"], (u["login"] or "").lower())
+    )
+
+    return templates.TemplateResponse(
+        "admin.html",
+        {
+            "request": request,
+            "user": user,
+            "stats": stats,
+            "users": user_list,
+            "stage_values": stage_values,
+            "matrix_rows": matrix_rows,
+            "col_totals": [col_totals[sv] for sv in stage_values],
+            "grand_total": grand,
+            "active_rows": active_rows,
+            "failure_rows": failure_rows,
+            "stuck_hours": _STUCK_HOURS,
+            "generated_at": now.strftime("%Y-%m-%d %H:%M UTC"),
+        },
     )
 
 

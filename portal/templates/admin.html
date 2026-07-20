@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block title %}Admin - OMC{% endblock %}
+
+{%- macro fmt_h(h) -%}
+    {%- if h is none -%}—
+    {%- elif h < 1 -%}{{ (h * 60)|round(0, 'floor')|int }}m
+    {%- elif h < 48 -%}{{ h|round(1) }}h
+    {%- else -%}{{ (h / 24)|round(1) }}d
+    {%- endif -%}
+{%- endmacro -%}
+
+{% block content %}
+<div class="admin">
+    <div class="dashboard-header admin-header">
+        <h1>Admin</h1>
+        <span class="admin-generated">as of {{ generated_at }}</span>
+    </div>
+
+    <!-- ── Summary cards ─────────────────────────────────────────── -->
+    <div class="stat-grid">
+        <div class="stat-card"><div class="stat-num">{{ stats.n_users }}</div><div class="stat-label">Users</div></div>
+        <div class="stat-card"><div class="stat-num">{{ stats.total }}</div><div class="stat-label">Total jobs</div></div>
+        <div class="stat-card stat-active"><div class="stat-num">{{ stats.active }}</div><div class="stat-label">Active</div></div>
+        <div class="stat-card stat-ok"><div class="stat-num">{{ stats.published }}</div><div class="stat-label">Published</div></div>
+        <div class="stat-card stat-bad"><div class="stat-num">{{ stats.failed }}</div><div class="stat-label">Failed</div></div>
+        <div class="stat-card">
+            <div class="stat-num">{% if stats.failure_rate is none %}—{% else %}{{ stats.failure_rate|round(0)|int }}%{% endif %}</div>
+            <div class="stat-label">Failure rate</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-num">{{ fmt_h(stats.turnaround_median_h) }}</div>
+            <div class="stat-label">Median turnaround{% if stats.turnaround_n %} <span class="stat-n">n={{ stats.turnaround_n }}</span>{% endif %}</div>
+        </div>
+        <div class="stat-card {% if stats.stuck %}stat-warn{% endif %}">
+            <div class="stat-num">{{ stats.stuck }}</div>
+            <div class="stat-label">Stuck &gt;{{ stuck_hours|int }}h</div>
+        </div>
+    </div>
+
+    <p class="admin-note">
+        Turnaround = submit&nbsp;→&nbsp;done (median {{ fmt_h(stats.turnaround_median_h) }},
+        p90 {{ fmt_h(stats.turnaround_p90_h) }}, max {{ fmt_h(stats.turnaround_max_h) }}).
+        {% if stats.fail_time_n %}Time-to-failure median {{ fmt_h(stats.fail_time_median_h) }} (n={{ stats.fail_time_n }}).{% endif %}
+        Durations are portal-side timestamps; live pipeline phase comes from the HPC status feed.
+    </p>
+
+    <!-- ── Issues: stuck + recent failures ───────────────────────── -->
+    {% if active_rows|selectattr('stuck')|list or failure_rows %}
+    <section class="admin-section">
+        <h2>Issues</h2>
+
+        {% set stuck = active_rows|selectattr('stuck')|list %}
+        {% if stuck %}
+        <h3 class="issue-h">Possibly stuck ({{ stuck|length }}) — active &gt; {{ stuck_hours|int }}h</h3>
+        <div class="table-wrap">
+        <table class="admin-table">
+            <thead><tr><th>Submission</th><th>User</th><th>Pipeline</th><th>Status</th><th>HPC phase</th><th>Age</th></tr></thead>
+            <tbody>
+            {% for r in stuck %}
+            <tr class="row-warn">
+                <td><a href="/submissions/{{ r.slug }}">{{ r.slug }}</a></td>
+                <td>{{ r.login }}</td>
+                <td>{{ r.pipeline }}</td>
+                <td><span class="status-badge status-{{ r.status }}">{{ r.status }}</span></td>
+                <td>{{ r.hpc_phase or '—' }}{% if r.detail %} <span class="muted">· {{ r.detail }}</span>{% endif %}</td>
+                <td>{{ fmt_h(r.age_h) }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% endif %}
+
+        {% if failure_rows %}
+        <h3 class="issue-h">Recent failures ({{ failure_rows|length }})</h3>
+        <div class="table-wrap">
+        <table class="admin-table">
+            <thead><tr><th>Submission</th><th>User</th><th>Pipeline</th><th>Exit</th><th>Reason / error</th><th>When</th></tr></thead>
+            <tbody>
+            {% for r in failure_rows %}
+            <tr class="row-bad">
+                <td><a href="/submissions/{{ r.slug }}">{{ r.slug }}</a></td>
+                <td>{{ r.login }}</td>
+                <td>{{ r.pipeline }}</td>
+                <td>{{ r.exit_code or '—' }}</td>
+                <td class="err-cell">{{ r.reason or r.error or '—' }}</td>
+                <td>{% if r.when %}{{ r.when.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% endif %}
+    </section>
+    {% endif %}
+
+    <!-- ── Live / active jobs ────────────────────────────────────── -->
+    <section class="admin-section">
+        <h2>Active jobs ({{ active_rows|length }})</h2>
+        {% if active_rows %}
+        <div class="table-wrap">
+        <table class="admin-table">
+            <thead><tr><th>Submission</th><th>User</th><th>Pipeline</th><th>Status</th><th>HPC phase</th><th>Age</th></tr></thead>
+            <tbody>
+            {% for r in active_rows %}
+            <tr{% if r.stuck %} class="row-warn"{% endif %}>
+                <td><a href="/submissions/{{ r.slug }}">{{ r.slug }}</a></td>
+                <td>{{ r.login }}</td>
+                <td>{{ r.pipeline }}</td>
+                <td><span class="status-badge status-{{ r.status }}">{{ r.status }}</span></td>
+                <td>{{ r.hpc_phase or '—' }}{% if r.detail %} <span class="muted">· {{ r.detail }}</span>{% endif %}</td>
+                <td>{{ fmt_h(r.age_h) }}{% if r.stuck %} ⚠{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="muted">Nothing running right now.</p>
+        {% endif %}
+    </section>
+
+    <!-- ── Pipeline × stage matrix ───────────────────────────────── -->
+    <section class="admin-section">
+        <h2>Jobs by pipeline &amp; stage</h2>
+        {% if matrix_rows %}
+        <div class="table-wrap">
+        <table class="admin-table matrix">
+            <thead>
+                <tr>
+                    <th>Pipeline</th>
+                    {% for sv in stage_values %}<th class="matrix-col">{{ sv }}</th>{% endfor %}
+                    <th class="matrix-total">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in matrix_rows %}
+                <tr>
+                    <td class="matrix-row-label">{{ row.pipeline }}</td>
+                    {% for n in row.cells %}
+                    <td class="matrix-cell{% if n %} has-val{% endif %}">{{ n or '' }}</td>
+                    {% endfor %}
+                    <td class="matrix-total">{{ row.total }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td class="matrix-row-label">Total</td>
+                    {% for n in col_totals %}<td class="matrix-total">{{ n or '' }}</td>{% endfor %}
+                    <td class="matrix-total">{{ grand_total }}</td>
+                </tr>
+            </tfoot>
+        </table>
+        </div>
+        {% else %}
+        <p class="muted">No submissions yet.</p>
+        {% endif %}
+    </section>
+
+    <!-- ── Users ─────────────────────────────────────────────────── -->
+    <section class="admin-section">
+        <h2>Users ({{ users|length }})</h2>
+        <div class="table-wrap">
+        <table class="admin-table">
+            <thead>
+                <tr><th>User</th><th>Total</th><th>Active</th><th>Published</th><th>Failed</th><th>Pipelines</th><th>Last login</th></tr>
+            </thead>
+            <tbody>
+            {% for u in users %}
+            <tr>
+                <td class="user-cell">
+                    {% if u.avatar %}<img src="{{ u.avatar }}" class="avatar-sm" alt="">{% endif %}
+                    <span>{{ u.login }}{% if u.name %} <span class="muted">({{ u.name }})</span>{% endif %}</span>
+                </td>
+                <td>{{ u.total }}</td>
+                <td>{% if u.active %}<span class="pill pill-active">{{ u.active }}</span>{% else %}0{% endif %}</td>
+                <td>{% if u.published %}<span class="pill pill-ok">{{ u.published }}</span>{% else %}0{% endif %}</td>
+                <td>{% if u.failed %}<span class="pill pill-bad">{{ u.failed }}</span>{% else %}0{% endif %}</td>
+                <td class="muted">
+                    {%- for pipe, n in u.pipelines|dictsort -%}
+                        {{ pipe }}&nbsp;{{ n }}{% if not loop.last %}, {% endif %}
+                    {%- else -%}—{%- endfor -%}
+                </td>
+                <td class="muted">{% if u.last_login %}{{ u.last_login.strftime('%Y-%m-%d') }}{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </section>
+</div>
+{% endblock %}

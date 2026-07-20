@@ -8,9 +8,72 @@
         <h1>Your Submissions</h1>
     </div>
 
+    {% if submissions %}
+    <div class="sub-controls" id="sub-controls">
+        <input type="search" id="sub-search" class="sub-search"
+               placeholder="Search title, accession, or ID…" autocomplete="off">
+        <select id="sub-filter-status" class="sub-select">
+            <option value="">All statuses</option>
+            {% for s in submissions|map(attribute='status.value')|unique|sort %}
+            <option value="{{ s }}">{{ s }}</option>
+            {% endfor %}
+        </select>
+        <select id="sub-filter-pipeline" class="sub-select">
+            <option value="">All pipelines</option>
+            {% for p in submissions|selectattr('pipeline')|map(attribute='pipeline.value')|unique|sort %}
+            <option value="{{ p }}">{{ p }}</option>
+            {% endfor %}
+        </select>
+        <select id="sub-sort" class="sub-select">
+            <option value="created-desc">Newest first</option>
+            <option value="created-asc">Oldest first</option>
+            <option value="status">Status</option>
+            <option value="pipeline">Pipeline</option>
+            <option value="title">Title A–Z</option>
+        </select>
+        <span class="sub-count" id="sub-count"></span>
+    </div>
+
+    <div class="submissions-list" id="submissions-list">
+        {% for sub in submissions %}
+        <div class="submission-card"
+             data-status="{{ sub.status.value }}"
+             data-pipeline="{{ sub.pipeline.value if sub.pipeline else '' }}"
+             data-title="{{ (sub.title or 'Untitled')|lower }}"
+             data-accession="{{ (sub.bioproject_accession or '')|lower }}"
+             data-slug="{{ sub.slug|lower }}"
+             data-created="{{ sub.created_at.isoformat() }}">
+            <div class="submission-info">
+                <h3><a href="/submissions/{{ sub.slug }}">{{ sub.title or 'Untitled' }}</a></h3>
+                <p class="accession">{{ sub.slug }}{% if sub.bioproject_accession %} &middot; {{ sub.bioproject_accession }}{% endif %}{% if sub.pipeline %} &middot; {{ sub.pipeline.value }}{% endif %}</p>
+                <p class="date">Created {{ sub.created_at.strftime('%Y-%m-%d') }}</p>
+            </div>
+            <div class="submission-status">
+                <span class="status-badge status-{{ sub.status.value }}">{{ sub.status.value }}</span>
+                {% if sub.github_repo %}
+                <a href="{{ sub.github_repo }}" target="_blank" class="github-link">View on GitHub</a>
+                {% endif %}
+                <form action="/submissions/{{ sub.slug }}/delete" method="POST" class="delete-form"
+                      onsubmit="return confirm('Delete this submission?')">
+                    <button type="submit" class="btn btn-delete">Delete</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="empty-state" id="sub-empty" style="display:none">
+        <p>No submissions match your filters.</p>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No submissions yet. Click <strong>New Submission</strong> above to get started.</p>
+    </div>
+    {% endif %}
+
     {% if ena_sessions %}
     <div class="ena-dashboard-section">
         <h2>ENA Submission Sessions</h2>
+        <p class="section-hint">Metadata-submission sessions for depositing data to ENA — separate from your pipeline runs above.</p>
         <div class="submissions-list">
             {% for key, session in ena_sessions.items() %}
             <div class="submission-card">
@@ -38,33 +101,64 @@
         </div>
     </div>
     {% endif %}
-
-    {% if submissions %}
-    <div class="submissions-list">
-        {% for sub in submissions %}
-        <div class="submission-card">
-            <div class="submission-info">
-                <h3><a href="/submissions/{{ sub.slug }}">{{ sub.title or 'Untitled' }}</a></h3>
-                <p class="accession">{{ sub.slug }}{% if sub.bioproject_accession %} &middot; {{ sub.bioproject_accession }}{% endif %}{% if sub.pipeline %} &middot; {{ sub.pipeline.value }}{% endif %}</p>
-                <p class="date">Created {{ sub.created_at.strftime('%Y-%m-%d') }}</p>
-            </div>
-            <div class="submission-status">
-                <span class="status-badge status-{{ sub.status.value }}">{{ sub.status.value }}</span>
-                {% if sub.github_repo %}
-                <a href="{{ sub.github_repo }}" target="_blank" class="github-link">View on GitHub</a>
-                {% endif %}
-                <form action="/submissions/{{ sub.slug }}/delete" method="POST" class="delete-form"
-                      onsubmit="return confirm('Delete this submission?')">
-                    <button type="submit" class="btn btn-delete">Delete</button>
-                </form>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty-state">
-        <p>No submissions yet. Click <strong>New Submission</strong> above to get started.</p>
-    </div>
-    {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    const list = document.getElementById('submissions-list');
+    if (!list) return;
+
+    const search = document.getElementById('sub-search');
+    const fStatus = document.getElementById('sub-filter-status');
+    const fPipeline = document.getElementById('sub-filter-pipeline');
+    const sort = document.getElementById('sub-sort');
+    const count = document.getElementById('sub-count');
+    const empty = document.getElementById('sub-empty');
+    const cards = Array.from(list.querySelectorAll('.submission-card'));
+
+    function apply() {
+        const q = search.value.trim().toLowerCase();
+        const st = fStatus.value;
+        const pl = fPipeline.value;
+
+        let shown = 0;
+        cards.forEach(c => {
+            const matchQ = !q
+                || c.dataset.title.includes(q)
+                || c.dataset.accession.includes(q)
+                || c.dataset.slug.includes(q);
+            const matchS = !st || c.dataset.status === st;
+            const matchP = !pl || c.dataset.pipeline === pl;
+            const ok = matchQ && matchS && matchP;
+            c.style.display = ok ? '' : 'none';
+            if (ok) shown++;
+        });
+
+        const mode = sort.value;
+        const sorted = cards.slice().sort((a, b) => {
+            switch (mode) {
+                case 'created-asc':  return a.dataset.created.localeCompare(b.dataset.created);
+                case 'status':       return a.dataset.status.localeCompare(b.dataset.status);
+                case 'pipeline':     return a.dataset.pipeline.localeCompare(b.dataset.pipeline);
+                case 'title':        return a.dataset.title.localeCompare(b.dataset.title);
+                default:             return b.dataset.created.localeCompare(a.dataset.created);
+            }
+        });
+        sorted.forEach(c => list.appendChild(c));
+
+        count.textContent = shown === cards.length
+            ? `${cards.length} submission${cards.length === 1 ? '' : 's'}`
+            : `${shown} of ${cards.length}`;
+        empty.style.display = shown === 0 ? '' : 'none';
+    }
+
+    [search, fStatus, fPipeline, sort].forEach(el => {
+        el.addEventListener('input', apply);
+        el.addEventListener('change', apply);
+    });
+    apply();
+})();
+</script>
 {% endblock %}
