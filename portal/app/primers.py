@@ -229,9 +229,10 @@ def fetch_read_sample(run_accession: str, spots: int = 1000) -> tuple[str, str] 
     import tempfile
     d = tempfile.mkdtemp(prefix="omc-primer-")
     try:
+        # fastq-dump (not fasterq-dump) supports -X to fetch just the first N spots,
+        # which is fast and enough to identify primers.
         subprocess.run(
-            ["fasterq-dump", "-X", str(spots), "--split-files", "-e", "2",
-             "-O", d, run_accession],
+            ["fastq-dump", "-X", str(spots), "--split-files", "-O", d, run_accession],
             check=True, capture_output=True, timeout=300,
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
