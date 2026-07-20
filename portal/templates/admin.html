@@ -45,6 +45,49 @@
         Durations are portal-side timestamps; live pipeline phase comes from the HPC status feed.
     </p>
 
+    <!-- ── LLM / API keys ────────────────────────────────────────── -->
+    <section class="admin-section">
+        <h2>LLM &amp; API keys</h2>
+        <div class="llm-local">
+            <span class="primer-src {% if llm_local.ok %}primer-src-manual{% else %}primer-src-inferred-db{% endif %}">
+                local LLM {% if llm_local.ok %}up{% else %}down{% endif %}
+            </span>
+            <code>{{ llm_base_url }}</code>
+            <span class="muted">· model {{ llm_model }} · {{ llm_local.detail }}</span>
+        </div>
+        <h3 class="issue-h">OpenRouter keys (per user)</h3>
+        <div class="table-wrap">
+        <table class="admin-table">
+            <thead><tr><th>User</th><th>Key</th><th>Status</th><th>Model</th><th>Rotate / clear</th></tr></thead>
+            <tbody>
+            {% for r in or_rows %}
+            <tr>
+                <td>{{ r.login }}</td>
+                <td>{% if r.masked %}<code>{{ r.masked }}</code>{% else %}<span class="muted">— none —</span>{% endif %}</td>
+                <td>
+                    {% if r.status is none %}<span class="muted">no key</span>
+                    {% elif r.status.ok %}<span class="primer-src primer-src-manual">valid</span> <span class="muted">{{ r.status.detail }}</span>
+                    {% else %}<span class="primer-src primer-src-inferred-db">invalid</span> <span class="muted err-cell">{{ r.status.detail }}</span>{% endif %}
+                </td>
+                <td class="muted">{{ r.model }}</td>
+                <td>
+                    <form action="/admin/llm/openrouter" method="POST" class="primer-form" style="margin:0">
+                        <input type="hidden" name="user_id" value="{{ r.user_id }}">
+                        <input type="text" name="key" placeholder="sk-or-v1-… (blank = clear)" style="width:230px"
+                               class="sub-search" pattern="(sk-or-.{10,}|)">
+                        <input type="text" name="model" placeholder="model (optional)" value="{{ r.model }}"
+                               class="sub-search" style="width:150px">
+                        <button type="submit" class="btn btn-secondary btn-sm">Save</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        <p class="section-hint">Rotate a user's OpenRouter key (paste a new <code>sk-or-…</code>) or clear it (blank field) to fall back to the local LLM. Status is checked live against OpenRouter's <code>/auth/key</code>.</p>
+    </section>
+
     <!-- ── Issues: stuck + recent failures ───────────────────────── -->
     {% if active_rows|selectattr('stuck')|list or failure_rows %}
     <section class="admin-section">

@@ -7,10 +7,10 @@ _project_root = str(_Path(__file__).parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, Form as FForm, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -178,6 +178,46 @@ def _pctl(values, p):
     return s[k]
 
 
+async def _check_local_llm() -> dict:
+    """Ping the configured local/base LLM (settings.llm_base_url) for reachability."""
+    import httpx
+    url = settings.llm_base_url.rstrip("/") + "/models"
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as c:
+            r = await c.get(url, headers={"Authorization": f"Bearer {settings.llm_api_key}"})
+        if r.status_code == 200:
+            try:
+                n = len(r.json().get("data", []))
+            except Exception:
+                n = None
+            return {"ok": True, "detail": f"{n} model(s)" if n is not None else "reachable"}
+        return {"ok": False, "detail": f"HTTP {r.status_code}"}
+    except Exception as e:
+        return {"ok": False, "detail": type(e).__name__}
+
+
+async def _check_openrouter_key(key: str) -> dict:
+    """Validate an OpenRouter key via /auth/key. Returns status + limit info."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as c:
+            r = await c.get("https://openrouter.ai/api/v1/auth/key",
+                            headers={"Authorization": f"Bearer {key}"})
+        if r.status_code == 200:
+            d = r.json().get("data", {})
+            lim = d.get("limit")
+            used = d.get("usage")
+            detail = "free/unlimited" if lim is None else f"${used or 0:.2f} / ${lim}"
+            return {"ok": True, "detail": detail}
+        try:
+            msg = r.json().get("error", {}).get("message", "")
+        except Exception:
+            msg = ""
+        return {"ok": False, "detail": f"HTTP {r.status_code}: {msg}"[:80]}
+    except Exception as e:
+        return {"ok": False, "detail": type(e).__name__}
+
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
     """Site-owner admin panel: users, per-stage job matrix, operational stats.
@@ -340,6 +380,22 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
         per_user.values(), key=lambda u: (-u["total"], (u["login"] or "").lower())
     )
 
+    # LLM / API-key health: local LLM reachability + each user's OpenRouter key.
+    from .crypto import decrypt_value
+    llm_local = await _check_local_llm()
+    or_rows = []
+    for u in users:
+        row = {"user_id": u.id, "login": u.github_login,
+               "model": u.openrouter_model or "", "masked": "", "status": None}
+        if u.openrouter_key:
+            try:
+                key = decrypt_value(u.openrouter_key)
+                row["masked"] = (key[:10] + "…" + key[-4:]) if key else ""
+                row["status"] = await _check_openrouter_key(key)
+            except Exception:
+                row["status"] = {"ok": False, "detail": "decrypt failed"}
+        or_rows.append(row)
+
     return templates.TemplateResponse(
         "admin.html",
         {
@@ -355,8 +411,51 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
             "failure_rows": failure_rows,
             "stuck_hours": _STUCK_HOURS,
             "generated_at": now.strftime("%Y-%m-%d %H:%M UTC"),
+            "llm_local": llm_local,
+            "llm_base_url": settings.llm_base_url,
+            "llm_model": settings.llm_model,
+            "or_rows": or_rows,
         },
     )
+
+
+@app.post("/admin/llm/openrouter")
+async def admin_set_openrouter(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user_id: int = FForm(...),
+    key: str = FForm(""),
+    model: str = FForm(""),
+):
+    """Admin: rotate or clear a user's OpenRouter key (and optionally model)."""
+    from .crypto import encrypt_value
+    from sqlalchemy.orm import attributes as _attrs
+    admin = await get_current_user(request, db)
+    if not is_admin(admin):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    key = key.strip()
+    if key:
+        if not key.startswith("sk-or-"):
+            raise HTTPException(status_code=400, detail="OpenRouter keys start with 'sk-or-'")
+        target.openrouter_key = encrypt_value(key)
+    else:
+        target.openrouter_key = None
+    _attrs.flag_modified(target, "openrouter_key")
+    if model.strip():
+        target.openrouter_model = model.strip()
+    await db.commit()
+
+    # Invalidate the proxy's cached config so the new key takes effect immediately.
+    try:
+        from .llm_proxy import _openrouter_cache
+        _openrouter_cache.pop(user_id, None)
+    except Exception:
+        pass
+    return RedirectResponse(url="/admin", status_code=303)
 
 
 @app.get("/submissions/{slug}", response_class=HTMLResponse)
