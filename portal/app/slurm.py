@@ -90,6 +90,7 @@ echo ">>> Step 2/2: MAG analysis"
 echo ">>> Step 1/2: illumina assembly"
 "{illu}/run-illumina-assembly.sh" --apptainer \\
     --input "${{INPUT_DIR}}/fastq" \\
+    --assembly_memory "${{OMC_ASM_MEM_GB}}GB" \\
     --outdir "$ASM"
 echo ">>> Step 2/2: MAG analysis (per sample)"
 shopt -s nullglob
@@ -132,7 +133,35 @@ done
     )
 
 
-def _build_pipeline_script(submission: Submission) -> str:
+# Memory tiers (GB) available on fir; the OOM-retry in omc-pickup.sh walks up
+# these when a job is OOM-killed.
+_MEM_TIERS = [128, 187, 249, 373, 498]
+
+
+def _estimate_mem_gb(submission: Submission, attempt: int = 0) -> int:
+    """Estimate sbatch memory (GB), escalating a tier per OOM-retry attempt.
+
+    Metagenome assembly (metaSPAdes/Tadpole) dominates memory, so scale from the
+    dataset's total bases off a floor, snap to a node tier, and double the target
+    per retry attempt. Amplicon (microscape) is light and fixed.
+    """
+    pipe = submission.pipeline
+    if pipe == PipelineType.MICROSCAPE:
+        base = 128
+    elif pipe in (PipelineType.ILLUMINA_MAG, PipelineType.NANOPORE_MAG):
+        m = submission.sample_metadata or {}
+        gbp = (m.get("total_bases") or 0) / 1e9
+        base = 128 + int(gbp * 8)   # ~+8 GB per Gbp of input
+    else:
+        base = 128
+    target = base * (2 ** max(0, attempt))
+    for t in _MEM_TIERS:
+        if t >= target:
+            return t
+    return _MEM_TIERS[-1]
+
+
+def _build_pipeline_script(submission: Submission, attempt: int = 0) -> str:
     """Generate sbatch script for pipeline execution (heavy job).
 
     The pipeline script also pushes status updates back to arbutus
@@ -143,6 +172,7 @@ def _build_pipeline_script(submission: Submission) -> str:
     input_dir = f"{scratch}/sra_downloads/{submission.slug}"
     work_dir = f"{scratch}/omc_work/{submission.slug}"
     accession = submission.bioproject_accession
+    mem_gb = _estimate_mem_gb(submission, attempt)
 
     # Pipeline-specific run command (assembly->mag chain, or microscape SIF)
     pipeline_cmd = _build_pipeline_cmd(submission)
@@ -152,7 +182,7 @@ def _build_pipeline_script(submission: Submission) -> str:
 #SBATCH --account={settings.slurm_account}
 #SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=128G
+#SBATCH --mem={mem_gb}G
 #SBATCH --output={output_dir}/slurm-pipeline-%j.out
 #SBATCH --error={output_dir}/slurm-pipeline-%j.err
 
@@ -161,6 +191,14 @@ set -uo pipefail
 INPUT_DIR="{input_dir}"
 OUTPUT_DIR="{output_dir}"
 WORK_DIR="{work_dir}"
+
+# Memory bookkeeping. OMC_MEM_GB is the sbatch allocation; the assembly step
+# caps its tools below it so they can't overcommit the cgroup and OOM. On an
+# OOM kill, omc-pickup.sh seds these (and --mem) up a tier and resubmits.
+OMC_MEM_GB={mem_gb}
+OMC_MEM_ATTEMPT={attempt}
+# Budget handed to assemblers (leave headroom for OS + nextflow overhead).
+OMC_ASM_MEM_GB=$(( OMC_MEM_GB - 32 )); [ "$OMC_ASM_MEM_GB" -lt 32 ] && OMC_ASM_MEM_GB=32
 
 # Status reporting — push updates to arbutus over HTTP
 # These env vars are set by omc-pickup.sh before sbatch

@@ -48,6 +48,44 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # The pickup loop *does* reach arbutus, so relay the ground-truth markers the
 # wrapper writes to shared scratch (.status/.completed/.transferred) from here —
 # and upload the results archive if the wrapper couldn't.
+#
+# OOM recovery: if a pipeline was OOM-killed, resubmit it at the next memory
+# tier (up to 3 attempts) by editing the sbatch --mem in its pipeline.sh, rather
+# than reporting a hard failure. The assembly step caps its tools to OMC_MEM_GB,
+# so a bigger allocation gives them a bigger real budget.
+OMC_MEM_TIERS="128 187 249 373 498"
+_oom_retry() {  # $1=slug $2=OUTPUT_DIR(with trailing /) $3=job_id ; 0 if resubmitted
+    local slug="$1" out="$2" jid="$3" ps="${2}pipeline.sh"
+    [ -f "$ps" ] || return 1
+    # Was it OOM? Trust sacct state or the slurmstepd oom message in the logs.
+    local oom=0 st=""
+    [[ "$jid" =~ ^[0-9]+$ ]] && st=$(sacct -n -X -j "$jid" -o State 2>/dev/null | head -1 | tr -d ' ')
+    [[ "$st" == OUT_OF_MEMORY* ]] && oom=1
+    grep -qiE 'oom[_-]kill|OOM Killed|Out of memory|std::bad_alloc|Cannot allocate memory' \
+        /dev/null "${out}"slurm-pipeline-*.err "${out}"slurm-pipeline-*.out 2>/dev/null && oom=1
+    [ "$oom" -eq 1 ] || return 1
+    local att cur; att=$(sed -n 's/^OMC_MEM_ATTEMPT=//p' "$ps" | head -1); att=${att:-0}
+    cur=$(sed -n 's/^OMC_MEM_GB=//p' "$ps" | head -1); cur=${cur:-128}
+    local next=""; for t in $OMC_MEM_TIERS; do [ "$t" -gt "$cur" ] && { next=$t; break; }; done
+    [ "$att" -ge 3 ] && return 1
+    [ -z "$next" ] && return 1   # already at the top tier
+    sed -i -E "s/^#SBATCH --mem=.*/#SBATCH --mem=${next}G/; \
+               s/^OMC_MEM_GB=.*/OMC_MEM_GB=${next}/; \
+               s/^OMC_MEM_ATTEMPT=.*/OMC_MEM_ATTEMPT=$((att+1))/" "$ps"
+    # Fresh attempt: drop prior outputs + work dir, keep pipeline.sh and markers.
+    find "$out" -mindepth 1 -maxdepth 1 \
+        ! -name pipeline.sh ! -name job_ids.txt ! -name .pipeline-submitted \
+        -exec rm -rf {} + 2>/dev/null
+    rm -rf "${OMC_SCRATCH}/omc_work/${slug}" 2>/dev/null
+    local newjob; newjob=$(cd /tmp && sbatch --parsable "$ps" 2>/dev/null)
+    [[ "$newjob" =~ ^[0-9]+$ ]] || return 1
+    echo "pipeline=$newjob" > "${out}job_ids.txt"
+    push_status "$slug" "$(jq -nc --arg m "$next" \
+        '{phase:"running",detail:("OOM — retrying at "+$m+"G")}')"
+    echo "$(now) $slug OOM at ${cur}G -> resubmitted at ${next}G (attempt $((att+1))), job $newjob"
+    return 0
+}
+
 shopt -s nullglob
 for OUTPUT_DIR in "${OMC_RESULTS}"/*/; do
     [ -f "${OUTPUT_DIR}.pipeline-submitted" ] || continue
@@ -62,7 +100,13 @@ for OUTPUT_DIR in "${OMC_RESULTS}"/*/; do
         if [[ "$JOB_ID" =~ ^[0-9]+$ ]]; then
             JSTATE=$(sacct -j "$JOB_ID" -n -X -o State 2>/dev/null | head -1 | tr -d ' ')
             case "$JSTATE" in
-                FAILED|CANCELLED*|TIMEOUT|OUT_OF_MEMORY|NODE_FAIL|BOOT_FAIL|DEADLINE)
+                OUT_OF_MEMORY*)
+                    _oom_retry "$RSLUG" "$OUTPUT_DIR" "$JOB_ID" && continue
+                    push_status "$RSLUG" "$(jq -nc --arg j "$JOB_ID" \
+                        '{phase:"failed",reason:("SLURM job "+$j+" OOM-killed (max retries reached)"),job_id:$j}')"
+                    touch "${OUTPUT_DIR}.finalized"
+                    echo "$(now) reconciled $RSLUG -> failed (OOM, retries exhausted)" ;;
+                FAILED|CANCELLED*|TIMEOUT|NODE_FAIL|BOOT_FAIL|DEADLINE)
                     push_status "$RSLUG" "$(jq -nc --arg s "$JSTATE" --arg j "$JOB_ID" \
                         '{phase:"failed",reason:("SLURM job "+$j+" ended: "+$s+" with no completion marker"),job_id:$j}')"
                     touch "${OUTPUT_DIR}.finalized"
@@ -95,6 +139,8 @@ for OUTPUT_DIR in "${OMC_RESULTS}"/*/; do
             push_status "$RSLUG" '{"phase":"completed","exit_code":"0"}'
         fi
     else
+        # A wrapper may report exit!=0 for an OOM-killed step — try to recover first.
+        _oom_retry "$RSLUG" "$OUTPUT_DIR" "$JOB_ID" && continue
         # /dev/null keeps grep from blocking on stdin when the globs match nothing.
         REASON=$(grep -hiE 'ERROR|No such variable|Exception|Traceback|Killed|OOM' \
             /dev/null "${OUTPUT_DIR}"slurm-pipeline-*.err "${OUTPUT_DIR}"slurm-pipeline-*.out 2>/dev/null \
