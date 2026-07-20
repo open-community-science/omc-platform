@@ -117,15 +117,27 @@ done
         # passed explicitly; without them microscape's own auto-detection runs (and is flaky),
         # so a resolved primer pair is strongly preferred.
         primer_prelude, primer_args = _microscape_primer_prelude(submission)
+        # Taxonomy DB gates the taxonomy → BUILD_VIZ branch that produces viz/.
+        ref_dbs = settings.microscape_ref_databases
+        ref_arg = f' \\\n    --ref_databases "{ref_dbs}"' if ref_dbs else ""
+        # Bind the reference DB dir(s) into the container so paths resolve.
+        ref_binds = ""
+        for entry in (ref_dbs.split(";") if ref_dbs else []):
+            parts = entry.split(":")
+            if len(parts) >= 2 and parts[1].strip():
+                import os as _os
+                d = _os.path.dirname(parts[1].strip())
+                if d:
+                    ref_binds += f',"{d}:{d}:ro"'
         return f"""echo ">>> Illumina amplicon analysis (microscape)"
 {primer_prelude}apptainer run \\
     --env CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
     --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \\
     --env REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
-    --bind "${{OUTPUT_DIR}}:${{OUTPUT_DIR}}","${{INPUT_DIR}}/fastq:${{INPUT_DIR}}/fastq:ro" \\
+    --bind "${{OUTPUT_DIR}}:${{OUTPUT_DIR}}","${{INPUT_DIR}}/fastq:${{INPUT_DIR}}/fastq:ro"{ref_binds} \\
     "{micro_sif}" \\
     run /pipeline/main.nf \\
-    --input "${{INPUT_DIR}}/fastq"{primer_args} \\
+    --input "${{INPUT_DIR}}/fastq"{primer_args}{ref_arg} \\
     --outdir "${{OUTPUT_DIR}}\""""
 
     raise NotImplementedError(

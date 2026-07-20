@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     pipeline_mag_analysis: str = "/home/rec3141/GENICE/danaSeq/mag_analysis"
     # microscape ships as a self-contained SIF (pipeline code baked into the image)
     microscape_sif: str = "/home/rec3141/GENICE/microscape-nf.sif"
+    # microscape taxonomy reference DB(s), format "name:path:Level1,Level2,...".
+    # REQUIRED for output: the taxonomy → renormalize → BUILD_VIZ branch (which
+    # produces the viz/ folder) is gated on --ref_databases. SILVA SSU covers
+    # 16S + 18S; ITS would need UNITE.
+    microscape_ref_databases: str = (
+        "silva:/home/rec3141/scratch/databases/silva_db/SILVA_138.2_SSURef_NR99.fasta"
+        ":Domain,Phylum,Class,Order,Family,Genus"
+    )
     # rnaseq (illumina_rna) is on hold; isolate genomes are submitted as metagenomes
     pipeline_rnaseq: str = ""
 
