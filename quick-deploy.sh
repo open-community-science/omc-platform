@@ -3,8 +3,9 @@
 # Usage: ./quick-deploy.sh
 set -euo pipefail
 
-HOST="206.12.96.115"
-REMOTE="ubuntu@${HOST}"
+# Connect via the `arbutus` ssh-config alias so it picks up the right key
+# (IdentityFile ~/.ssh/arbutus.pem). Override with OMC_DEPLOY_REMOTE if needed.
+REMOTE="${OMC_DEPLOY_REMOTE:-arbutus}"
 DEST="/opt/omc-platform"
 
 echo "--- Syncing code ---"
@@ -12,6 +13,7 @@ rsync -az --delete \
     --exclude '.venv' \
     --exclude '__pycache__' \
     --exclude '*.pyc' \
+    --exclude '__marimo__' \
     --exclude '.env' \
     --exclude '*.db' \
     --exclude '*.pem' \
