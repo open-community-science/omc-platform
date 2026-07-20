@@ -39,6 +39,75 @@ LOCKFILE="${OMC_SCRATCH}/.omc-pickup.lock"
 exec 200>"$LOCKFILE"
 flock -n 200 || { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) Another pickup is already running"; exit 0; }
 
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# ── Phase 0: Reconcile submitted pipelines ───────────────────────────────
+# The pipeline wrapper runs on a compute node and pushes status to arbutus, but
+# those pushes don't reliably arrive (env propagation / node connectivity), which
+# leaves submissions stuck showing QUEUED in the portal even after they finish.
+# The pickup loop *does* reach arbutus, so relay the ground-truth markers the
+# wrapper writes to shared scratch (.status/.completed/.transferred) from here —
+# and upload the results archive if the wrapper couldn't.
+shopt -s nullglob
+for OUTPUT_DIR in "${OMC_RESULTS}"/*/; do
+    [ -f "${OUTPUT_DIR}.pipeline-submitted" ] || continue
+    [ -f "${OUTPUT_DIR}.finalized" ] && continue
+    RSLUG=$(basename "$OUTPUT_DIR")
+    LSTATUS=$(cat "${OUTPUT_DIR}.status" 2>/dev/null || echo "")
+    JOB_ID=$(sed -n 's/^pipeline=//p' "${OUTPUT_DIR}job_ids.txt" 2>/dev/null | head -1)
+
+    if [ ! -f "${OUTPUT_DIR}.completed" ]; then
+        # Still running — or the node died before writing a completion marker.
+        [ "$LSTATUS" = "running" ] && push_status "$RSLUG" '{"phase":"running","detail":"relayed by pickup"}'
+        if [[ "$JOB_ID" =~ ^[0-9]+$ ]]; then
+            JSTATE=$(sacct -j "$JOB_ID" -n -X -o State 2>/dev/null | head -1 | tr -d ' ')
+            case "$JSTATE" in
+                FAILED|CANCELLED*|TIMEOUT|OUT_OF_MEMORY|NODE_FAIL|BOOT_FAIL|DEADLINE)
+                    push_status "$RSLUG" "$(jq -nc --arg s "$JSTATE" --arg j "$JOB_ID" \
+                        '{phase:"failed",reason:("SLURM job "+$j+" ended: "+$s+" with no completion marker"),job_id:$j}')"
+                    touch "${OUTPUT_DIR}.finalized"
+                    echo "$(now) reconciled $RSLUG -> failed (slurm $JSTATE)" ;;
+            esac
+        fi
+        continue
+    fi
+
+    # Pipeline finished — relay the terminal outcome.
+    EXIT=$(cat "${OUTPUT_DIR}.completed" 2>/dev/null || echo 1)
+    if [ "$EXIT" = "0" ]; then
+        # Success: make sure results reached arbutus (wrapper upload may have failed).
+        if [ ! -f "${OUTPUT_DIR}.transferred" ] && [ -f "${OUTPUT_DIR%/}.sqsh" ]; then
+            echo "$(now) $RSLUG completed but not transferred — uploading .sqsh from pickup"
+            if curl -sf -X POST "${STAGING_API}/${RSLUG}/upload-results" \
+                    -H "$AUTH_HEADER" -H "Content-Type: application/octet-stream" \
+                    -T "${OUTPUT_DIR%/}.sqsh"; then
+                touch "${OUTPUT_DIR}.transferred"
+            else
+                echo "$(now) WARN: pickup upload failed for $RSLUG — will retry next tick"
+            fi
+        fi
+        if [ -f "${OUTPUT_DIR}.transferred" ]; then
+            push_status "$RSLUG" '{"phase":"transferred","results_format":"archived"}'
+            touch "${OUTPUT_DIR}.finalized"
+            echo "$(now) reconciled $RSLUG -> transferred"
+        else
+            # No archive to upload yet (or upload failing) — report success, retry later.
+            push_status "$RSLUG" '{"phase":"completed","exit_code":"0"}'
+        fi
+    else
+        # /dev/null keeps grep from blocking on stdin when the globs match nothing.
+        REASON=$(grep -hiE 'ERROR|No such variable|Exception|Traceback|Killed|OOM' \
+            /dev/null "${OUTPUT_DIR}"slurm-pipeline-*.err "${OUTPUT_DIR}"slurm-pipeline-*.out 2>/dev/null \
+            | head -1 | cut -c1-300)
+        [ -n "$REASON" ] || REASON="Pipeline exited with code $EXIT"
+        push_status "$RSLUG" "$(jq -nc --arg r "$REASON" --arg e "$EXIT" --arg j "$JOB_ID" \
+            '{phase:"failed",reason:$r,exit_code:$e,job_id:$j}')"
+        touch "${OUTPUT_DIR}.finalized"
+        echo "$(now) reconciled $RSLUG -> failed (exit $EXIT)"
+    fi
+done
+shopt -u nullglob
+
 # ── Phase 1: Pick up individual runs as they complete ────────────────────
 
 READY_JSON=$(curl -sf -H "$AUTH_HEADER" "${STAGING_API}/ready-runs" 2>/dev/null)

@@ -77,9 +77,17 @@ done
 [ "$found" -eq 1 ] || {{ echo "ERROR: assembly produced no *.dedupe.fasta"; exit 1; }}"""
 
     if pipeline == PipelineType.MICROSCAPE:
-        # microscape-nf runs entirely from its SIF (pipeline code baked in at /pipeline)
+        # microscape-nf runs entirely from its SIF (pipeline code baked in at /pipeline).
+        # Its Nextflow self-bootstraps the framework jar on first run; compute nodes are
+        # offline, so the jar is pre-seeded in ~/.nextflow (shared Lustre home) and found
+        # via the default HOME mount. Force the CA bundle to the container's Ubuntu path
+        # (matches danaSeq) — the image otherwise defaults to a RHEL path that doesn't
+        # exist, which broke any HTTPS Nextflow attempted (curl error 77).
         return f"""echo ">>> Illumina amplicon analysis (microscape)"
 apptainer run \\
+    --env CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
+    --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \\
+    --env REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
     --bind "${{OUTPUT_DIR}}:${{OUTPUT_DIR}}","${{INPUT_DIR}}/fastq:${{INPUT_DIR}}/fastq:ro" \\
     "{micro_sif}" \\
     run /pipeline/main.nf \\
@@ -236,6 +244,7 @@ if [ $PIPELINE_EXIT -eq 0 ]; then
             -T "${{OUTPUT_DIR}}.sqsh" || UPLOAD_RC=$?
         if [ $UPLOAD_RC -eq 0 ]; then
             echo "Upload complete"
+            touch ${{OUTPUT_DIR}}/.transferred
             push_status "transferred" ',\\"results_format\\":\\"archived\\"'
         else
             echo "WARNING: Upload failed (exit $UPLOAD_RC) — results remain on scratch"
