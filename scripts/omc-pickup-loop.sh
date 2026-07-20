@@ -18,8 +18,25 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")")" && pwd)"
 
 echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) omc-pickup loop started (PID $$, job $SLURM_JOB_ID)"
 
-# Self-resubmit before SLURM kills us (6d 23h = leave 1h margin)
-(sleep $((6*86400 + 23*3600)) && sbatch "$SCRIPT_DIR/omc-pickup-loop.sh" && echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) Self-resubmitted") &
+# --- Watchdog: dependency-chained succession -------------------------------
+# Immediately register a successor that SLURM will launch when THIS job ends for
+# ANY reason (time-limit exit, crash, node failure, preemption, or a scancel of
+# just this job). Because the successor lives in SLURM's DB before we do any work,
+# no single job death can break the chain.
+#
+# This replaces the old `sleep 6d23h && sbatch` self-resubmit, which was lost
+# whenever the job died before its timer fired — that failure silently stopped
+# all pipeline pickups for ~4 months (Mar–Jul 2026).
+#
+# --begin=now+5min throttles pathological fast-fail restart loops to <=1 / 5 min;
+# it's already in the past for a normal 7-day run, so it adds no delay then.
+#
+# To stop the system intentionally you must cancel BOTH the running job AND the
+# pending dependent successor:  scancel --name=omc-pickup -u "$USER"
+sbatch --dependency=afterany:"$SLURM_JOB_ID" --begin=now+5minutes \
+    "$SCRIPT_DIR/omc-pickup-loop.sh" \
+    && echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) queued successor (afterany:$SLURM_JOB_ID)"
+# ---------------------------------------------------------------------------
 
 while true; do
     "$SCRIPT_DIR/omc-pickup.sh" 2>&1
