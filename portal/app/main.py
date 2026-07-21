@@ -47,7 +47,7 @@ templates.env.globals["is_admin"] = is_admin
 _STATUS_LABELS = {
     "draft": "Draft", "submitted": "Submitted", "queued": "Queued",
     "running": "Running", "processing": "Processing",
-    "results_ready": "Ready for you", "drafting": "Drafting",
+    "results_ready": "Ready", "drafting": "Drafting",
     "review": "In review", "published": "Published", "failed": "Failed",
 }
 templates.env.filters["status_label"] = lambda v: _STATUS_LABELS.get(
