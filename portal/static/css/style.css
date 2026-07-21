@@ -1554,3 +1554,12 @@ body {
 .primer-src-metadata { background: #dbeafe; color: #1e40af; }
 .primer-src-inferred-db { background: #fef3c7; color: #92400e; }
 .primer-src-inferred-denovo { background: #f3e8ff; color: #6b21a8; }
+
+/* ── microscape.app viz banner ── */
+.viz-banner {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 1rem; flex-wrap: wrap;
+    background: #eef6ff; border: 1px solid #bcdcff;
+    border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem;
+    font-weight: 500;
+}

@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     # ENA submission proxy (safety default: test server)
     ena_test_mode: bool = True
 
+    # microscape.app viz hosting. OMC provisions a per-user omc-<login> lab via
+    # the provision endpoint (service token), then pushes the built viz site to
+    # the deploy endpoint. Co-located on arbutus, so the base URL is internal.
+    microscape_app_url: str = "http://localhost:3100"
+    microscape_app_public_url: str = "https://microscape.app"
+    microscape_provision_token: str = ""  # shared secret with microscape-app
+
     # Pipeline paths on HPC.
     # The danaSeq repo is organised into building-block pipelines. OMC's
     # user-facing pipelines compose them:

@@ -139,6 +139,7 @@ mkdir -p "${{WORK_DIR}}"
     "{micro_sif}" \\
     run /pipeline/main.nf \\
     --input "${{INPUT_DIR}}/fastq"{primer_args}{ref_arg} \\
+    --build_viz_site \\
     -work-dir "${{WORK_DIR}}" \\
     --outdir "${{OUTPUT_DIR}}\""""
 
@@ -713,6 +714,23 @@ async def poll_all_running_jobs(db_session) -> list:
             if phase == "transferred":
                 from .database import ResultsFormat
                 sub.results_format = ResultsFormat.TRANSFERRED
+                # Deploy the amplicon viz site to microscape.app (once).
+                if sub.pipeline == PipelineType.MICROSCAPE:
+                    meta = dict(sub.sample_metadata or {})
+                    if not meta.get("microscape_viz_url"):
+                        try:
+                            from .microscape_deploy import deploy_submission
+                            from .database import User
+                            from sqlalchemy.orm import attributes as _attrs
+                            owner = (await db_session.execute(
+                                select(User).where(User.id == sub.user_id))).scalar_one_or_none()
+                            url = await deploy_submission(sub, owner) if owner else None
+                            if url:
+                                meta["microscape_viz_url"] = url
+                                sub.sample_metadata = meta
+                                _attrs.flag_modified(sub, "sample_metadata")
+                        except Exception as e:
+                            logger.warning(f"microscape deploy trigger failed for {sub.slug}: {e}")
             logger.info(f"Submission {sub.slug} finished on HPC (phase={phase})")
             completed.append(sub.slug)
         elif phase == "failed":

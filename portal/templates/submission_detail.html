@@ -153,6 +153,13 @@
             </details>
             {% endif %}
 
+            {% if submission.pipeline and submission.pipeline.value == 'microscape' and submission.sample_metadata and submission.sample_metadata.get('microscape_viz_url') %}
+            <div class="viz-banner">
+                <span>Interactive results are live on microscape.app</span>
+                <a href="{{ submission.sample_metadata.microscape_viz_url }}" target="_blank" class="btn btn-primary btn-sm">Open viz →</a>
+            </div>
+            {% endif %}
+
             {% if submission.pipeline and submission.pipeline.value == 'microscape' %}
             {% set pr = submission.primers %}
             <details class="wf-details" open>
