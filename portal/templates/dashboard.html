@@ -15,7 +15,7 @@
         <select id="sub-filter-status" class="sub-select">
             <option value="">All statuses</option>
             {% for s in submissions|map(attribute='status.value')|unique|sort %}
-            <option value="{{ s }}">{{ s }}</option>
+            <option value="{{ s }}">{{ s|status_label }}</option>
             {% endfor %}
         </select>
         <select id="sub-filter-pipeline" class="sub-select">
@@ -49,7 +49,7 @@
                 <p class="date">Created {{ sub.created_at.strftime('%Y-%m-%d') }}</p>
             </div>
             <div class="submission-status">
-                <span class="status-badge status-{{ sub.status.value }}">{{ sub.status.value }}</span>
+                <span class="status-badge status-{{ sub.status.value }}">{{ sub.status.value|status_label }}</span>
                 {% if sub.github_repo %}
                 <a href="{{ sub.github_repo }}" target="_blank" class="github-link">View on GitHub</a>
                 {% endif %}

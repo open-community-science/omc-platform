@@ -267,6 +267,10 @@ async def get_status(
                 submission.status = SubmissionStatus.PROCESSING
                 await db.commit()
                 s = "processing"
+            elif phase == "transferred":
+                submission.status = SubmissionStatus.RESULTS_READY
+                await db.commit()
+                s = "results_ready"
             elif phase == "failed":
                 submission.status = SubmissionStatus.FAILED
                 submission.error_message = hpc_status.get("reason", f"Exit code {hpc_status.get('exit_code', '?')}")

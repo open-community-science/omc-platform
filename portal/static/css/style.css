@@ -319,6 +319,8 @@ body {
 .status-submitted, .status-queued { background: #fef3c7; color: #92400e; }
 .status-running { background: #dbeafe; color: #1e40af; }
 .status-processing { background: #e0e7ff; color: #3730a3; }
+/* "Your turn" — actionable orange, deliberately unlike the machine-state blues */
+.status-results_ready { background: #ffedd5; color: #9a3412; font-weight: 600; }
 .status-drafting { background: #f3e8ff; color: #6b21a8; }
 .status-review { background: #dcfce7; color: #166534; }
 .status-published { background: #22c55e; color: white; }

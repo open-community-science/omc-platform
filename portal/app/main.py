@@ -41,6 +41,19 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 # Expose is_admin() to all templates (e.g. to gate the Admin nav link)
 templates.env.globals["is_admin"] = is_admin
 
+# Human-friendly submission-status labels for the status pill. The raw enum
+# values (e.g. "results_ready") are fine as CSS class suffixes but read poorly.
+# "results_ready" is deliberately worded to signal the author must act next.
+_STATUS_LABELS = {
+    "draft": "Draft", "submitted": "Submitted", "queued": "Queued",
+    "running": "Running", "processing": "Processing",
+    "results_ready": "Ready for you", "drafting": "Drafting",
+    "review": "In review", "published": "Published", "failed": "Failed",
+}
+templates.env.filters["status_label"] = lambda v: _STATUS_LABELS.get(
+    getattr(v, "value", v), str(getattr(v, "value", v)).replace("_", " ").title()
+)
+
 
 async def _poll_hpc_jobs():
     """Background task: poll HPC for job status updates every 60s."""
@@ -146,12 +159,14 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
 # Stages in pipeline order, and how they roll up for the summary cards.
 _STAGE_ORDER = [
     SubmissionStatus.DRAFT, SubmissionStatus.SUBMITTED, SubmissionStatus.QUEUED,
-    SubmissionStatus.RUNNING, SubmissionStatus.PROCESSING, SubmissionStatus.DRAFTING,
-    SubmissionStatus.REVIEW, SubmissionStatus.PUBLISHED, SubmissionStatus.FAILED,
+    SubmissionStatus.RUNNING, SubmissionStatus.PROCESSING, SubmissionStatus.RESULTS_READY,
+    SubmissionStatus.DRAFTING, SubmissionStatus.REVIEW, SubmissionStatus.PUBLISHED,
+    SubmissionStatus.FAILED,
 ]
 _ACTIVE_STATES = {
     SubmissionStatus.SUBMITTED, SubmissionStatus.QUEUED, SubmissionStatus.RUNNING,
-    SubmissionStatus.PROCESSING, SubmissionStatus.DRAFTING, SubmissionStatus.REVIEW,
+    SubmissionStatus.PROCESSING, SubmissionStatus.RESULTS_READY,
+    SubmissionStatus.DRAFTING, SubmissionStatus.REVIEW,
 }
 # Active jobs older than this (hours) are flagged as possibly stuck.
 _STUCK_HOURS = 24.0

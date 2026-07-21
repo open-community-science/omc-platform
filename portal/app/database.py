@@ -19,7 +19,8 @@ class SubmissionStatus(str, enum.Enum):
     SUBMITTED = "submitted"
     QUEUED = "queued"
     RUNNING = "running"
-    PROCESSING = "processing"
+    PROCESSING = "processing"       # HPC still packaging results (machine's turn)
+    RESULTS_READY = "results_ready"  # pipeline done, results on arbutus (author's turn)
     DRAFTING = "drafting"
     REVIEW = "review"
     PUBLISHED = "published"

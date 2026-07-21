@@ -697,8 +697,12 @@ async def poll_all_running_jobs(db_session) -> list:
     from .database import Submission, SubmissionStatus
     from .staging import get_hpc_status
 
+    # Include PROCESSING so a job that reported "completed"/"archiving" first is
+    # still upgraded to RESULTS_READY once its results reach arbutus (transferred).
     stmt = select(Submission).where(
-        Submission.status.in_([SubmissionStatus.QUEUED, SubmissionStatus.RUNNING])
+        Submission.status.in_([
+            SubmissionStatus.QUEUED, SubmissionStatus.RUNNING, SubmissionStatus.PROCESSING,
+        ])
     )
     result = await db_session.execute(stmt)
     running = result.scalars().all()
@@ -722,7 +726,14 @@ async def poll_all_running_jobs(db_session) -> list:
         elif phase in ("completed", "transferred", "archiving"):
             # Pipeline finished on HPC. "transferred" means results are already on
             # arbutus (the pickup reconciler pushes it directly, skipping "completed").
-            sub.status = SubmissionStatus.PROCESSING
+            # completed/archiving = HPC still packaging (machine's turn) → PROCESSING;
+            # transferred = results ready for the author → RESULTS_READY.
+            new_status = (
+                SubmissionStatus.RESULTS_READY if phase == "transferred"
+                else SubmissionStatus.PROCESSING
+            )
+            status_changed = sub.status != new_status
+            sub.status = new_status
             if phase == "transferred":
                 from .database import ResultsFormat
                 sub.results_format = ResultsFormat.TRANSFERRED
@@ -743,13 +754,13 @@ async def poll_all_running_jobs(db_session) -> list:
                                 _attrs.flag_modified(sub, "sample_metadata")
                         except Exception as e:
                             logger.warning(f"microscape deploy trigger failed for {sub.slug}: {e}")
-                    # NB: keep status at PROCESSING here. That already renders the
-                    # Pipeline step as "Done" and surfaces the viz link, while
-                    # leaving Manuscript/Review/Publish (steps 3–5) as still-to-do.
-                    # Do NOT set PUBLISHED — that's the *paper* being live on GitHub
-                    # Pages (step 5), not the viz. The viz being deployed ≠ published.
-            logger.info(f"Submission {sub.slug} finished on HPC (phase={phase})")
-            completed.append(sub.slug)
+                    # RESULTS_READY (set above) renders the Pipeline step as "Done"
+                    # and surfaces the viz link, while leaving Manuscript/Review/Publish
+                    # (steps 3–5) as still-to-do. Do NOT set PUBLISHED — that's the
+                    # *paper* live on GitHub Pages (step 5), not the viz.
+            if status_changed:
+                logger.info(f"Submission {sub.slug} finished on HPC (phase={phase})")
+                completed.append(sub.slug)
         elif phase == "failed":
             sub.status = SubmissionStatus.FAILED
             sub.error_message = hpc.get("reason", f"Exit code {hpc.get('exit_code', '?')}")

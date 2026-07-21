@@ -152,7 +152,7 @@
                 <td><a href="/submissions/{{ r.slug }}">{{ r.slug }}</a></td>
                 <td>{{ r.login }}</td>
                 <td>{{ r.pipeline }}</td>
-                <td><span class="status-badge status-{{ r.status }}">{{ r.status }}</span></td>
+                <td><span class="status-badge status-{{ r.status }}">{{ r.status|status_label }}</span></td>
                 <td>{{ r.hpc_phase or '—' }}{% if r.detail %} <span class="muted">· {{ r.detail }}</span>{% endif %}</td>
                 <td>{{ fmt_h(r.age_h) }}</td>
             </tr>
@@ -198,7 +198,7 @@
                 <td><a href="/submissions/{{ r.slug }}">{{ r.slug }}</a></td>
                 <td>{{ r.login }}</td>
                 <td>{{ r.pipeline }}</td>
-                <td><span class="status-badge status-{{ r.status }}">{{ r.status }}</span></td>
+                <td><span class="status-badge status-{{ r.status }}">{{ r.status|status_label }}</span></td>
                 <td>{{ r.hpc_phase or '—' }}{% if r.detail %} <span class="muted">· {{ r.detail }}</span>{% endif %}</td>
                 <td>{{ fmt_h(r.age_h) }}{% if r.stuck %} ⚠{% endif %}</td>
             </tr>

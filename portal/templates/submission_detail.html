@@ -5,7 +5,7 @@
 {# ── Status helpers ── #}
 {% set s = submission.status.value %}
 {% set has_accession = submission.bioproject_accession is not none %}
-{% set has_pipeline_results = s in ['processing', 'drafting', 'review', 'published'] %}
+{% set has_pipeline_results = s in ['processing', 'results_ready', 'drafting', 'review', 'published'] %}
 {% set has_manuscript = submission.github_repo is not none %}
 {% set has_draft = (submission.interview_data or {}).get('_manuscript') is not none %}
 {% set has_interview = submission.interview_data is not none and submission.interview_data | length > 0 %}
@@ -50,7 +50,7 @@
                 Created {{ submission.created_at.strftime('%Y-%m-%d') }}
             </p>
         </div>
-        <span class="status-badge status-{{ s }}">{{ s }}</span>
+        <span class="status-badge status-{{ s }}">{{ s|status_label }}</span>
     </div>
 
     {% if submission.error_message %}
@@ -353,7 +353,7 @@
         {# ── Step 2: Pipeline Analysis ── #}
         {% set step2_failed = s == 'failed' %}
         {% set step2_current = s in ['submitted', 'queued', 'running'] or (s == 'draft' and has_accession) %}
-        {% set step2_done = s in ['processing', 'drafting', 'review', 'published'] %}
+        {% set step2_done = s in ['processing', 'results_ready', 'drafting', 'review', 'published'] %}
         {% set step2_state = 'failed' if step2_failed else ('completed' if step2_done else ('current' if step2_current else 'locked')) %}
         <div class="wf-step {{ step2_state }}">
             <div class="wf-step-header">
