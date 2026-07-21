@@ -45,6 +45,53 @@
         Durations are portal-side timestamps; live pipeline phase comes from the HPC status feed.
     </p>
 
+    <!-- ── HPC clusters + failover switch ────────────────────────── -->
+    <section class="admin-section">
+        <h2>HPC clusters</h2>
+        <p class="section-hint">
+            The <strong>active</strong> cluster picks up new jobs; standby clusters stay warm,
+            keep reconciling their own in-flight jobs, and take over the moment you switch.
+            Status comes from each loop's heartbeat (every ~5&nbsp;min) — no SSH.
+        </p>
+        <div class="table-wrap">
+        <table class="admin-table">
+            <thead><tr><th>Cluster</th><th>State</th><th>Jobs (run / pend)</th><th>Last heartbeat</th><th>Loop job</th><th>Switch</th></tr></thead>
+            <tbody>
+            {% for c in clusters %}
+            <tr{% if c.stale and not c.is_active %} class="row-warn"{% elif c.stale and c.is_active %} class="row-bad"{% endif %}>
+                <td>
+                    <strong>{{ c.name }}</strong>
+                    {% if c.hostname %}<span class="muted">· {{ c.hostname }}</span>{% endif %}
+                    {% if c.note %}<span class="muted">· {{ c.note }}</span>{% endif %}
+                </td>
+                <td>
+                    {% if c.is_active %}<span class="primer-src primer-src-manual">ACTIVE</span>
+                    {% else %}<span class="primer-src primer-src-inferred-db">standby</span>{% endif %}
+                    {% if c.stale %} <span class="muted err-cell">· offline?</span>{% endif %}
+                </td>
+                <td>
+                    {% if c.running is not none %}{{ c.running }}{% else %}—{% endif %}
+                    / {% if c.pending is not none %}{{ c.pending }}{% else %}—{% endif %}
+                </td>
+                <td class="muted">{{ c.seen_ago }}</td>
+                <td class="muted">{% if c.loop_job %}<code>{{ c.loop_job }}</code>{% else %}—{% endif %}</td>
+                <td>
+                    {% if c.is_active %}<span class="muted">— active —</span>
+                    {% else %}
+                    <form action="/admin/cluster/active" method="POST" style="margin:0"
+                          onsubmit="return confirm('Make {{ c.name }} the active pickup cluster?');">
+                        <input type="hidden" name="cluster" value="{{ c.name }}">
+                        <button type="submit" class="btn btn-secondary btn-sm">Make active</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </section>
+
     <!-- ── LLM / API keys ────────────────────────────────────────── -->
     <section class="admin-section">
         <h2>LLM &amp; API keys</h2>

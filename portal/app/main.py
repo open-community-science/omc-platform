@@ -227,7 +227,7 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
     JSON pushed by fir — no SSH to the cluster.
     """
     from datetime import datetime
-    from .staging import get_hpc_status
+    from .staging import get_hpc_status, get_cluster_status
 
     user = await get_current_user(request, db)
     if not is_admin(user):
@@ -380,6 +380,9 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
         per_user.values(), key=lambda u: (-u["total"], (u["login"] or "").lower())
     )
 
+    # HPC clusters: heartbeat status + which one is active (failover switch).
+    cluster_info = get_cluster_status()
+
     # LLM / API-key health: local LLM reachability + each user's OpenRouter key.
     from .crypto import decrypt_value
     llm_local = await _check_local_llm()
@@ -411,6 +414,8 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
             "failure_rows": failure_rows,
             "stuck_hours": _STUCK_HOURS,
             "generated_at": now.strftime("%Y-%m-%d %H:%M UTC"),
+            "clusters": cluster_info["clusters"],
+            "active_cluster": cluster_info["active"],
             "llm_local": llm_local,
             "llm_base_url": settings.llm_base_url,
             "llm_model": settings.llm_model,
@@ -455,6 +460,29 @@ async def admin_set_openrouter(
         _openrouter_cache.pop(user_id, None)
     except Exception:
         pass
+    return RedirectResponse(url="/admin", status_code=303)
+
+
+@app.post("/admin/cluster/active")
+async def admin_set_active_cluster(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    cluster: str = FForm(...),
+):
+    """Admin: designate the active HPC cluster (pickup failover switch).
+
+    The clusters' loops read this on their next heartbeat and start/stop picking
+    up new jobs accordingly — no SSH needed. In-flight jobs keep reconciling on
+    whichever cluster is running them.
+    """
+    admin = await get_current_user(request, db)
+    if not is_admin(admin):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    name = cluster.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="cluster name required")
+    from .staging import set_active_cluster
+    set_active_cluster(name)
     return RedirectResponse(url="/admin", status_code=303)
 
 

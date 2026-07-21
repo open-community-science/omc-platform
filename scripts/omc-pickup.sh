@@ -24,6 +24,9 @@ set -uo pipefail
 AUTH_HEADER="Authorization: Bearer ${OMC_STAGING_KEY}"
 STAGING_API="${OMC_STAGING_URL}/staging"
 
+# Which cluster is this? Alliance sets CC_CLUSTER (fir/nibi/…); fall back to host.
+OMC_CLUSTER="${OMC_CLUSTER:-${CC_CLUSTER:-$(hostname -s 2>/dev/null || echo unknown)}}"
+
 # Push a status update back to arbutus
 push_status() {
     local slug="$1"
@@ -40,6 +43,34 @@ exec 200>"$LOCKFILE"
 flock -n 200 || { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) Another pickup is already running"; exit 0; }
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# ── Cluster heartbeat + active-cluster gate ──────────────────────────────
+# Tell arbutus we're alive (with our current job counts) and learn whether we
+# are the *active* pickup cluster. Standby clusters still run Phase 0 below
+# (reconciling their own in-flight jobs) but skip Phase 1/2 (new pickups), so
+# multiple loops can run without racing for the same job. The failover switch
+# lives in the admin panel (POST /admin/cluster/active).
+#
+# Fail OPEN: if the portal/endpoint is unreachable (old portal, network blip),
+# IS_ACTIVE stays true and behaviour is unchanged — but /ready-runs would be
+# empty in that case anyway, so nothing gets double-picked.
+IS_ACTIVE=true
+HB_RUN=$(squeue -h -u "$USER" -t RUNNING -o '%j' 2>/dev/null | grep -cvE '^omc-pickup')
+HB_PEND=$(squeue -h -u "$USER" -t PENDING -o '%j' 2>/dev/null | grep -cvE '^omc-pickup')
+HB_BODY=$(jq -nc --arg c "$OMC_CLUSTER" --arg h "$(hostname -s 2>/dev/null || echo '')" \
+    --argjson r "${HB_RUN:-0}" --argjson p "${HB_PEND:-0}" --arg j "${SLURM_JOB_ID:-}" \
+    '{cluster:$c,hostname:$h,running:$r,pending:$p,loop_job:$j}' 2>/dev/null)
+HB_RESP=$(curl -sf --max-time 20 -X POST "${STAGING_API}/cluster/heartbeat" \
+    -H "$AUTH_HEADER" -H "Content-Type: application/json" --data-raw "$HB_BODY" 2>/dev/null)
+# NOTE: do NOT use jq's `.is_active // true` — `//` yields the RHS when the LHS is
+# false *or* null, so a standby cluster (is_active=false) would wrongly read true.
+# Only override the fail-open default when we got a well-formed response.
+if [ -n "$HB_RESP" ]; then
+    _act=$(echo "$HB_RESP" | jq -r 'if .is_active == true then "true" elif .is_active == false then "false" else "unknown" end' 2>/dev/null)
+    [ "$_act" = "true" ] && IS_ACTIVE=true
+    [ "$_act" = "false" ] && IS_ACTIVE=false
+fi
+echo "$(now) heartbeat ${OMC_CLUSTER}: active=${IS_ACTIVE} (running=$HB_RUN pending=$HB_PEND)"
 
 # ── Phase 0: Reconcile submitted pipelines ───────────────────────────────
 # The pipeline wrapper runs on a compute node and pushes status to arbutus, but
@@ -155,6 +186,12 @@ done
 shopt -u nullglob
 
 # ── Phase 1: Pick up individual runs as they complete ────────────────────
+# Only the active cluster picks up NEW jobs. Standby clusters stop here (Phase 0
+# reconciliation above already ran for their own in-flight jobs).
+if [ "$IS_ACTIVE" != "true" ]; then
+    echo "$(now) standby (${OMC_CLUSTER}) — skipping new pickups"
+    exit 0
+fi
 
 READY_JSON=$(curl -sf -H "$AUTH_HEADER" "${STAGING_API}/ready-runs" 2>/dev/null)
 if [ $? -ne 0 ] || [ -z "$READY_JSON" ]; then

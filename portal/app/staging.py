@@ -12,6 +12,7 @@ Endpoints are authenticated with the staging API key.
 import json
 import os
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Header, Request
@@ -244,6 +245,134 @@ async def push_status(slug: str, request: Request, authorization: str = Header(d
     logger.info(f"HPC status update for {slug}: {body.get('phase', '?')}")
 
     return {"ok": True}
+
+
+# ── Cluster heartbeat + active-cluster switch ───────────────────────────
+#
+# Each HPC cluster's pickup loop heartbeats here every cycle and asks whether
+# it is the *active* cluster. Only the active cluster picks up NEW jobs; standby
+# clusters keep reconciling their own in-flight jobs but skip new pickups. This
+# lets several loops run at once without racing for the same job, and turns
+# failover into a portal switch (see POST /admin/cluster/active) instead of SSH.
+#
+# State is file-based (like the rest of this module): one JSON per cluster plus
+# an `active` marker, all under .clusters/. Default active cluster is "fir".
+_CLUSTERS_DIR = Path(settings.local_download_path) / ".clusters"
+_DEFAULT_ACTIVE_CLUSTER = "fir"
+_CLUSTER_STALE_S = 900  # >2 missed 5-min beats ⇒ treat the cluster as offline
+
+
+def get_active_cluster() -> str:
+    """Name of the cluster currently allowed to pick up new jobs."""
+    try:
+        v = (_CLUSTERS_DIR / "active").read_text().strip()
+        if v:
+            return v
+    except OSError:
+        pass
+    return _DEFAULT_ACTIVE_CLUSTER
+
+
+def set_active_cluster(name: str) -> None:
+    """Designate the active cluster (admin failover switch)."""
+    _CLUSTERS_DIR.mkdir(parents=True, exist_ok=True)
+    (_CLUSTERS_DIR / "active").write_text(name.strip())
+    logger.info(f"Active HPC cluster set to {name.strip()!r}")
+
+
+def _fmt_ago(age_s: float | None) -> str:
+    if age_s is None:
+        return "never"
+    if age_s < 90:
+        return f"{int(age_s)}s ago"
+    if age_s < 5400:
+        return f"{int(age_s / 60)}m ago"
+    if age_s < 172800:
+        return f"{age_s / 3600:.1f}h ago"
+    return f"{age_s / 86400:.1f}d ago"
+
+
+def get_cluster_status() -> dict:
+    """Snapshot of every heartbeating cluster + which one is active.
+
+    Returns {"active": str, "clusters": [ {name, hostname, running, pending,
+    loop_job, note, seen_at, age_s, seen_ago, stale, is_active} ]}.
+    """
+    active = get_active_cluster()
+    clusters = []
+    if _CLUSTERS_DIR.exists():
+        now = datetime.now(timezone.utc)
+        for f in sorted(_CLUSTERS_DIR.glob("*.json")):
+            try:
+                d = json.loads(f.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+            seen = d.get("seen_at")
+            age_s = None
+            if seen:
+                try:
+                    t = datetime.fromisoformat(seen.replace("Z", "+00:00"))
+                    age_s = (now - t).total_seconds()
+                except ValueError:
+                    pass
+            clusters.append({
+                "name": f.stem,
+                "hostname": d.get("hostname", ""),
+                "running": d.get("running"),
+                "pending": d.get("pending"),
+                "loop_job": d.get("loop_job", ""),
+                "note": d.get("note", ""),
+                "seen_at": seen,
+                "age_s": age_s,
+                "seen_ago": _fmt_ago(age_s),
+                "stale": age_s is None or age_s > _CLUSTER_STALE_S,
+                "is_active": f.stem == active,
+            })
+    # Always surface the active cluster, even if it has never heartbeated.
+    if active not in {c["name"] for c in clusters}:
+        clusters.append({
+            "name": active, "hostname": "", "running": None, "pending": None,
+            "loop_job": "", "note": "", "seen_at": None, "age_s": None,
+            "seen_ago": "never", "stale": True, "is_active": True,
+        })
+    clusters.sort(key=lambda c: (not c["is_active"], c["name"]))
+    return {"active": active, "clusters": clusters}
+
+
+@router.post("/cluster/heartbeat")
+async def cluster_heartbeat(request: Request, authorization: str = Header(default="")):
+    """Receive a heartbeat from a cluster's pickup loop; reply if it's active.
+
+    Body: {"cluster": "fir", "hostname": "...", "running": N, "pending": N,
+           "loop_job": "...", "note": "..."}
+    Reply: {"ok": true, "active_cluster": "...", "is_active": bool}
+    """
+    _check_staging_key(authorization)
+    body = await request.json()
+    name = (body.get("cluster") or "").strip()
+    if not name:
+        raise HTTPException(400, "cluster name required")
+
+    _CLUSTERS_DIR.mkdir(parents=True, exist_ok=True)
+    rec = {
+        "hostname": body.get("hostname", ""),
+        "running": body.get("running"),
+        "pending": body.get("pending"),
+        "loop_job": body.get("loop_job", ""),
+        "note": body.get("note", ""),
+        "seen_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    (_CLUSTERS_DIR / f"{name}.json").write_text(json.dumps(rec))
+
+    active = get_active_cluster()
+    return {"ok": True, "active_cluster": active, "is_active": name == active}
+
+
+@router.get("/cluster/status")
+async def cluster_status(authorization: str = Header(default="")):
+    """Per-cluster heartbeat snapshot (staging-key auth)."""
+    _check_staging_key(authorization)
+    return get_cluster_status()
 
 
 # ── Squashfs results upload (fir → arbutus) ─────────────────────────────

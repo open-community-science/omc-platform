@@ -18,8 +18,13 @@ export OMC_GENICE="${OMC_GENICE:-$HOME/GENICE}"
 export OMC_DB_DIR="${OMC_DB_DIR:-$HOME/scratch/databases}"
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")")" && pwd)"
-# Fallback: if running inside SLURM spool, use the known repo path
-[[ "$SCRIPT_DIR" == /localscratch/* ]] && SCRIPT_DIR="/home/rec3141/GENICE/omc-platform/scripts"
+# Under sbatch, $0 points at SLURM's spool copy of this script (path differs per
+# cluster: /localscratch/… on fir, /var/spool/slurmd/… on nibi, etc.), so the
+# sibling omc-pickup.sh isn't there. Detect that by absence and fall back to the
+# repo path derived from OMC_GENICE (portable across clusters).
+if [ ! -f "$SCRIPT_DIR/omc-pickup.sh" ]; then
+    SCRIPT_DIR="${OMC_GENICE:-$HOME/GENICE}/omc-platform/scripts"
+fi
 
 echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) omc-pickup loop started (PID $$, job $SLURM_JOB_ID)"
 
