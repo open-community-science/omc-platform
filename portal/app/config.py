@@ -76,16 +76,20 @@ class Settings(BaseSettings):
     # microscape taxonomy reference DB(s), format "name:path:Level1,Level2,...".
     # REQUIRED for output: the taxonomy → renormalize → BUILD_VIZ branch (which
     # produces the viz/ folder) is gated on --ref_databases. SILVA SSU covers
-    # 16S + 18S; ITS would need UNITE.
+    # 16S + 18S; ITS would need UNITE. `{db}` is substituted with the executing
+    # cluster's ${OMC_DB_DIR} at run time so this is portable across clusters.
     microscape_ref_databases: str = (
-        "silva:/home/rec3141/scratch/databases/silva_db/SILVA_138.2_SSURef_NR99.fasta"
+        "silva:{db}/silva_db/SILVA_138.2_SSURef_NR99.fasta"
         ":Domain,Phylum,Class,Order,Family,Genus"
     )
     # rnaseq (illumina_rna) is on hold; isolate genomes are submitted as metagenomes
     pipeline_rnaseq: str = ""
 
-    # HPC paths
+    # HPC paths. These are the *defaults* baked into a generated pipeline script;
+    # the script reads them as ${OMC_SCRATCH}/${OMC_GENICE}/${OMC_DB_DIR} so the
+    # pickup on any cluster can override them (fir, nibi, …) without regenerating.
     hpc_scratch: str = "/home/rec3141/scratch"
+    hpc_genice_dir: str = "/home/rec3141/GENICE"   # holds danaSeq + microscape-nf.sif
     hpc_db_dir: str = "/home/rec3141/scratch/databases"
     results_path: str = "/home/rec3141/scratch/omc_results"
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=omc-pickup
-#SBATCH --account=def-rec3141
+#SBATCH --account=def-rec3141_cpu
 #SBATCH --time=7-00:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=1G
@@ -11,6 +11,11 @@ export OMC_STAGING_URL="https://microbial.opencommunity.science"
 export OMC_STAGING_KEY="$(cat ~/.config/omc/staging-key)"
 export OMC_SCRATCH="$HOME/scratch"
 export OMC_RESULTS="$HOME/scratch/omc_results"
+# Cluster-specific pipeline paths, propagated to each pipeline job (--export=ALL)
+# so the portal's generated scripts stay portable. Override per cluster if the
+# danaSeq/microscape install or reference DBs live elsewhere.
+export OMC_GENICE="${OMC_GENICE:-$HOME/GENICE}"
+export OMC_DB_DIR="${OMC_DB_DIR:-$HOME/scratch/databases}"
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")")" && pwd)"
 # Fallback: if running inside SLURM spool, use the known repo path

@@ -55,11 +55,14 @@ def _build_pipeline_cmd(submission: Submission) -> str:
     run-*.sh --apptainer resolves its component's rebuilt .danaseq-*.sif.
     """
     pipeline = submission.pipeline
-    nano = settings.pipeline_nanopore_assembly
-    illu = settings.pipeline_illumina_assembly
-    mag = settings.pipeline_mag_analysis
-    db_dir = settings.hpc_db_dir
-    micro_sif = settings.microscape_sif
+    # Reference the executing cluster's paths via shell vars (OMC_GENICE / OMC_DB_DIR),
+    # set by the pickup + defaulted in the sbatch header, so the same script is
+    # portable across clusters (fir, nibi, …) rather than baking fir's paths.
+    nano = "${OMC_GENICE}/danaSeq/nanopore_assembly"
+    illu = "${OMC_GENICE}/danaSeq/illumina_assembly"
+    mag = "${OMC_GENICE}/danaSeq/mag_analysis"
+    db_dir = "${OMC_DB_DIR}"
+    micro_sif = "${OMC_GENICE}/microscape-nf.sif"
 
     if pipeline == PipelineType.NANOPORE_MAG:
         # Single co-assembly: results/assembly/assembly.fasta + results/mapping/depths.txt
@@ -118,7 +121,7 @@ done
         # so a resolved primer pair is strongly preferred.
         primer_prelude, primer_args = _microscape_primer_prelude(submission)
         # Taxonomy DB gates the taxonomy → BUILD_VIZ branch that produces viz/.
-        ref_dbs = settings.microscape_ref_databases
+        ref_dbs = settings.microscape_ref_databases.replace("{db}", "${OMC_DB_DIR}")
         ref_arg = f' \\\n    --ref_databases "{ref_dbs}"' if ref_dbs else ""
         # Bind the reference DB dir(s) into the container so paths resolve.
         ref_binds = ""
@@ -183,9 +186,12 @@ def _build_pipeline_script(submission: Submission, attempt: int = 0) -> str:
     via the staging API so the portal can track progress without SSH.
     """
     scratch = settings.hpc_scratch
+    genice = settings.hpc_genice_dir
+    db_dir_default = settings.hpc_db_dir
+    # #SBATCH --output can't reference a shell var, so it uses the default scratch
+    # path; a cluster overriding OMC_SCRATCH shares the Alliance /home/<user>/scratch
+    # layout, so this resolves there too.
     output_dir = f"{settings.results_path}/{submission.slug}"
-    input_dir = f"{scratch}/sra_downloads/{submission.slug}"
-    work_dir = f"{scratch}/omc_work/{submission.slug}"
     accession = submission.bioproject_accession
     mem_gb = _estimate_mem_gb(submission, attempt)
 
@@ -203,9 +209,15 @@ def _build_pipeline_script(submission: Submission, attempt: int = 0) -> str:
 
 set -uo pipefail
 
-INPUT_DIR="{input_dir}"
-OUTPUT_DIR="{output_dir}"
-WORK_DIR="{work_dir}"
+# Cluster paths — env-overridable so the same script runs on any cluster (the
+# pickup exports these per-cluster). Defaults match the portal config, so a
+# same-layout Alliance cluster (fir, nibi, …) needs no override.
+OMC_SCRATCH="${{OMC_SCRATCH:-{scratch}}}"
+OMC_GENICE="${{OMC_GENICE:-{genice}}}"
+OMC_DB_DIR="${{OMC_DB_DIR:-{db_dir_default}}}"
+INPUT_DIR="$OMC_SCRATCH/sra_downloads/{submission.slug}"
+OUTPUT_DIR="$OMC_SCRATCH/omc_results/{submission.slug}"
+WORK_DIR="$OMC_SCRATCH/omc_work/{submission.slug}"
 
 # Memory bookkeeping. OMC_MEM_GB is the sbatch allocation; the assembly step
 # caps its tools below it so they can't overcommit the cgroup and OOM. On an
