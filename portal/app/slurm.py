@@ -743,12 +743,11 @@ async def poll_all_running_jobs(db_session) -> list:
                                 _attrs.flag_modified(sub, "sample_metadata")
                         except Exception as e:
                             logger.warning(f"microscape deploy trigger failed for {sub.slug}: {e}")
-                    # The live viz IS the microscape deliverable — once it's up, the
-                    # job is done. Advance past PROCESSING so it doesn't look stuck.
-                    if meta.get("microscape_viz_url"):
-                        sub.status = SubmissionStatus.PUBLISHED
-                        if not sub.completed_at:
-                            sub.completed_at = datetime.utcnow()
+                    # NB: keep status at PROCESSING here. That already renders the
+                    # Pipeline step as "Done" and surfaces the viz link, while
+                    # leaving Manuscript/Review/Publish (steps 3–5) as still-to-do.
+                    # Do NOT set PUBLISHED — that's the *paper* being live on GitHub
+                    # Pages (step 5), not the viz. The viz being deployed ≠ published.
             logger.info(f"Submission {sub.slug} finished on HPC (phase={phase})")
             completed.append(sub.slug)
         elif phase == "failed":
