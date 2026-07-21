@@ -743,6 +743,12 @@ async def poll_all_running_jobs(db_session) -> list:
                                 _attrs.flag_modified(sub, "sample_metadata")
                         except Exception as e:
                             logger.warning(f"microscape deploy trigger failed for {sub.slug}: {e}")
+                    # The live viz IS the microscape deliverable — once it's up, the
+                    # job is done. Advance past PROCESSING so it doesn't look stuck.
+                    if meta.get("microscape_viz_url"):
+                        sub.status = SubmissionStatus.PUBLISHED
+                        if not sub.completed_at:
+                            sub.completed_at = datetime.utcnow()
             logger.info(f"Submission {sub.slug} finished on HPC (phase={phase})")
             completed.append(sub.slug)
         elif phase == "failed":
