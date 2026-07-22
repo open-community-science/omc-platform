@@ -37,3 +37,23 @@ def status_label(v) -> str:
 
 
 templates.env.filters["status_label"] = status_label
+
+# User-facing pipeline names. "microscape" is the current implementation detail
+# (microscape-nf, pending merge into danaSeq); users should only ever see the
+# illumina_amplicon naming, matching the other danaSeq building blocks.
+PIPELINE_LABELS = {
+    "microscape": "illumina_amplicon",
+    "nanopore_mag": "nanopore_metagenome",
+    "illumina_mag": "illumina_metagenome",
+    "rnaseq": "illumina_rna",
+    "isolate_genome": "isolate_genome",
+}
+
+
+def pipeline_label(v) -> str:
+    """Friendly, implementation-agnostic name for a PipelineType (or its value)."""
+    raw = getattr(v, "value", v)
+    return PIPELINE_LABELS.get(raw, str(raw))
+
+
+templates.env.filters["pipeline_label"] = pipeline_label
