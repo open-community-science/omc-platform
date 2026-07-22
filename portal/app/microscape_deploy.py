@@ -77,20 +77,39 @@ def _extract_site(slug: str) -> Path | None:
     return index.parent
 
 
+def _web_readable(ti: tarfile.TarInfo) -> tarfile.TarInfo:
+    """Force world-readable modes (dirs 755, files 644).
+
+    Files unpacked from the results squashfs are owner-only, and tar preserves
+    that, so the deployed run ended up 0700/0600 and nginx (www-data) served
+    403 Forbidden. Normalise here so the site is readable regardless of how the
+    source tree happened to be permissioned.
+    """
+    ti.mode = 0o755 if ti.isdir() else 0o644
+    return ti
+
+
 def _tar_site(site_dir: Path) -> bytes:
     """Tar a directory's contents with a flat root (index.html, assets/, data/)."""
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         for item in sorted(site_dir.iterdir()):
-            tar.add(item, arcname=item.name)
+            tar.add(item, arcname=item.name, filter=_web_readable)
     return buf.getvalue()
 
 
-async def deploy_submission(submission, user, visibility: str = "private") -> str | None:
+async def deploy_submission(submission, user, visibility: str = "public") -> str | None:
     """Provision the user's lab and push the run's viz site to microscape.app.
 
     Returns the public run URL on success, or None (best-effort — never raises
     into the caller; deploy failures shouldn't fail the pipeline).
+
+    Runs deploy as *public* so the "Open viz" link on the submission page just
+    works — for the author, collaborators, and reviewers they share it with,
+    without anyone needing a microscape.app login or lab membership. Private
+    runs 302 to the homepage unless the viewer is logged in AND their active lab
+    is the owning lab, which made results look undeployed. Matches OMC's
+    open-science model; pass visibility="private" to override per deploy.
     """
     if not settings.microscape_provision_token:
         logger.info("microscape deploy skipped for %s: no provision token", submission.slug)
