@@ -214,7 +214,20 @@ OMC_DENOISE_MEM=$(( ${{OMC_MEM_GB:-16}} * 3 / 4 ))
     --denoise_memory "${{OMC_DENOISE_MEM}} GB" \\
     --min_prevalence 3 \\
     -work-dir "${{WORK_DIR}}" \\
-    --outdir "${{OUTPUT_DIR}}\""""
+    --outdir "${{OUTPUT_DIR}}"
+# Read accounting from the raw FASTQ onward. Every stats file the pipeline emits
+# starts after primer removal, so samples whose reads cutadapt discarded (wrong
+# primer pair for that run) were indistinguishable from shallow ones. Run after
+# the pipeline over its published outputs — best effort, never fails the job.
+apptainer exec \\
+    --bind "${{OUTPUT_DIR}}:${{OUTPUT_DIR}}" \\
+    "{micro_sif}" \\
+    python3 /pipeline/bin/read_tracking.py \\
+        "${{OUTPUT_DIR}}/seqtab_final/read_tracking.tsv" \\
+        "${{OUTPUT_DIR}}"/trimmed/*_cutadapt.log \\
+        "${{OUTPUT_DIR}}"/filtered/*_filt_stats.tsv 2>/dev/null \\
+  && tail -1 "${{OUTPUT_DIR}}/seqtab_final/read_tracking.tsv" \\
+  || echo "WARN: read tracking unavailable\""""
 
     raise NotImplementedError(
         f"Pipeline '{pipeline.value}' is not yet available for HPC submission."
