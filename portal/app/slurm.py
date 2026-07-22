@@ -22,13 +22,24 @@ logger = logging.getLogger(__name__)
 def _microscape_primer_prelude(submission: Submission) -> tuple[str, str]:
     """Return (shell_prelude, primer_args) for microscape from submission.primers.
 
-    If the submission has resolved forward/reverse primers, write them to FASTA
-    files on the compute node and pass --primers_fwd/--primers_rev. Otherwise the
-    prelude is empty and microscape falls back to its own auto-detection.
+    Only *manually entered* primers are forced on the run. Passing
+    --primers_fwd/--primers_rev routes main.nf into its "one primer pair for
+    every sample" branch and skips DETECT_PRIMERS, which otherwise picks the
+    best-retaining primer set per sample from primers/primers-*.fa.
+
+    That override is actively harmful when a BioProject mixes amplicon targets.
+    PRJNA1473294 labels all 84 runs "16S amplicon sequencing", but 40 of them
+    are eukaryotic 18S (reads start with TAReuk454FWD1's GCGGTAATTCC, not
+    341F). Inferring 341F/805R from a subset and applying it globally made
+    cutadapt --discard-untrimmed throw away 99.9% of those runs' reads.
+
+    So for detected/metadata-derived primers we return nothing and let the
+    pipeline decide per sample; a manual entry still wins, since that's an
+    explicit statement from the author.
     """
     p = submission.primers or {}
     fwd, rev = (p.get("fwd") or "").strip(), (p.get("rev") or "").strip()
-    if not (fwd and rev):
+    if not (fwd and rev) or p.get("source") != "manual":
         return "", ""
     name = f"{p.get('fwd_name', '?')}/{p.get('rev_name', '?')}"
     prelude = f"""echo ">>> Using primers {name} (source: {p.get('source', '?')})"
