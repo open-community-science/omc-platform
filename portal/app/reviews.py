@@ -251,6 +251,7 @@ async def generate_manuscript(
         interview_data=interview_data,
         pipeline_type=submission.pipeline.value,
         bioproject_accession=submission.bioproject_accession,
+        study_metadata=dict(submission.sample_metadata or {}),
         base_url=llm["base_url"],
         api_key=llm["api_key"],
         model=llm["model"],
@@ -295,6 +296,8 @@ async def generate_manuscript_stream(
     sub_pipeline = submission.pipeline.value
     sub_accession = submission.bioproject_accession
     sub_interview = dict(submission.interview_data or {})
+    # Grounds the paper's subject matter — without it the model invents a study system.
+    sub_study_meta = dict(submission.sample_metadata or {})
     sub_github_repo = submission.github_repo
     sub_title = submission.title
     sub_id = submission.id
@@ -343,6 +346,7 @@ async def generate_manuscript_stream(
                     interview_data=sub_interview,
                     pipeline_type=sub_pipeline,
                     bioproject_accession=sub_accession,
+                    study_metadata=sub_study_meta,
                     base_url=llm["base_url"],
                     api_key=llm["api_key"],
                     model=llm["model"],

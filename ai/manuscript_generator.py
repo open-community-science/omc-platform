@@ -79,7 +79,43 @@ Key principles:
 - Use appropriate hedging language for interpretations
 - Follow standard scientific paper structure
 - Include placeholders [CITE] where citations would be needed
+
+CRITICAL — never fabricate. The study's subject matter comes ONLY from the STUDY
+context you are given:
+- Do NOT invent the research topic, organisms, environment, or study system. If the
+  STUDY section is missing or thin, describe only what the data show and write
+  [AUTHOR: describe the study system] rather than guessing.
+- Do NOT invent citations, author names, or years. Every reference must be a bare
+  [CITE] placeholder — never "(Smith et al., 2022)".
+- Do NOT invent software versions, database releases, or parameters. If a version
+  isn't given, write the tool name without a version.
+- Do NOT state numbers that aren't in the provided results. Never fill in
+  placeholder values like [X] with guesses.
 """
+
+
+def _format_study(study_metadata: dict | None) -> str:
+    """Format the SRA/BioProject metadata that grounds the paper's subject matter.
+
+    Without this the model only sees an accession number and invents a study
+    system wholesale (a sea-ice amplicon run was written up as a forensic
+    "thanatomicrobiome" study), so keep this in every section prompt.
+    """
+    if not study_metadata:
+        return ("(No study metadata available — do NOT guess the subject matter; "
+                "write [AUTHOR: describe the study system] instead.)")
+    fields = [
+        ("Title", study_metadata.get("title")),
+        ("Organism", study_metadata.get("organism")),
+        ("Organization", study_metadata.get("organization")),
+        ("Samples", study_metadata.get("num_samples")),
+        ("SRA runs", study_metadata.get("num_sra_runs")),
+        ("Abstract/Description", study_metadata.get("description")),
+    ]
+    lines = [f"{k}: {v}" for k, v in fields if v]
+    return "\n".join(lines) if lines else (
+        "(No study metadata available — do NOT guess the subject matter.)"
+    )
 
 
 async def generate_manuscript_draft(
@@ -87,6 +123,7 @@ async def generate_manuscript_draft(
     interview_data: dict,
     pipeline_type: str,
     bioproject_accession: str,
+    study_metadata: dict | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
@@ -114,6 +151,7 @@ async def generate_manuscript_draft(
 
     results_summary = _summarize_results(pipeline_outputs)
     interview_context = _format_interview(interview_data)
+    study_context = _format_study(study_metadata)
 
     sections = {}
 
@@ -124,6 +162,9 @@ async def generate_manuscript_draft(
 
 RESEARCH CONTEXT FROM AUTHOR:
 {interview_context}
+
+STUDY (authoritative — the paper is about THIS and nothing else):
+{study_context}
 
 BioProject: {bioproject_accession}
 Pipeline: {pipeline_type}
@@ -144,6 +185,9 @@ Use [CITE] placeholders where literature citations would go.""",
     sections["methods"] = await _achat(client, SYSTEM_PROMPT, f"""Generate a Methods section for this analysis:
 
 Pipeline: {pipeline_type}
+STUDY (authoritative — the paper is about THIS and nothing else):
+{study_context}
+
 BioProject: {bioproject_accession}
 
 AUTHOR CONTEXT ON SAMPLES:
@@ -169,6 +213,9 @@ Be specific about tools and versions where inferable.""",
     log.info("Generating results...")
     sections["results"] = await _achat(client, SYSTEM_PROMPT, f"""Generate a Results section based on these pipeline outputs:
 
+STUDY (authoritative — the paper is about THIS and nothing else):
+{study_context}
+
 {json.dumps(pipeline_outputs, indent=2, default=str) if pipeline_outputs else 'No pipeline outputs available yet.'}
 
 RESEARCH QUESTION:
@@ -189,6 +236,9 @@ Do not interpret results - save that for Discussion.""",
     await emit("start", "Generating Discussion...")
     log.info("Generating discussion...")
     sections["discussion"] = await _achat(client, SYSTEM_PROMPT, f"""Generate a Discussion section:
+
+STUDY (authoritative — the paper is about THIS and nothing else):
+{study_context}
 
 KEY RESULTS:
 {sections['results'][:1500]}
@@ -218,6 +268,9 @@ Use [CITE] placeholders for literature references.""",
     await emit("start", "Generating Abstract...")
     log.info("Generating abstract...")
     sections["abstract"] = await _achat(client, SYSTEM_PROMPT, f"""Write an abstract for this manuscript:
+
+STUDY (authoritative — the paper is about THIS and nothing else):
+{study_context}
 
 INTRODUCTION (summary):
 {sections['introduction'][:500]}
