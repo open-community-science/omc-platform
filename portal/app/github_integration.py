@@ -6,6 +6,7 @@ to avoid triggering N workflow runs.
 """
 import httpx
 import base64
+import datetime as _dt
 import logging
 from typing import Optional
 
@@ -129,16 +130,88 @@ async def create_paper_repo_from_files(submission: Submission, files: dict) -> s
         if ref_update.status_code != 200:
             raise RuntimeError(f"Failed to update ref: {ref_update.status_code} {ref_update.text}")
 
-        # Enable GitHub Pages on the repo
-        await client.post(
-            f"{GITHUB_API}/repos/{full_name}/pages",
-            headers=headers,
-            json={"source": {"branch": "gh-pages", "path": "/"}},
-        )
+        # Enable GitHub Pages so the rendered manuscript is actually viewable.
+        await ensure_pages(full_name, client=client, headers=headers,
+                           base_commit_sha=new_commit_sha)
 
         repo_url = f"https://github.com/{full_name}"
         logger.info(f"Published {len(files)} files to {full_name} in one commit")
         return repo_url
+
+
+async def ensure_pages(
+    repo_full_name: str,
+    client: httpx.AsyncClient | None = None,
+    headers: dict | None = None,
+    base_commit_sha: str | None = None,
+) -> str | None:
+    """Enable GitHub Pages for a paper repo and return its public URL.
+
+    Idempotent, so it doubles as a backfill for repos created before this
+    existed. The manuscript workflow (peaceiris/actions-gh-pages) publishes
+    ./docs to the `gh-pages` branch, but that branch doesn't exist until the
+    first render — and the Pages API refuses a source branch that isn't there.
+    Previously the call was fired blind with its status ignored, so Pages was
+    simply never enabled and the paper was unviewable. Seed an empty gh-pages
+    branch first, then enable Pages against it; the workflow force-pushes real
+    content over it later.
+    """
+    own_client = client is None
+    if own_client:
+        client = httpx.AsyncClient(timeout=30.0)
+    if headers is None:
+        headers = await get_github_headers()
+    try:
+        # Already enabled? Then we're done.
+        existing = await client.get(f"{GITHUB_API}/repos/{repo_full_name}/pages", headers=headers)
+        if existing.status_code == 200:
+            return existing.json().get("html_url")
+
+        # Seed gh-pages if the render workflow hasn't created it yet.
+        gh_ref = await client.get(
+            f"{GITHUB_API}/repos/{repo_full_name}/git/ref/heads/gh-pages", headers=headers
+        )
+        if gh_ref.status_code != 200:
+            sha = base_commit_sha
+            if not sha:
+                repo = await client.get(f"{GITHUB_API}/repos/{repo_full_name}", headers=headers)
+                default_branch = repo.json().get("default_branch", "main")
+                head = await client.get(
+                    f"{GITHUB_API}/repos/{repo_full_name}/git/ref/heads/{default_branch}",
+                    headers=headers,
+                )
+                sha = head.json()["object"]["sha"]
+            seed = await client.post(
+                f"{GITHUB_API}/repos/{repo_full_name}/git/refs",
+                headers=headers,
+                json={"ref": "refs/heads/gh-pages", "sha": sha},
+            )
+            if seed.status_code not in (201, 422):  # 422 = already exists
+                logger.warning(
+                    "Could not seed gh-pages for %s: %s %s",
+                    repo_full_name, seed.status_code, seed.text[:200],
+                )
+                return None
+
+        resp = await client.post(
+            f"{GITHUB_API}/repos/{repo_full_name}/pages",
+            headers=headers,
+            json={"source": {"branch": "gh-pages", "path": "/"}},
+        )
+        if resp.status_code in (201, 204):
+            url = resp.json().get("html_url") if resp.content else None
+            logger.info("Enabled GitHub Pages for %s (%s)", repo_full_name, url)
+            return url
+        if resp.status_code == 409:  # already enabled
+            return None
+        logger.warning(
+            "Failed to enable Pages for %s: %s %s",
+            repo_full_name, resp.status_code, resp.text[:200],
+        )
+        return None
+    finally:
+        if own_client:
+            await client.aclose()
 
 
 async def create_review_pr(
@@ -170,7 +243,8 @@ async def create_review_pr(
 
         # Create review branch with timestamp to avoid conflicts on re-run
         import time as _time
-        branch_name = f"review/{review_type}-{int(_time.time())}"
+        stamp = int(_time.time())
+        branch_name = f"review/{review_type}-{stamp}"
 
         await client.post(
             f"{GITHUB_API}/repos/{repo_full_name}/git/refs",
@@ -180,6 +254,34 @@ async def create_review_pr(
                 "sha": base_sha,
             },
         )
+
+        # Commit the review to the branch BEFORE opening the PR. A branch created
+        # at the base SHA is identical to the default branch, and GitHub rejects
+        # such a PR with 422 "No commits between main and review/..." — which
+        # silently broke every AI review. Writing the review under .omc/ also
+        # keeps it in the provenance trail rather than only in PR comments.
+        review_md = "\n\n---\n\n".join(
+            c.get("body", "") for c in review_comments if c.get("body")
+        ) or f"_No {review_type} findings were reported._"
+        review_doc = (
+            f"# AI Review: {review_type}\n\n"
+            f"Generated by the OMC platform at "
+            f"{_dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')}.\n\n"
+            f"{review_md}\n"
+        )
+        file_resp = await client.put(
+            f"{GITHUB_API}/repos/{repo_full_name}/contents/.omc/reviews/{review_type}-{stamp}.md",
+            headers=headers,
+            json={
+                "message": f"AI review: {review_type}\n\nGenerated by OMC Platform",
+                "content": base64.b64encode(review_doc.encode()).decode(),
+                "branch": branch_name,
+            },
+        )
+        if file_resp.status_code not in (200, 201):
+            raise RuntimeError(
+                f"Failed to commit review file: {file_resp.status_code} {file_resp.text}"
+            )
 
         # Create PR
         pr_resp = await client.post(
