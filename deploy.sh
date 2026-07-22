@@ -83,6 +83,13 @@ Environment=PATH=/opt/omc-platform/.venv/bin:/usr/local/bin:/usr/bin
 ExecStart=/opt/omc-platform/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8002 --http httptools
 Restart=always
 RestartSec=5
+# The portal spawns squashfuse daemons to mount session results at
+# /mnt/omc-sessions/<slug>. With the default KillMode=control-group, systemd
+# kills every process in the cgroup on stop/restart — so each deploy tore down
+# all live session mounts and running sessions started failing with
+# "[Errno 107] Transport endpoint is not connected: '/data'". KillMode=process
+# stops only uvicorn and leaves the mounts (and session containers) intact.
+KillMode=process
 
 [Install]
 WantedBy=multi-user.target

@@ -53,10 +53,15 @@ def _results_sqsh(slug: str) -> Path:
 
 
 def _extract_site(slug: str) -> Path | None:
-    """unsquashfs the `site/` subtree from the results archive.
+    """unsquashfs the built site + its viz data from the results archive.
 
-    Returns the directory that actually contains index.html (BUNDLE_VIZ_SITE may
-    nest it under site/dist/), or None if there's no built site.
+    The pipeline writes these to two separate trees: the SPA bundle lands in
+    `site/` (nested under site/dist/ by BUNDLE_VIZ_SITE) while the data JSONs
+    land in `viz/`. The SPA fetches them from `data/` relative to its own root,
+    so the viz/ payload is copied into <site>/data/ here — without it the page
+    loads but reports "0 samples | 0 ASVs".
+
+    Returns the directory containing index.html, or None if there's no built site.
     """
     sqsh = _results_sqsh(slug)
     if not sqsh.exists():
@@ -64,7 +69,7 @@ def _extract_site(slug: str) -> Path | None:
     tmp = Path(tempfile.mkdtemp(prefix=f"omc-deploy-{slug}-"))
     try:
         subprocess.run(
-            ["unsquashfs", "-f", "-d", str(tmp), str(sqsh), "site"],
+            ["unsquashfs", "-f", "-d", str(tmp), str(sqsh), "site", "viz"],
             check=True, capture_output=True, timeout=180,
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
@@ -74,7 +79,19 @@ def _extract_site(slug: str) -> Path | None:
     if not index:
         shutil.rmtree(tmp, ignore_errors=True)
         return None
-    return index.parent
+    site_dir = index.parent
+
+    # Stage viz/*.json as the site's data/ payload.
+    viz_dir = tmp / "viz"
+    if viz_dir.is_dir():
+        data_dir = site_dir / "data"
+        data_dir.mkdir(exist_ok=True)
+        for f in viz_dir.iterdir():
+            if f.is_file():
+                shutil.copy2(f, data_dir / f.name)
+    else:
+        logger.warning("no viz/ data in results for %s — site will render empty", slug)
+    return site_dir
 
 
 def _web_readable(ti: tarfile.TarInfo) -> tarfile.TarInfo:
