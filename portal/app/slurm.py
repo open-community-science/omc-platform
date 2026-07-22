@@ -143,6 +143,7 @@ mkdir -p "${{WORK_DIR}}"
     run /pipeline/main.nf \\
     --input "${{INPUT_DIR}}/fastq"{primer_args}{ref_arg} \\
     --build_viz_site \\
+    --run_phylogeny \\
     -work-dir "${{WORK_DIR}}" \\
     --outdir "${{OUTPUT_DIR}}\""""
 
