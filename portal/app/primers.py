@@ -36,21 +36,46 @@ _IUPAC_REV = {frozenset(v): k for k, v in IUPAC.items()}
 # Curated primer database — common 16S/18S/ITS amplicon primers (5'->3'),
 # mirroring microscape's bundled sets plus a few widely used pairs. Sequences
 # use IUPAC degeneracy; the reverse primer is written 5'->3' as synthesised.
+# Curated named primer pairs for the metabarcoding markers OMC handles
+# (16S / 18S / ITS). Sequences are the biological primer only (5'->3', IUPAC,
+# adapters/pads stripped). Detection matches on SEQUENCE, never on the name in
+# SRA metadata — EMP renamed 515FB->515F(Parada)/806R(Apprill), so names in
+# submitter metadata are unreliable (exactly what mislabelled PRJNA1473294's
+# 18S runs as "16S"). Sources: Herlemann 2011; Parada 2016 / Apprill 2015 / EMP;
+# Caporaso 2011; Quince 2011; Lane 1991; Stoeck 2010; Amaral-Zettler 2009;
+# Comeau 2011; White 1990; Gardes & Bruns 1993; Ihrmark 2012; UNITE; pr2-primers
+# (Vaulot 2022). Match against read 5' ends; primary-source spot-check pending
+# for the degenerate positions on the less-common pairs.
 PRIMER_DB = [
+    # ── 16S rRNA (bacteria / archaea) ──
     {"name": "341F", "rev_name": "805R", "region": "16S V3-V4",
      "fwd": "CCTACGGGNGGCWGCAG", "rev": "GACTACHVGGGTATCTAATCC"},
-    {"name": "515F", "rev_name": "806R", "region": "16S V4",
+    {"name": "515F", "rev_name": "806R", "region": "16S V4",  # Parada/Apprill (EMP)
      "fwd": "GTGYCAGCMGCCGCGGTAA", "rev": "GGACTACNVGGGTWTCTAAT"},
-    {"name": "515F", "rev_name": "926R", "region": "16S V4-V5",
+    {"name": "515F", "rev_name": "806R", "region": "16S V4",  # Caporaso 2011 (original)
+     "fwd": "GTGCCAGCMGCCGCGGTAA", "rev": "GGACTACHVGGGTWTCTAAT"},
+    {"name": "515F", "rev_name": "926R", "region": "16S V4-V5",  # EMP long
      "fwd": "GTGYCAGCMGCCGCGGTAA", "rev": "CCGYCAATTYMTTTRAGTTT"},
     {"name": "27F", "rev_name": "1492R", "region": "16S (near full length)",
      "fwd": "AGAGTTTGATCMTGGCTCAG", "rev": "TACGGYTACCTTGTTACGACTT"},
-    {"name": "Euk1391F", "rev_name": "EukBr", "region": "18S V9",
-     "fwd": "GTACACACCGCCCGTC", "rev": "TGATCCTTCTGCAGGTTCACCTAC"},
+    # ── 18S rRNA (eukaryotes / protists) ──
     {"name": "TAReuk454FWD1", "rev_name": "TAReukREV3", "region": "18S V4",
      "fwd": "CCAGCASCYGCGGTAATTCC", "rev": "ACTTTCGTTCTTGATYRA"},
+    {"name": "E572F", "rev_name": "E1009R", "region": "18S V4",  # Comeau 2011
+     "fwd": "CYGCGGTAATTCCAGCTC", "rev": "AYGGTATCTRATCRTCTTYG"},
+    {"name": "Euk1391F", "rev_name": "EukBr", "region": "18S V9",  # EMP
+     "fwd": "GTACACACCGCCCGTC", "rev": "TGATCCTTCTGCAGGTTCACCTAC"},
+    {"name": "1389F", "rev_name": "1510R", "region": "18S V9",  # Amaral-Zettler 2009
+     "fwd": "TTGTACACACCGCCC", "rev": "CCTTCYGCAGGTTCACCTAC"},
+    # ── ITS (fungi) ──
     {"name": "ITS1F", "rev_name": "ITS2", "region": "fungal ITS1",
      "fwd": "CTTGGTCATTTAGAGGAAGTAA", "rev": "GCTGCGTTCTTCATCGATGC"},
+    {"name": "ITS1", "rev_name": "ITS4", "region": "fungal ITS (full)",  # White 1990
+     "fwd": "TCCGTAGGTGAACCTGCGG", "rev": "TCCTCCGCTTATTGATATGC"},
+    {"name": "ITS3", "rev_name": "ITS4", "region": "fungal ITS2",  # White 1990
+     "fwd": "GCATCGATGAAGAACGCAGC", "rev": "TCCTCCGCTTATTGATATGC"},
+    {"name": "gITS7", "rev_name": "ITS4", "region": "fungal ITS2",  # Ihrmark 2012
+     "fwd": "GTGARTCATCGARTCTTTG", "rev": "TCCTCCGCTTATTGATATGC"},
 ]
 
 _DB_MATCH_MIN = 0.6   # min fraction of reads whose 5' matches a DB forward primer
