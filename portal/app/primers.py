@@ -100,7 +100,8 @@ def _load_vendored_primers() -> list[dict]:
     """
     out = []
     for fname, marker in (("primer_pairs_bacteria.txt", "16S"),
-                          ("primer_pairs_fungi.txt", "ITS")):
+                          ("primer_pairs_fungi.txt", "ITS"),
+                          ("primer_pairs_18S_pr2.txt", "18S")):
         path = os.path.join(_DATA_DIR, fname)
         try:
             with open(path, encoding="latin-1") as fh:
@@ -115,10 +116,18 @@ def _load_vendored_primers() -> list[dict]:
                     if set(fwd) - _IUPAC_CHARS or set(rev) - _IUPAC_CHARS:
                         continue  # stray non-nucleotide character
                     region = (row.get("Target_region") or "").strip()
+                    # Some tables already prefix the marker in Target_region
+                    # (pr2's "18S V4"); others give a bare region ("V3-V4").
+                    if region.upper().startswith(marker):
+                        label = region
+                    elif region:
+                        label = f"{marker} {region}"
+                    else:
+                        label = marker
                     out.append({
                         "name": (row.get("primer_f_name") or "?").strip(),
                         "rev_name": (row.get("primer_r_name") or "?").strip(),
-                        "region": f"{marker} {region}".strip() if region else marker,
+                        "region": label,
                         "fwd": fwd, "rev": rev,
                     })
         except OSError as e:
