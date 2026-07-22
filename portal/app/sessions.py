@@ -21,7 +21,7 @@ from sqlalchemy import select
 from pathlib import Path
 
 from .config import get_settings
-from .database import get_db, async_session, Submission, User
+from .database import get_db, async_session, Submission, User, PipelineType
 from .auth import require_user
 from .llm_proxy import create_session_token, revoke_session_token
 from .staging import get_results_path
@@ -651,6 +651,19 @@ async def session_chat(
 
     session = _sessions[slug]
     is_ena = slug.startswith("ena-")
+
+    # Amplicon (microscape) runs have their interactive viz deployed to
+    # microscape.app. The container bundles the danaSeq MAG explorer, which
+    # can't render amplicon results (it 404s on data/overview.json), so point
+    # the Data Explorer tab at the deployed site instead of the local one.
+    external_viz_url = None
+    if not is_ena:
+        sub = (await db.execute(
+            select(Submission).where(Submission.slug == slug)
+        )).scalar_one_or_none()
+        if sub and sub.pipeline == PipelineType.MICROSCAPE:
+            external_viz_url = (sub.sample_metadata or {}).get("microscape_viz_url")
+
     return templates.TemplateResponse(
         "session.html",
         {
@@ -660,6 +673,7 @@ async def session_chat(
             "chat_port": session.chat_port,
             "notebook_port": session.notebook_port,
             "viz_port": session.viz_port,
+            "external_viz_url": external_viz_url,
             "is_ena": is_ena,
         },
     )

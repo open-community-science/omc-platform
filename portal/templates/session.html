@@ -35,11 +35,11 @@
     {% endif %}
     <div class="controls">
         <button id="btn-chat" class="tab-active" onclick="showPanel('chat')">Chat</button>
-        {% if viz_port and not is_ena %}
+        {% if (viz_port or external_viz_url) and not is_ena %}
         <button id="btn-viz" onclick="showPanel('viz')">Data Explorer</button>
         {% endif %}
         <button id="btn-notebook" onclick="showPanel('notebook')">Notebook</button>
-        {% if viz_port and not is_ena %}
+        {% if (viz_port or external_viz_url) and not is_ena %}
         <button id="btn-split" onclick="showPanel('split')">Split View</button>
         {% endif %}
         <button onclick="stopSession()">Save &amp; Close</button>
@@ -50,7 +50,7 @@
         Starting research environment...
     </div>
     <iframe id="frame-chat" class="panel" style="display:none"></iframe>
-    {% if viz_port %}
+    {% if viz_port or external_viz_url %}
     <iframe id="frame-viz" class="panel panel-hidden" style="display:none"></iframe>
     {% endif %}
     <iframe id="frame-notebook" class="panel panel-hidden" style="display:none"></iframe>
@@ -63,7 +63,9 @@
     (async function waitForReady() {
         const chatUrl = '/session-proxy/{{ chat_port }}/';
         const nbUrl = '/session-proxy/{{ notebook_port }}/';
-        const vizUrl = {% if viz_port %}'/session-proxy/{{ viz_port }}/'{% else %}null{% endif %};
+        // Amplicon runs use the viz deployed to microscape.app; the container's
+        // bundled explorer is the MAG one and can't render amplicon results.
+        const vizUrl = {% if external_viz_url %}'{{ external_viz_url }}'{% elif viz_port %}'/session-proxy/{{ viz_port }}/'{% else %}null{% endif %};
         const loading = document.getElementById('loading');
         const chat = document.getElementById('frame-chat');
         const nb = document.getElementById('frame-notebook');
