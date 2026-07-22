@@ -31,7 +31,7 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 settings = get_settings()
 
 BASE_DIR = Path(__file__).parent.parent
-templates = Jinja2Templates(directory=BASE_DIR / "templates")
+from .templating import templates  # shared instance (globals + filters)
 
 # Port range for session containers
 PORT_RANGE_START = 9100

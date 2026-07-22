@@ -153,7 +153,7 @@ async def _ena_get(
 # ── Page ──────────────────────────────────────────────────────────────────────
 
 _BASE_DIR = Path(__file__).parent.parent
-_templates = Jinja2Templates(directory=_BASE_DIR / "templates")
+from .templating import templates as _templates  # shared instance
 
 
 @router.get("/", response_class=HTMLResponse)

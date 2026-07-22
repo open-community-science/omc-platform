@@ -23,7 +23,7 @@ router = APIRouter(tags=["openrouter"])
 settings = get_settings()
 
 BASE_DIR = Path(__file__).parent.parent
-templates = Jinja2Templates(directory=BASE_DIR / "templates")
+from .templating import templates  # shared instance (globals + filters)
 
 OPENROUTER_AUTH_URL = "https://openrouter.ai/auth"
 OPENROUTER_KEY_EXCHANGE_URL = "https://openrouter.ai/api/v1/auth/keys"

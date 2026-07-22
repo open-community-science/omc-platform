@@ -11,15 +11,9 @@
 {% set has_interview = submission.interview_data is not none and submission.interview_data | length > 0 %}
 {% set interview_prs = (submission.interview_data or {}).get('_review_prs', []) %}
 
-{% block header_actions %}
-{% if has_accession %}
-<form action="/sessions/{{ submission.slug }}/launch" method="POST" style="display:inline;">
-    <button type="submit" class="btn btn-primary btn-sm">
-        {% if has_interview %}Resume AI Session{% else %}Start AI Session{% endif %}
-    </button>
-</form>
-{% endif %}
-{% endblock %}
+{# The AI Session launcher lives inside the workflow steps (2: explore results,
+   3: interview & manuscript) rather than the page header, so it appears where
+   it's actually used in the pipeline. #}
 
 {% block content %}
 <div class="submission-detail">
@@ -153,12 +147,6 @@
             </details>
             {% endif %}
 
-            {% if submission.pipeline and submission.pipeline.value == 'microscape' and submission.sample_metadata and submission.sample_metadata.get('microscape_viz_url') %}
-            <div class="viz-banner">
-                <span>Interactive results are live on microscape.app</span>
-                <a href="{{ submission.sample_metadata.microscape_viz_url }}" target="_blank" class="btn btn-primary btn-sm">Open viz →</a>
-            </div>
-            {% endif %}
 
             {% if submission.pipeline and submission.pipeline.value == 'microscape' %}
             {% set pr = submission.primers %}
@@ -422,6 +410,30 @@
             </p>
             {% endif %}
 
+            {# ── Explore the results ──
+               Shown once the pipeline is done, regardless of draft/post-submit
+               branch above (the banner used to live in the draft-only block, so
+               it never appeared on submitted runs). #}
+            {% if step2_done %}
+            <div class="wf-step-actions">
+                {% if submission.sample_metadata and submission.sample_metadata.get('microscape_viz_url') %}
+                <a href="{{ submission.sample_metadata.microscape_viz_url }}" target="_blank"
+                   class="btn btn-primary">Explore Data on microscape.app →</a>
+                {% endif %}
+                <form action="/sessions/{{ submission.slug }}/launch" method="POST" style="display:inline;">
+                    <button type="submit" class="btn btn-secondary">
+                        {% if has_interview %}Resume AI Session{% else %}Start AI Session{% endif %}
+                    </button>
+                </form>
+            </div>
+            {% if submission.sample_metadata and submission.sample_metadata.get('microscape_viz_url') %}
+            <p class="wf-step-desc muted">
+                Interactive amplicon results are live at
+                <a href="{{ submission.sample_metadata.microscape_viz_url }}" target="_blank">{{ submission.sample_metadata.microscape_viz_url }}</a>
+            </p>
+            {% endif %}
+            {% endif %}
+
             {% if pipeline_versions %}
             <details class="wf-details">
                 <summary>Pipeline info</summary>
@@ -516,6 +528,13 @@
 
             {% if step3_state != 'locked' %}
             <div class="wf-step-actions">
+                {# Interactive route: the AI session guides the interview + drafting. #}
+                <form action="/sessions/{{ submission.slug }}/launch" method="POST" style="display:inline;">
+                    <button type="submit" class="btn btn-primary">
+                        {% if has_interview %}Resume AI Session{% else %}Start AI Session{% endif %}
+                    </button>
+                </form>
+                {# One-shot route: skip the conversation and draft straight away. #}
                 <button class="btn btn-secondary" onclick="generateManuscript()"
                     {% if not has_pipeline_results and not has_interview %}title="Waiting for pipeline results" disabled{% endif %}>
                     {% if has_draft %}Regenerate Manuscript{% else %}Generate Manuscript{% endif %}

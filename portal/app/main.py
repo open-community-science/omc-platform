@@ -35,24 +35,10 @@ from .ena import router as ena_router
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-# Setup paths
+# Setup paths. The templates instance is shared (see templating.py) so globals
+# and filters are consistent across every router that renders HTML.
 BASE_DIR = Path(__file__).parent.parent
-templates = Jinja2Templates(directory=BASE_DIR / "templates")
-# Expose is_admin() to all templates (e.g. to gate the Admin nav link)
-templates.env.globals["is_admin"] = is_admin
-
-# Human-friendly submission-status labels for the status pill. The raw enum
-# values (e.g. "results_ready") are fine as CSS class suffixes but read poorly.
-# "results_ready" is deliberately worded to signal the author must act next.
-_STATUS_LABELS = {
-    "draft": "Draft", "submitted": "Submitted", "queued": "Queued",
-    "running": "Running", "processing": "Processing",
-    "results_ready": "Ready", "drafting": "Drafting",
-    "review": "In review", "published": "Published", "failed": "Failed",
-}
-templates.env.filters["status_label"] = lambda v: _STATUS_LABELS.get(
-    getattr(v, "value", v), str(getattr(v, "value", v)).replace("_", " ").title()
-)
+from .templating import templates  # noqa: E402
 
 
 async def _poll_hpc_jobs():
