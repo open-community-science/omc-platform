@@ -18,8 +18,11 @@ microscape as ``--primers_fwd``/``--primers_rev``.
 """
 from __future__ import annotations
 
+import csv
 import gzip
+import logging
 import math
+import os
 import re
 import subprocess
 from collections import Counter
@@ -36,17 +39,20 @@ _IUPAC_REV = {frozenset(v): k for k, v in IUPAC.items()}
 # Curated primer database — common 16S/18S/ITS amplicon primers (5'->3'),
 # mirroring microscape's bundled sets plus a few widely used pairs. Sequences
 # use IUPAC degeneracy; the reverse primer is written 5'->3' as synthesised.
-# Curated named primer pairs for the metabarcoding markers OMC handles
-# (16S / 18S / ITS). Sequences are the biological primer only (5'->3', IUPAC,
-# adapters/pads stripped). Detection matches on SEQUENCE, never on the name in
-# SRA metadata — EMP renamed 515FB->515F(Parada)/806R(Apprill), so names in
-# submitter metadata are unreliable (exactly what mislabelled PRJNA1473294's
-# 18S runs as "16S"). Sources: Herlemann 2011; Parada 2016 / Apprill 2015 / EMP;
-# Caporaso 2011; Quince 2011; Lane 1991; Stoeck 2010; Amaral-Zettler 2009;
-# Comeau 2011; White 1990; Gardes & Bruns 1993; Ihrmark 2012; UNITE; pr2-primers
-# (Vaulot 2022). Match against read 5' ends; primary-source spot-check pending
-# for the degenerate positions on the less-common pairs.
-PRIMER_DB = [
+# Curated core of named primer pairs, hand-verified against real reads. This is
+# the canonical layer: 18S / protist primers (which FoodMicrobionet does not
+# cover) plus the standard 16S/ITS pairs with clean names. The vendored
+# FoodMicrobionet tables are merged on top for breadth (see _load_vendored_
+# primers), deduped by sequence so these canonical entries win name resolution.
+#
+# Sequences are the biological primer only (5'->3', IUPAC, adapters stripped).
+# Detection matches on SEQUENCE, never on the name in SRA metadata — EMP renamed
+# 515FB->515F(Parada)/806R(Apprill), so submitter names are unreliable (exactly
+# what mislabelled PRJNA1473294's 18S runs as "16S"). Sources: Herlemann 2011;
+# Parada 2016 / Apprill 2015 / EMP; Caporaso 2011; Quince 2011; Lane 1991;
+# Stoeck 2010; Amaral-Zettler 2009; Comeau 2011; White 1990; Gardes & Bruns
+# 1993; Ihrmark 2012; UNITE; pr2-primers (Vaulot 2022).
+_CORE_PRIMER_DB = [
     # ── 16S rRNA (bacteria / archaea) ──
     {"name": "341F", "rev_name": "805R", "region": "16S V3-V4",
      "fwd": "CCTACGGGNGGCWGCAG", "rev": "GACTACHVGGGTATCTAATCC"},
@@ -77,6 +83,63 @@ PRIMER_DB = [
     {"name": "gITS7", "rev_name": "ITS4", "region": "fungal ITS2",  # Ihrmark 2012
      "fwd": "GTGARTCATCGARTCTTTG", "rev": "TCCTCCGCTTATTGATATGC"},
 ]
+
+_IUPAC_CHARS = set("ACGTRYSWKMBDHVN")
+_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+
+
+def _load_vendored_primers() -> list[dict]:
+    """Parse the vendored FoodMicrobionet primer tables (16S + ITS).
+
+    MIT-licensed data from github.com/ep142/FoodMicrobionet — see data/README.md.
+    Schema: Target_region, primer_f_name, primer_f_seq, primer_r_name,
+    primer_r_seq, reference, expected_length|notes. Skips rows that are empty,
+    contain non-IUPAC characters (a stray typo), or are adapter-laden (a real
+    metabarcoding primer is <=30 bp; longer entries carry sequencing adapters
+    that wouldn't match demultiplexed reads).
+    """
+    out = []
+    for fname, marker in (("primer_pairs_bacteria.txt", "16S"),
+                          ("primer_pairs_fungi.txt", "ITS")):
+        path = os.path.join(_DATA_DIR, fname)
+        try:
+            with open(path, encoding="latin-1") as fh:
+                reader = csv.DictReader(fh, delimiter="\t")
+                for row in reader:
+                    fwd = (row.get("primer_f_seq") or "").strip().upper()
+                    rev = (row.get("primer_r_seq") or "").strip().upper()
+                    if not fwd or not rev:
+                        continue
+                    if len(fwd) > 30 or len(rev) > 30:
+                        continue  # adapter/pad-laden, not a clean primer
+                    if set(fwd) - _IUPAC_CHARS or set(rev) - _IUPAC_CHARS:
+                        continue  # stray non-nucleotide character
+                    region = (row.get("Target_region") or "").strip()
+                    out.append({
+                        "name": (row.get("primer_f_name") or "?").strip(),
+                        "rev_name": (row.get("primer_r_name") or "?").strip(),
+                        "region": f"{marker} {region}".strip() if region else marker,
+                        "fwd": fwd, "rev": rev,
+                    })
+        except OSError as e:
+            logging.getLogger(__name__).warning("primer table %s unreadable: %s", fname, e)
+    return out
+
+
+def _build_primer_db() -> list[dict]:
+    """Core (canonical, verified) primers first, then vendored ones deduped by
+    sequence — so a pair we curated keeps its clean name over any FMBN variant."""
+    db, seen = [], set()
+    for p in _CORE_PRIMER_DB + _load_vendored_primers():
+        key = (p["fwd"], p["rev"])
+        if key in seen:
+            continue
+        seen.add(key)
+        db.append(p)
+    return db
+
+
+PRIMER_DB = _build_primer_db()
 
 _DB_MATCH_MIN = 0.6   # min fraction of reads whose 5' matches a DB forward primer
 _CONSENSUS_STOP_ENTROPY = 1.7  # bits; above this a column is "biological", stop
