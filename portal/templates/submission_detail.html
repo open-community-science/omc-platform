@@ -262,7 +262,7 @@
                             {% if rec.run_accession in sel_accessions %}
                             <tr>
                                 <td class="mono">{{ rec.run_accession }}</td>
-                                <td>{{ rec.get('sample_alias', rec.get('sample_title', '')) }}</td>
+                                <td>{{ rec.get('sample_alias') or rec.get('sample_title') or rec.get('experiment_title') or rec.get('library_name') or '' }}</td>
                                 <td>{{ rec.get('instrument_platform', '') }}</td>
                                 <td>{{ rec.get('collection_date', '') }}</td>
                                 <td>{{ rec.get('country', '') }}</td>
@@ -381,10 +381,35 @@
 
                     {% if submission.status.value in ['draft', 'submitted', 'queued'] %}
                     <form action="/submissions/{{ submission.slug }}/primers" method="POST" class="primer-form">
+                        {# Reusable set-picker options, cloned by addPrimerRow(). #}
+                        {% macro primer_picker() %}
+                        <select class="sub-select primer-known" onchange="fillPrimer(this)" title="Insert a known primer set">
+                            <option value="">Known primer set…</option>
+                            {% for kp in known_primers %}
+                            <option value="{{ kp.fwd }}|{{ kp.rev }}">{{ kp.label }}</option>
+                            {% endfor %}
+                        </select>
+                        {% endmacro %}
                         {% set manual_sets = pr.sets if (pr and pr.source == 'manual' and pr.get('sets')) else ([pr] if (pr and pr.source == 'manual') else [None]) %}
+                        <template id="primer-row-tpl">
+                            <div class="primer-fields primer-row">
+                                {{ primer_picker() }}
+                                <label>Forward (5′→3′)
+                                    <input type="text" name="fwd" placeholder="e.g. CCTACGGGNGGCWGCAG"
+                                           pattern="[ACGTRYSWKMBDHVNacgtryswkmbdhvn]{10,40}">
+                                </label>
+                                <label>Reverse (5′→3′)
+                                    <input type="text" name="rev" placeholder="e.g. GACTACHVGGGTATCTAATCC"
+                                           pattern="[ACGTRYSWKMBDHVNacgtryswkmbdhvn]{10,40}">
+                                </label>
+                                <button type="button" class="btn-inline-edit primer-remove"
+                                        onclick="this.closest('.primer-row').remove()" title="Remove this set">×</button>
+                            </div>
+                        </template>
                         <div id="primer-rows">
                             {% for ms in manual_sets %}
                             <div class="primer-fields primer-row">
+                                {{ primer_picker() }}
                                 <label>Forward (5′→3′)
                                     <input type="text" name="fwd" placeholder="e.g. CCTACGGGNGGCWGCAG"
                                            value="{{ ms.fwd if ms else '' }}"
@@ -451,7 +476,7 @@
                 {% endif %}
                 <form action="/sessions/{{ submission.slug }}/launch" method="POST" style="display:inline;">
                     <button type="submit" class="btn btn-secondary">
-                        {% if has_interview %}Resume AI Session{% else %}Start AI Session{% endif %}
+                        {% if has_interview %}Open AI Session{% else %}Start AI Session{% endif %}
                     </button>
                 </form>
             </div>
@@ -560,12 +585,14 @@
                 {# Interactive route: the AI session guides the interview + drafting. #}
                 <form action="/sessions/{{ submission.slug }}/launch" method="POST" style="display:inline;">
                     <button type="submit" class="btn btn-primary">
-                        {% if has_interview %}Resume AI Session{% else %}Start AI Session{% endif %}
+                        {% if has_interview %}Open AI Session{% else %}Start AI Session{% endif %}
                     </button>
                 </form>
-                {# One-shot route: skip the conversation and draft straight away. #}
+                {# One-shot route: skip the conversation and draft straight away.
+                   Gated until pipeline results are back — a manuscript can't be
+                   drafted before there are results to write up. #}
                 <button class="btn btn-secondary" onclick="generateManuscript()"
-                    {% if not has_pipeline_results and not has_interview %}title="Waiting for pipeline results" disabled{% endif %}>
+                    {% if not has_pipeline_results %}title="Available once pipeline results are ready" disabled{% endif %}>
                     {% if has_draft %}Regenerate Manuscript{% else %}Generate Manuscript{% endif %}
                 </button>
                 {% if has_draft %}
@@ -678,23 +705,25 @@
 <script>
 
 // Add a blank primer-set row to the amplicon primers form (mixed-target runs).
+// Clones the server-rendered <template> so the "known primer set" dropdown (and
+// its option list) doesn't have to be duplicated in JS.
 function addPrimerRow() {
     const rows = document.getElementById('primer-rows');
-    if (!rows) return;
-    const div = document.createElement('div');
-    div.className = 'primer-fields primer-row';
-    div.innerHTML = `
-        <label>Forward (5\u2032\u2192\u2032)
-            <input type="text" name="fwd" placeholder="e.g. CCTACGGGNGGCWGCAG"
-                   pattern="[ACGTRYSWKMBDHVNacgtryswkmbdhvn]{10,40}">
-        </label>
-        <label>Reverse (5\u2032\u2192\u2032)
-            <input type="text" name="rev" placeholder="e.g. GACTACHVGGGTATCTAATCC"
-                   pattern="[ACGTRYSWKMBDHVNacgtryswkmbdhvn]{10,40}">
-        </label>
-        <button type="button" class="btn-inline-edit primer-remove"
-                onclick="this.closest('.primer-row').remove()" title="Remove this set">\u00d7</button>`;
-    rows.appendChild(div);
+    const tpl = document.getElementById('primer-row-tpl');
+    if (!rows || !tpl) return;
+    rows.appendChild(tpl.content.cloneNode(true));
+}
+
+// Fill a row's forward/reverse inputs from the chosen known primer set.
+function fillPrimer(sel) {
+    if (!sel.value) return;
+    const [fwd, rev] = sel.value.split('|');
+    const row = sel.closest('.primer-row');
+    const f = row.querySelector('input[name="fwd"]');
+    const r = row.querySelector('input[name="rev"]');
+    if (f) f.value = fwd;
+    if (r) r.value = rev;
+    sel.selectedIndex = 0;  // reset the picker; the values now live in the inputs
 }
 const subId = '{{ submission.slug }}';
 

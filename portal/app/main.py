@@ -540,9 +540,18 @@ async def submission_detail(
                 pass
             break
 
+    # Known primer sets for the amplicon primers dropdown (16S/18S/ITS).
+    from .primers import PRIMER_DB
+    known_primers = sorted(
+        ({"label": f"{p['name']}/{p['rev_name']} · {p['region']}",
+          "fwd": p["fwd"], "rev": p["rev"]} for p in PRIMER_DB),
+        key=lambda x: x["label"],
+    )
+
     return templates.TemplateResponse(
         "submission_detail.html",
-        {"request": request, "user": user, "submission": submission, "pipeline_versions": pipeline_versions},
+        {"request": request, "user": user, "submission": submission,
+         "pipeline_versions": pipeline_versions, "known_primers": known_primers},
     )
 
 
