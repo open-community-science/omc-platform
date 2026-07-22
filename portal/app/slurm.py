@@ -41,6 +41,65 @@ printf '>rev\\n{rev}\\n' > "${{OUTPUT_DIR}}/primers/rev.fa"
     return prelude, args
 
 
+def _microscape_metadata_prelude(submission: Submission) -> tuple[str, str]:
+    """Return (shell_prelude, metadata_args) staging a sample metadata TSV.
+
+    OMC already holds the SRA record for every run, but never handed it to the
+    pipeline, so LOAD_METADATA never ran: the viz had no sample grouping and
+    generated Methods sections said "sample metadata not provided". Emit the
+    records as a TSV keyed by run accession (which is what the fastq filenames —
+    and therefore the pipeline's sample ids — are derived from).
+
+    The TSV is base64-encoded into the script so arbitrary field text can't
+    break quoting.
+    """
+    meta = submission.sample_metadata or {}
+    records = meta.get("sample_records") or []
+    if not records:
+        return "", ""
+
+    # Keep fields that are useful for grouping/plotting and stable across SRA.
+    cols = [
+        ("sample_name", "run_accession"),
+        ("sample_accession", "sample_accession"),
+        ("library_name", "library_name"),
+        ("description", "description"),
+        ("experiment_title", "experiment_title"),
+        ("library_strategy", "library_strategy"),
+        ("library_source", "library_source"),
+        ("library_layout", "library_layout"),
+        ("instrument_model", "instrument_model"),
+        ("center_name", "center_name"),
+        ("read_count", "read_count"),
+        ("base_count", "base_count"),
+        ("collection_date", "first_created"),
+    ]
+
+    def _clean(v) -> str:
+        # Tabs/newlines would corrupt the TSV; collapse them.
+        return " ".join(str(v if v is not None else "").split())
+
+    seen, lines = set(), ["\t".join(c for c, _ in cols)]
+    for rec in records:
+        sid = _clean(rec.get("run_accession"))
+        if not sid or sid in seen:
+            continue
+        seen.add(sid)
+        lines.append("\t".join(_clean(rec.get(src)) for _, src in cols))
+    if len(lines) < 2:
+        return "", ""
+
+    import base64 as _b64
+    blob = _b64.b64encode(("\n".join(lines) + "\n").encode()).decode()
+    prelude = f"""echo ">>> Staging sample metadata ({len(lines) - 1} samples)"
+mkdir -p "${{OUTPUT_DIR}}/metadata"
+printf '%s' '{blob}' | base64 -d > "${{OUTPUT_DIR}}/metadata/samples.tsv"
+"""
+    args = (' \\\n    --metadata "${OUTPUT_DIR}/metadata/samples.tsv"'
+            ' \\\n    --sample_id_column sample_name')
+    return prelude, args
+
+
 def _build_pipeline_cmd(submission: Submission) -> str:
     """Return the shell command block that runs a given OMC pipeline.
 
@@ -120,6 +179,7 @@ done
         # passed explicitly; without them microscape's own auto-detection runs (and is flaky),
         # so a resolved primer pair is strongly preferred.
         primer_prelude, primer_args = _microscape_primer_prelude(submission)
+        meta_prelude, meta_args = _microscape_metadata_prelude(submission)
         # Taxonomy DB gates the taxonomy → BUILD_VIZ branch that produces viz/.
         ref_dbs = settings.microscape_ref_databases.replace("{db}", "${OMC_DB_DIR}")
         ref_arg = f' \\\n    --ref_databases "{ref_dbs}"' if ref_dbs else ""
@@ -134,7 +194,12 @@ done
                     ref_binds += f',"{d}:{d}:ro"'
         return f"""echo ">>> Illumina amplicon analysis (microscape)"
 mkdir -p "${{WORK_DIR}}"
-{primer_prelude}apptainer run \\
+# Match the pipeline's resources to what SLURM actually granted. Its defaults
+# (8 threads / 16GB denoise) left most of the requested CPUs and memory idle.
+# Denoising gets 75% of the job's memory so concurrent Nextflow tasks still fit.
+OMC_CPUS="${{SLURM_CPUS_PER_TASK:-8}}"
+OMC_DENOISE_MEM=$(( ${{OMC_MEM_GB:-16}} * 3 / 4 ))
+{primer_prelude}{meta_prelude}apptainer run \\
     --env CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
     --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \\
     --env REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
@@ -143,7 +208,11 @@ mkdir -p "${{WORK_DIR}}"
     run /pipeline/main.nf \\
     --input "${{INPUT_DIR}}/fastq"{primer_args}{ref_arg} \\
     --build_viz_site \\
-    --run_phylogeny \\
+    --run_phylogeny{meta_args} \\
+    --threads "${{OMC_CPUS}}" \\
+    --denoise_cpus "${{OMC_CPUS}}" \\
+    --denoise_memory "${{OMC_DENOISE_MEM}} GB" \\
+    --min_prevalence 3 \\
     -work-dir "${{WORK_DIR}}" \\
     --outdir "${{OUTPUT_DIR}}\""""
 
