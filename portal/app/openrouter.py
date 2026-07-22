@@ -57,7 +57,14 @@ async def settings_page(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
-    """User settings page."""
+    """User settings page — LLM backend choice + OpenRouter connection."""
+    from .llm_backends import (
+        list_local_models, recommended_local_model, get_admin_openrouter,
+        resolve_llm, FREE_OPENROUTER_MODELS,
+    )
+    local_models = await list_local_models()
+    admin_cfg = await get_admin_openrouter()
+    active = await resolve_llm(user)
     return templates.TemplateResponse(
         "settings.html",
         {
@@ -65,8 +72,45 @@ async def settings_page(
             "user": user,
             "openrouter_connected": bool(user.openrouter_key),
             "openrouter_model": user.openrouter_model or OPENROUTER_DEFAULT_MODEL,
+            # Backend picker
+            "llm_backend": user.llm_backend or active["backend"],
+            "llm_model": user.llm_model or "",
+            "local_models": local_models,
+            "local_available": bool(local_models),
+            "local_recommended": recommended_local_model(local_models),
+            "free_models": FREE_OPENROUTER_MODELS,
+            "free_recommended": FREE_OPENROUTER_MODELS[0],
+            "admin_key_available": bool(admin_cfg),
+            "personal_recommended": OPENROUTER_DEFAULT_MODEL,
+            "active_label": active["label"],
         },
     )
+
+
+@router.post("/settings/llm")
+async def set_llm_backend(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Save the user's LLM backend + model choice."""
+    from .llm_backends import BACKEND_LOCAL, BACKEND_ADMIN, BACKEND_PERSONAL
+    form = await request.form()
+    backend = (form.get("backend") or "").strip()
+    if backend not in (BACKEND_LOCAL, BACKEND_ADMIN, BACKEND_PERSONAL):
+        raise HTTPException(status_code=400, detail="Unknown backend")
+    # Each backend posts its own model field, so switching doesn't clobber the
+    # model you'd picked for the others.
+    model = (form.get(f"model_{backend}") or "").strip()
+    user.llm_backend = backend
+    user.llm_model = model or None
+    if backend == BACKEND_PERSONAL and model:
+        user.openrouter_model = model
+    await db.commit()
+
+    from .llm_proxy import _openrouter_cache
+    _openrouter_cache.pop(user.id, None)
+    return RedirectResponse("/settings?saved=1", status_code=303)
 
 
 # ── OAuth PKCE flow ──────────────────────────────────────────────────────────
@@ -282,3 +326,112 @@ async def openrouter_list_models(
     models.sort(key=lambda m: (not m["free"], m["name"].lower()))
 
     return {"models": models}
+
+
+# ── Admin: site-wide (shared) OpenRouter key ─────────────────────────────────
+# Same PKCE dance as the per-user flow, but the resulting key is stored in
+# site_config so every user can select the "shared" backend without bringing
+# their own credentials. Admin-gated; see llm_backends.resolve_llm.
+
+def _make_admin_callback_url(request: Request) -> str:
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.url.netloc)
+    return f"{scheme}://{host}/admin/openrouter/callback"
+
+
+@router.get("/admin/openrouter/connect")
+async def admin_openrouter_connect(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Start the OAuth flow for the shared/admin OpenRouter key."""
+    from .auth import is_admin
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    verifier, challenge = _generate_pkce()
+    request.session["openrouter_admin_code_verifier"] = verifier
+    callback_url = _make_admin_callback_url(request)
+    return RedirectResponse(
+        f"{OPENROUTER_AUTH_URL}"
+        f"?callback_url={callback_url}"
+        f"&code_challenge={challenge}"
+        f"&code_challenge_method=S256"
+    )
+
+
+@router.get("/admin/openrouter/callback")
+async def admin_openrouter_callback(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Exchange the code and store the key site-wide."""
+    from .auth import is_admin
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    code = request.query_params.get("code")
+    verifier = request.session.pop("openrouter_admin_code_verifier", None)
+    if not code or not verifier:
+        return RedirectResponse("/admin?error=missing_code", status_code=303)
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                OPENROUTER_KEY_EXCHANGE_URL,
+                json={"code": code, "code_verifier": verifier,
+                      "code_challenge_method": "S256"},
+            )
+        if resp.status_code != 200:
+            logger.warning("Admin OpenRouter exchange failed: %s %s",
+                           resp.status_code, resp.text[:200])
+            return RedirectResponse("/admin?error=exchange_failed", status_code=303)
+        api_key = resp.json().get("key")
+        if not api_key:
+            return RedirectResponse("/admin?error=no_key", status_code=303)
+    except Exception as e:
+        logger.error("Admin OpenRouter exchange error: %s", e)
+        return RedirectResponse("/admin?error=exchange_error", status_code=303)
+
+    from .database import SITE_OPENROUTER_KEY
+    from .llm_backends import set_site_config
+    await set_site_config(SITE_OPENROUTER_KEY, encrypt_value(api_key))
+    logger.info("Admin %s connected the shared OpenRouter key", user.github_login)
+    return RedirectResponse("/admin?connected=1", status_code=303)
+
+
+@router.post("/admin/openrouter/disconnect")
+async def admin_openrouter_disconnect(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Clear the shared OpenRouter key."""
+    from .auth import is_admin
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    from .database import SITE_OPENROUTER_KEY
+    from .llm_backends import set_site_config
+    await set_site_config(SITE_OPENROUTER_KEY, None)
+    logger.info("Admin %s disconnected the shared OpenRouter key", user.github_login)
+    return RedirectResponse("/admin", status_code=303)
+
+
+@router.post("/admin/openrouter/model")
+async def admin_openrouter_model(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Set the default model used with the shared key."""
+    from .auth import is_admin
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    form = await request.form()
+    model = (form.get("model") or "").strip()
+    from .database import SITE_OPENROUTER_MODEL
+    from .llm_backends import set_site_config
+    await set_site_config(SITE_OPENROUTER_MODEL, model or None)
+    return RedirectResponse("/admin", status_code=303)

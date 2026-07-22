@@ -1566,3 +1566,10 @@ body {
     border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem;
     font-weight: 500;
 }
+
+/* LLM backend picker (settings) */
+.llm-opt { display: flex; gap: 0.6rem; align-items: flex-start; margin-top: 0.85rem; cursor: pointer; }
+.llm-opt input[type="radio"] { margin-top: 0.25rem; flex: none; }
+.llm-opt input:disabled + span { opacity: 0.55; }
+.llm-opt .muted { color: var(--color-text-muted); font-style: italic; }
+.llm-model-select { margin: 0.4rem 0 0 1.6rem; width: min(420px, 100%); font-family: var(--font-mono); font-size: 0.8125rem; }

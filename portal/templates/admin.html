@@ -102,6 +102,43 @@
             <code>{{ llm_base_url }}</code>
             <span class="muted">· model {{ llm_model }} · {{ llm_local.detail }}</span>
         </div>
+        <h3 class="issue-h">Shared OpenRouter key (site-wide)</h3>
+        <p class="section-hint">
+            Provisioned via OAuth — no key handling. Users who pick
+            <em>“Free hosted models”</em> in Settings run on this key, so they don't need
+            an OpenRouter account of their own.
+        </p>
+        <div class="llm-local">
+            {% if admin_or.connected %}
+            <span class="primer-src primer-src-manual">connected</span>
+            <code>{{ admin_or.masked }}</code>
+            {% if admin_or.status %}
+                {% if admin_or.status.ok %}
+                <span class="muted">· {{ admin_or.status.detail }}</span>
+                {% else %}
+                <span class="muted err-cell">· {{ admin_or.status.detail }}</span>
+                {% endif %}
+            {% endif %}
+            <form action="/admin/openrouter/model" method="POST" class="primer-form" style="display:inline; margin-left:.5rem">
+                <select name="model" class="sub-select" style="width:auto">
+                    {% for m in free_models %}
+                    <option value="{{ m }}" {% if m == admin_or.model %}selected{% endif %}>
+                        {{ m }}{% if loop.first %} — recommended{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-secondary btn-sm">Set default</button>
+            </form>
+            <form action="/admin/openrouter/disconnect" method="POST" style="display:inline"
+                  onsubmit="return confirm('Disconnect the shared OpenRouter key? Users on the free tier will fall back to the local model.');">
+                <button type="submit" class="btn btn-secondary btn-sm">Disconnect</button>
+            </form>
+            {% else %}
+            <span class="primer-src primer-src-inferred-db">not connected</span>
+            <a href="/admin/openrouter/connect" class="btn btn-primary btn-sm">Connect with OpenRouter</a>
+            {% endif %}
+        </div>
+
         <h3 class="issue-h">OpenRouter keys (per user)</h3>
         <div class="table-wrap">
         <table class="admin-table">

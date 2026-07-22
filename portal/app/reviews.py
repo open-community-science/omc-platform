@@ -23,20 +23,20 @@ logger = logging.getLogger(__name__)
 
 
 async def _get_llm_config(user_id: int) -> dict:
-    """Get LLM base_url, api_key, model — prefer user's OpenRouter if connected."""
-    from .llm_proxy import _get_openrouter_config
-    or_config = await _get_openrouter_config(user_id)
-    if or_config:
-        return {
-            "base_url": "https://openrouter.ai/api/v1",
-            "api_key": or_config["key"],
-            "model": or_config["model"],
-        }
-    return {
-        "base_url": settings.llm_base_url,
-        "api_key": settings.llm_api_key,
-        "model": settings.llm_model,
-    }
+    """Resolve the LLM config for a user's chosen backend.
+
+    Honours the explicit local / shared-admin / personal choice made in
+    /settings (see llm_backends.resolve_llm) instead of silently preferring
+    whichever key happens to exist. The returned dict carries a "label" naming
+    the backend + model, which callers surface alongside generated output.
+    """
+    from sqlalchemy import select as _select
+    from .database import User as _User
+    from .llm_backends import resolve_llm
+    from .database import async_session as _session
+    async with _session() as _db:
+        target = (await _db.execute(_select(_User).where(_User.id == user_id))).scalar_one_or_none()
+    return await resolve_llm(target)
 
 
 def _dir_has_content(path) -> bool:
@@ -259,6 +259,9 @@ async def generate_manuscript(
 
     # Store manuscript in interview_data (but don't publish yet)
     interview_data["_manuscript"] = sections
+    # Provenance: name the model that produced this draft (#16).
+    interview_data["_manuscript_model"] = llm.get("label")
+    interview_data["_manuscript_backend"] = llm.get("backend")
     submission.interview_data = interview_data
     attributes.flag_modified(submission, "interview_data")
     await db.commit()
@@ -333,8 +336,7 @@ async def generate_manuscript_stream(
         progress_queue = asyncio.Queue()
 
         # Announce which backend we're using
-        backend = "OpenRouter" if "openrouter" in llm["base_url"] else "local LLM"
-        await progress_queue.put({"event": "start", "detail": f"Using {backend} ({llm['model']})"})
+        await progress_queue.put({"event": "start", "detail": f"Using {llm['label']}"})
 
         async def on_progress(event, detail):
             await progress_queue.put({"event": event, "detail": detail})
@@ -375,6 +377,9 @@ async def generate_manuscript_stream(
             try:
                 interview_data = dict(sub_interview)
                 interview_data["_manuscript"] = sections
+                # Provenance: name the model that produced this draft (#16).
+                interview_data["_manuscript_model"] = llm.get("label")
+                interview_data["_manuscript_backend"] = llm.get("backend")
 
                 async with async_session() as save_db:
                     save_stmt = select(Submission).where(Submission.id == sub_id)

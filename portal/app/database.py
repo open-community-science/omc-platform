@@ -55,8 +55,35 @@ class User(Base):
     github_avatar_url = Column(String(500))
     openrouter_key = Column(String(500))  # Fernet-encrypted OpenRouter API key
     openrouter_model = Column(String(255))  # e.g. "anthropic/claude-sonnet-4"
+    # Which LLM backend this user's AI features should use:
+    #   "local"    — the self-hosted LLM (LLM_BASE_URL)
+    #   "admin"    — the site-wide OpenRouter key provisioned by an admin
+    #   "personal" — the user's own OpenRouter key (openrouter_key above)
+    # NULL means "not chosen yet"; resolution falls back personal → admin → local.
+    llm_backend = Column(String(20))
+    llm_model = Column(String(255))  # model for the chosen backend
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, default=datetime.utcnow)
+
+
+class SiteConfig(Base):
+    """Site-wide key/value settings that outlive any single user.
+
+    Holds the shared ("admin") OpenRouter credentials so every user can fall
+    back to them without bringing their own key. The value is Fernet-encrypted
+    for secrets, same as User.openrouter_key.
+    """
+
+    __tablename__ = "site_config"
+
+    key = Column(String(64), primary_key=True)
+    value = Column(Text)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# SiteConfig keys
+SITE_OPENROUTER_KEY = "openrouter_admin_key"      # encrypted
+SITE_OPENROUTER_MODEL = "openrouter_admin_model"  # plaintext model id
 
 
 class Submission(Base):
@@ -178,6 +205,18 @@ async def init_db():
         except Exception:
             await conn.execute(text("ALTER TABLE users ADD COLUMN openrouter_model VARCHAR(255)"))
             logging.getLogger(__name__).info("Added openrouter_model column to users")
+
+        # Migration: per-user LLM backend choice (local / admin / personal)
+        try:
+            await conn.execute(text("SELECT llm_backend FROM users LIMIT 1"))
+        except Exception:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN llm_backend VARCHAR(20)"))
+            logging.getLogger(__name__).info("Added llm_backend column to users")
+        try:
+            await conn.execute(text("SELECT llm_model FROM users LIMIT 1"))
+        except Exception:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN llm_model VARCHAR(255)"))
+            logging.getLogger(__name__).info("Added llm_model column to users")
 
         # Migration: make bioproject_accession nullable (SQLite can't ALTER constraints,
         # so recreate the table if the column is NOT NULL)

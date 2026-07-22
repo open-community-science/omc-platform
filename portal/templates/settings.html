@@ -78,6 +78,66 @@
 <div class="dashboard">
     <h1>Settings</h1>
 
+    {# ── AI model choice ── #}
+    <div class="submission-meta" style="max-width: 800px; margin-bottom: 1.25rem;">
+        <h3 style="margin-bottom: 0.5rem;">AI model</h3>
+        <p style="color: var(--color-text-muted); font-size: 0.9em;">
+            Chooses which model writes your manuscript, runs reviews, and powers author sessions.
+            Currently using <strong>{{ active_label }}</strong>.
+        </p>
+
+        <form action="/settings/llm" method="POST" style="margin-top: 1rem;">
+            {# 1. Local #}
+            <label class="llm-opt">
+                <input type="radio" name="backend" value="local" {% if llm_backend == 'local' %}checked{% endif %}
+                       {% if not local_available %}disabled{% endif %}>
+                <span><strong>Local model</strong> — runs on the platform's own hardware. Free, private, no account needed.
+                {% if not local_available %}<em class="muted">(offline right now)</em>{% endif %}</span>
+            </label>
+            {% if local_available %}
+            <select name="model_local" class="sub-select llm-model-select">
+                {% for m in local_models %}
+                <option value="{{ m }}" {% if (llm_backend == 'local' and llm_model == m) or (not llm_model and m == local_recommended) %}selected{% endif %}>
+                    {{ m }}{% if m == local_recommended %} — recommended{% endif %}
+                </option>
+                {% endfor %}
+            </select>
+            {% endif %}
+
+            {# 2. Shared/admin free tier #}
+            <label class="llm-opt">
+                <input type="radio" name="backend" value="admin" {% if llm_backend == 'admin' %}checked{% endif %}
+                       {% if not admin_key_available %}disabled{% endif %}>
+                <span><strong>Free hosted models</strong> — shared OpenRouter key provided by the site. No account needed; rate limits apply.
+                {% if not admin_key_available %}<em class="muted">(not configured by the admin yet)</em>{% endif %}</span>
+            </label>
+            {% if admin_key_available %}
+            <select name="model_admin" class="sub-select llm-model-select">
+                {% for m in free_models %}
+                <option value="{{ m }}" {% if (llm_backend == 'admin' and llm_model == m) or (not llm_model and m == free_recommended) %}selected{% endif %}>
+                    {{ m }}{% if m == free_recommended %} — recommended{% endif %}
+                </option>
+                {% endfor %}
+            </select>
+            {% endif %}
+
+            {# 3. Personal key #}
+            <label class="llm-opt">
+                <input type="radio" name="backend" value="personal" {% if llm_backend == 'personal' %}checked{% endif %}
+                       {% if not openrouter_connected %}disabled{% endif %}>
+                <span><strong>Your own OpenRouter account</strong> — frontier models (Claude, GPT, …) billed to your credits.
+                {% if not openrouter_connected %}<em class="muted">(connect below first)</em>{% endif %}</span>
+            </label>
+            {% if openrouter_connected %}
+            <input type="text" name="model_personal" class="sub-search llm-model-select"
+                   value="{{ llm_model if llm_backend == 'personal' else openrouter_model }}"
+                   placeholder="{{ personal_recommended }}">
+            {% endif %}
+
+            <button type="submit" class="btn btn-primary" style="margin-top: 0.75rem;">Save choice</button>
+        </form>
+    </div>
+
     <div class="submission-meta" style="max-width: 800px;">
         <h3 style="margin-bottom: 0.75rem;">LLM Provider</h3>
         <p>Connect your <a href="https://openrouter.ai" target="_blank">OpenRouter</a> account

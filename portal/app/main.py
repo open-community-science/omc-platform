@@ -387,6 +387,16 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
     # LLM / API-key health: local LLM reachability + each user's OpenRouter key.
     from .crypto import decrypt_value
     llm_local = await _check_local_llm()
+
+    # Shared (site-wide) OpenRouter key — provisioned by an admin via OAuth.
+    from .llm_backends import get_admin_openrouter, FREE_OPENROUTER_MODELS
+    _admin_cfg = await get_admin_openrouter()
+    admin_or = {"connected": bool(_admin_cfg), "masked": "", "status": None, "model": ""}
+    if _admin_cfg:
+        k = _admin_cfg["key"]
+        admin_or["masked"] = (k[:10] + "…" + k[-4:]) if k else ""
+        admin_or["model"] = _admin_cfg["model"]
+        admin_or["status"] = await _check_openrouter_key(k)
     or_rows = []
     for u in users:
         row = {"user_id": u.id, "login": u.github_login,
@@ -421,6 +431,8 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
             "llm_base_url": settings.llm_base_url,
             "llm_model": settings.llm_model,
             "or_rows": or_rows,
+            "admin_or": admin_or,
+            "free_models": FREE_OPENROUTER_MODELS,
         },
     )
 
