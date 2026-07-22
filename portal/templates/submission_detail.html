@@ -356,8 +356,24 @@
                         <dt>Forward</dt><dd><code>{{ pr.fwd }}</code></dd>
                         <dt>Reverse</dt><dd><code>{{ pr.rev }}</code></dd>
                     </dl>
+                    {% if pr.get('sets') and pr.sets|length > 1 %}
+                    <p class="section-hint" style="color: var(--color-warning, #92400e);">
+                        <strong>{{ pr.sets|length }} primer sets detected</strong> across the selected runs —
+                        this project mixes amplicon targets. Each sample is trimmed with whichever set fits it best.
+                    </p>
+                    <ul class="primer-set-list">
+                        {% for st in pr.sets %}
+                        <li>
+                            <strong>{{ st.fwd_name }}</strong> / <strong>{{ st.rev_name }}</strong>
+                            {% if st.region and st.region != 'unknown' %}<span class="muted">· {{ st.region }}</span>{% endif %}
+                            {% if st.n_runs %}<span class="muted">· fits {{ st.n_runs }} probed run{{ '' if st.n_runs == 1 else 's' }}</span>{% endif %}
+                            <br><code>{{ st.fwd }}</code> / <code>{{ st.rev }}</code>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
                     {% if pr.source and pr.source.startswith('inferred') %}
-                    <p class="section-hint">Inferred from the read data — edit below and re-run if this is wrong.</p>
+                    <p class="section-hint">Inferred from the read data — override below if this is wrong.</p>
                     {% endif %}
                     {% else %}
                     <p class="section-hint">No primers set. If you leave these blank, we'll try to identify them from the read data (matching a primer database, then inferring from the read 5′ ends) and use the best guess automatically.</p>
@@ -365,20 +381,28 @@
 
                     {% if submission.status.value in ['draft', 'submitted', 'queued'] %}
                     <form action="/submissions/{{ submission.slug }}/primers" method="POST" class="primer-form">
-                        <div class="primer-fields">
-                            <label>Forward (5′→3′)
-                                <input type="text" name="fwd" placeholder="e.g. CCTACGGGNGGCWGCAG"
-                                       value="{% if pr and pr.source == 'manual' %}{{ pr.fwd }}{% endif %}"
-                                       pattern="[ACGTRYSWKMBDHVNacgtryswkmbdhvn]{10,40}">
-                            </label>
-                            <label>Reverse (5′→3′)
-                                <input type="text" name="rev" placeholder="e.g. GACTACHVGGGTATCTAATCC"
-                                       value="{% if pr and pr.source == 'manual' %}{{ pr.rev }}{% endif %}"
-                                       pattern="[ACGTRYSWKMBDHVNacgtryswkmbdhvn]{10,40}">
-                            </label>
+                        {% set manual_sets = pr.sets if (pr and pr.source == 'manual' and pr.get('sets')) else ([pr] if (pr and pr.source == 'manual') else [None]) %}
+                        <div id="primer-rows">
+                            {% for ms in manual_sets %}
+                            <div class="primer-fields primer-row">
+                                <label>Forward (5′→3′)
+                                    <input type="text" name="fwd" placeholder="e.g. CCTACGGGNGGCWGCAG"
+                                           value="{{ ms.fwd if ms else '' }}"
+                                           pattern="[ACGTRYSWKMBDHVNacgtryswkmbdhvn]{10,40}">
+                                </label>
+                                <label>Reverse (5′→3′)
+                                    <input type="text" name="rev" placeholder="e.g. GACTACHVGGGTATCTAATCC"
+                                           value="{{ ms.rev if ms else '' }}"
+                                           pattern="[ACGTRYSWKMBDHVNacgtryswkmbdhvn]{10,40}">
+                                </label>
+                                <button type="button" class="btn-inline-edit primer-remove"
+                                        onclick="this.closest('.primer-row').remove()" title="Remove this set">×</button>
+                            </div>
+                            {% endfor %}
                         </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="addPrimerRow()">+ Add primer set</button>
                         <button type="submit" class="btn btn-secondary btn-sm">Save primers</button>
-                        <span class="muted">Leave both blank to auto-detect.</span>
+                        <span class="muted">Leave blank to auto-detect per sample.</span>
                     </form>
                     {% endif %}
                 </div>
@@ -652,6 +676,26 @@
 
 {% block scripts %}
 <script>
+
+// Add a blank primer-set row to the amplicon primers form (mixed-target runs).
+function addPrimerRow() {
+    const rows = document.getElementById('primer-rows');
+    if (!rows) return;
+    const div = document.createElement('div');
+    div.className = 'primer-fields primer-row';
+    div.innerHTML = `
+        <label>Forward (5\u2032\u2192\u2032)
+            <input type="text" name="fwd" placeholder="e.g. CCTACGGGNGGCWGCAG"
+                   pattern="[ACGTRYSWKMBDHVNacgtryswkmbdhvn]{10,40}">
+        </label>
+        <label>Reverse (5\u2032\u2192\u2032)
+            <input type="text" name="rev" placeholder="e.g. GACTACHVGGGTATCTAATCC"
+                   pattern="[ACGTRYSWKMBDHVNacgtryswkmbdhvn]{10,40}">
+        </label>
+        <button type="button" class="btn-inline-edit primer-remove"
+                onclick="this.closest('.primer-row').remove()" title="Remove this set">\u00d7</button>`;
+    rows.appendChild(div);
+}
 const subId = '{{ submission.slug }}';
 
 /* ── Pipeline metadata ── */
@@ -893,7 +937,7 @@ let sortAsc = true;
 // Columns to show in run table (order matters)
 // Priority columns shown first, then any other columns with data
 const _priorityKeys = [
-    'run_accession', 'sample_alias', 'sample_title',
+    'run_accession', 'sample_alias', 'sample_title', 'experiment_title', 'library_name',
     'instrument_platform', 'instrument_model', 'library_strategy',
     'collection_date', 'country', 'host', 'scientific_name',
     'environment_biome', 'environment_feature', 'environment_material',
@@ -904,7 +948,7 @@ const _numericKeys = new Set(['base_count', 'read_count', 'nominal_length']);
 // Keys to hide (internal/redundant)
 const _hideKeys = new Set([
     'study_accession', 'study_title', 'study_alias', 'center_name',
-    'experiment_accession', 'experiment_alias', 'sample_accession',
+    'experiment_accession', 'sample_accession',
     'sample_description', 'description', 'accession',
     'secondary_study_accession', 'secondary_sample_accession',
     'submission_accession', 'broker_name', 'checklist',
@@ -916,7 +960,7 @@ const _labels = {
     run_accession: 'Run', sample_alias: 'Sample', sample_title: 'Sample',
     instrument_platform: 'Platform', instrument_model: 'Instrument',
     library_strategy: 'Strategy', library_source: 'Source', library_layout: 'Layout',
-    library_name: 'Library', library_selection: 'Selection',
+    library_name: 'Library', library_selection: 'Selection', experiment_title: 'Sample',
     collection_date: 'Date', country: 'Location', host: 'Host',
     scientific_name: 'Organism', tax_id: 'Tax ID',
     environment_biome: 'Biome', environment_feature: 'Feature', environment_material: 'Material',
@@ -959,7 +1003,7 @@ let runColumns = [];
 let viewMode = 'basic'; // 'basic' or 'full'
 
 const _basicKeys = new Set([
-    'run_accession', 'sample_alias', 'sample_title',
+    'run_accession', 'sample_alias', 'sample_title', 'experiment_title', 'library_name',
     'instrument_platform', 'library_strategy',
     'collection_date', 'country', 'host', 'scientific_name',
     'base_count', 'read_count',

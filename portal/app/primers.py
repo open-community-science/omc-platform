@@ -124,14 +124,24 @@ def _consensus_primer(reads: list[str], length: int = 25, cover: float = 0.9) ->
 
 
 def detect_from_reads(r1_path: str, r2_path: str | None = None, n: int = 500) -> dict | None:
-    """Tier 3. Infer primers from a sample of reads.
+    """Tier 3. Infer primers from a sample of reads (given FASTQ paths)."""
+    r1 = sample_reads(r1_path, n)
+    r2 = sample_reads(r2_path, n) if r2_path else []
+    return detect_from_read_lists(r1, r2)
+
+
+def detect_from_read_lists(r1: list[str], r2: list[str] | None = None) -> dict | None:
+    """Tier 3 core, operating on already-sampled reads.
+
+    Split out from detect_from_reads so callers that have reads in hand (e.g.
+    detect_primer_sets, which re-probes the same sample against several
+    candidate sets) don't re-read the FASTQ each time.
 
     Returns a primer dict, or None if there aren't enough reads to try.
     """
-    r1 = sample_reads(r1_path, n)
+    r2 = r2 or []
     if len(r1) < 20:
         return None
-    r2 = sample_reads(r2_path, n) if r2_path else []
 
     # 3a — database match: score each pair by forward match on R1 (and, if we
     # have R2, reverse match on R2), keep the best.
@@ -262,3 +272,80 @@ def resolve(metadata: dict | None, manual: dict | None,
     if fastq_r1:
         return detect_from_reads(fastq_r1, fastq_r2)
     return None
+
+
+def detect_primer_sets(
+    accessions: list[str],
+    max_sets: int = 4,
+    max_probe: int = 12,
+    spots: int = 600,
+) -> list[dict]:
+    """Discover the distinct primer sets used across a run selection.
+
+    Sampling one run and applying its primers to everything is how a mixed
+    BioProject gets destroyed: PRJNA1473294 labels all 84 runs "16S" but 40 are
+    eukaryotic 18S, and forcing 341F/805R on those discarded 99.9% of reads.
+
+    Rather than fetching every run (each is an SRA download), work adaptively:
+    detect a set from one run, cheaply test that set against the others, then
+    only fetch a run the known sets *fail* to explain. Each fetch therefore
+    discovers a genuinely new set instead of re-confirming a known one.
+
+    Returns a list of primer dicts, each with `runs` (accessions it explains)
+    and `n_runs`, ordered by coverage. Empty if nothing could be sampled.
+    """
+    accs = [a for a in accessions if a]
+    if not accs:
+        return []
+
+    cache: dict[str, tuple[list[str], list[str]]] = {}
+
+    def reads_for(acc: str) -> tuple[list[str], list[str]]:
+        """Sampled (R1, R2) reads for a run — fetched once."""
+        if acc not in cache:
+            got = fetch_read_sample(acc, spots=spots)
+            if not got:
+                cache[acc] = ([], [])
+            else:
+                r1p, r2p = got
+                cache[acc] = (sample_reads(r1p, 300), sample_reads(r2p, 300) if r2p else [])
+        return cache[acc]
+
+    def explains(primer: dict, acc: str, threshold: float = 0.5) -> bool:
+        """Does this primer set actually match the reads of `acc`?"""
+        r1, _ = reads_for(acc)
+        if len(r1) < 20:
+            return False  # can't tell — don't claim it's explained
+        return _match_fraction(r1, primer["fwd"]) >= threshold
+
+    # Probe a spread of the selection rather than the first N, so a project
+    # ordered by amplicon type doesn't hide its second half.
+    if len(accs) <= max_probe:
+        probe = list(accs)
+    else:
+        step = len(accs) / max_probe
+        probe = [accs[int(i * step)] for i in range(max_probe)]
+
+    sets: list[dict] = []
+    unexplained = list(probe)
+
+    while unexplained and len(sets) < max_sets:
+        seed = unexplained[0]
+        r1, r2 = reads_for(seed)
+        if len(r1) < 20:
+            unexplained.pop(0)
+            continue
+        found = detect_from_read_lists(r1, r2)
+        if not found:
+            unexplained.pop(0)
+            continue
+        found["runs"] = [a for a in probe if explains(found, a)]
+        if seed not in found["runs"]:
+            found["runs"].append(seed)
+        found["n_runs"] = len(found["runs"])
+        sets.append(found)
+        covered = set(found["runs"])
+        unexplained = [a for a in unexplained if a not in covered]
+
+    sets.sort(key=lambda s: -s.get("n_runs", 0))
+    return sets

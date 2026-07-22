@@ -159,18 +159,31 @@ async def _resolve_primers(submission: Submission):
 
     resolved = pm.parse_metadata_primers(submission.sample_metadata)
     if not resolved:
-        runs = submission.selected_runs or []
-        acc = _run_accession(runs[0]) if runs else None
-        if acc:
+        # Probe a spread of runs, not just the first: a BioProject can mix
+        # amplicon targets (16S + 18S) while labelling every run the same, and
+        # one run's primers then misrepresent the whole selection.
+        accs = []
+        for run in (submission.selected_runs or []):
+            acc = _run_accession(run)
+            if acc:
+                accs.append(acc)
+            elif isinstance(run, dict):
+                accs.extend(a for a in (run.get("run_accessions") or []) if a)
+        if accs:
             try:
-                sample = await asyncio.get_event_loop().run_in_executor(
-                    None, pm.fetch_read_sample, acc, 1000
+                sets = await asyncio.get_event_loop().run_in_executor(
+                    None, pm.detect_primer_sets, accs
                 )
-                if sample:
-                    r1, r2 = sample
-                    resolved = pm.detect_from_reads(r1, r2)
             except Exception:
-                resolved = None
+                sets = []
+            if sets:
+                # Primary set = widest coverage; keep the rest so the UI can say
+                # "multiple primer sets detected" instead of quietly picking one.
+                resolved = dict(sets[0])
+                if len(sets) > 1:
+                    resolved["sets"] = [
+                        {k: v for k, v in st.items() if k != "runs"} for st in sets
+                    ]
     if resolved:
         submission.primers = resolved
 
@@ -340,8 +353,7 @@ async def get_status(
 @router.post("/{slug}/primers")
 async def set_primers(
     slug: str,
-    fwd: str = Form(""),
-    rev: str = Form(""),
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
@@ -352,18 +364,34 @@ async def set_primers(
     """
     import re
     submission = await _get_submission(slug, user, db)
-    fwd, rev = fwd.strip().upper(), rev.strip().upper()
 
-    if not fwd and not rev:
+    # Accepts repeated fwd/rev fields — a BioProject can legitimately mix
+    # amplicon targets (e.g. 16S and 18S), so the author can enter one pair
+    # per target rather than being forced to pick a single one.
+    form = await request.form()
+    fwds = [v.strip().upper() for v in form.getlist("fwd")]
+    revs = [v.strip().upper() for v in form.getlist("rev")]
+
+    pairs = []
+    for f, r in zip(fwds, revs):
+        if not f and not r:
+            continue  # blank row — ignore
+        if not re.fullmatch(r"[ACGTRYSWKMBDHVN]{10,40}", f) or \
+           not re.fullmatch(r"[ACGTRYSWKMBDHVN]{10,40}", r):
+            raise HTTPException(400, "Primers must be IUPAC nucleotide sequences (10–40 bp)")
+        pairs.append({
+            "fwd": f, "rev": r, "fwd_name": "manual", "rev_name": "manual",
+            "region": "", "source": "manual", "confidence": None,
+        })
+
+    if not pairs:
         submission.primers = None
     else:
-        if not re.fullmatch(r"[ACGTRYSWKMBDHVN]{10,40}", fwd) or \
-           not re.fullmatch(r"[ACGTRYSWKMBDHVN]{10,40}", rev):
-            raise HTTPException(400, "Primers must be IUPAC nucleotide sequences (10–40 bp)")
-        submission.primers = {
-            "fwd": fwd, "rev": rev, "fwd_name": "manual", "rev_name": "manual",
-            "region": "", "source": "manual", "confidence": None,
-        }
+        primary = dict(pairs[0])
+        if len(pairs) > 1:
+            primary["sets"] = pairs
+        submission.primers = primary
+    attributes.flag_modified(submission, "primers")
     await db.commit()
     return RedirectResponse(url=f"/submissions/{slug}", status_code=302)
 

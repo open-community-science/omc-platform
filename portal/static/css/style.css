@@ -1573,3 +1573,10 @@ body {
 .llm-opt input:disabled + span { opacity: 0.55; }
 .llm-opt .muted { color: var(--color-text-muted); font-style: italic; }
 .llm-model-select { margin: 0.4rem 0 0 1.6rem; width: min(420px, 100%); font-family: var(--font-mono); font-size: 0.8125rem; }
+
+/* Amplicon primer sets (multi-target submissions) */
+.primer-row { display: flex; gap: 0.75rem; align-items: flex-end; margin-bottom: 0.5rem; }
+.primer-remove { align-self: center; font-size: 1.1rem; line-height: 1; padding: 0 0.4rem; }
+.primer-set-list { margin: 0.5rem 0 0.75rem 1rem; font-size: 0.85rem; list-style: disc; }
+.primer-set-list li { margin-bottom: 0.35rem; }
+.primer-set-list code { font-size: 0.8rem; }
