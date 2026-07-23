@@ -1,0 +1,72 @@
+{
+  "asv_summary": {
+    "total_asvs": 161,
+    "n_samples": 11,
+    "samples": [
+      "SRR38958117",
+      "SRR38958118",
+      "SRR38958119",
+      "SRR38958126",
+      "SRR38958127",
+      "SRR38958128",
+      "SRR38958135",
+      "SRR38958136",
+      "SRR38958147",
+      "SRR38958151",
+      "SRR38958158"
+    ]
+  },
+  "taxonomy_summary": {
+    "database": "silva",
+    "databases_used": [
+      "silva"
+    ],
+    "total_asvs_classified": 162,
+    "classified_per_rank": {
+      "domain": 162,
+      "phylum": 162,
+      "class": 162,
+      "order": 161,
+      "family": 158,
+      "genus": 137
+    },
+    "top_phyla": {
+      "Pseudomonadota": 116,
+      "Bacteroidota": 22,
+      "Campylobacterota": 13,
+      "Verrucomicrobiota": 4,
+      "Actinomycetota": 3
+    },
+    "phyla": {
+      "Pseudomonadota": 116,
+      "Bacteroidota": 22,
+      "Campylobacterota": 13,
+      "Verrucomicrobiota": 4,
+      "Actinomycetota": 3
+    }
+  },
+  "filtering": {
+    "n_samples": 84,
+    "reads_input": 1398204,
+    "reads_retained": 519769,
+    "retention_pct": 37.2
+  },
+  "renorm": {
+    "prokaryote": {
+      "n_asvs": 161,
+      "n_samples": 11,
+      "n_reads": 46656
+    },
+    "chloroplast": {
+      "n_asvs": 1,
+      "n_samples": 3,
+      "n_reads": 26
+    }
+  },
+  "result_categories": [
+    "taxonomy",
+    "seqtab_final",
+    "filtered",
+    "renormalized"
+  ]
+}
