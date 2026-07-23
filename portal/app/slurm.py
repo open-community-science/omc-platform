@@ -186,6 +186,14 @@ echo ">>> Step 2/2: MAG analysis"
     --outdir "$MAG" \\
     --all --db_dir "{db_dir}\""""
 
+    # Host (human) read removal needs a bbmap index at ${OMC_DB_DIR}/human_ref.
+    # Until that's staged on every cluster, disable it (fine for environmental
+    # data); flip settings.illumina_remove_human once the DB is everywhere.
+    if settings.illumina_remove_human:
+        human_arg = ' \\\n    --human_ref "${OMC_DB_DIR}/human_ref"'
+    else:
+        human_arg = ' \\\n    --run_remove_human false'
+
     if pipeline == PipelineType.ILLUMINA_MAG:
         # Per-sample: results/assembly/<s>/<s>.dedupe.fasta + results/mapping/<s>/<s>.depths.txt
         return f"""ASM="${{OUTPUT_DIR}}/assembly"; MAG="${{OUTPUT_DIR}}/mag"
@@ -200,7 +208,7 @@ echo ">>> Step 2/2: MAG analysis"
 echo ">>> Step 1/2: illumina assembly"
 "{illu}/run-illumina-assembly.sh" --apptainer \\
     --input "${{INPUT_DIR}}/fastq" \\
-    --assembly_memory "${{OMC_ASM_MEM_GB}}GB" \\
+    --assembly_memory "${{OMC_ASM_MEM_GB}}GB"{human_arg} \\
     --outdir "$ASM"
 echo ">>> Step 2/2: MAG analysis (per sample)"
 shopt -s nullglob

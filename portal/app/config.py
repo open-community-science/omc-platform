@@ -93,6 +93,14 @@ class Settings(BaseSettings):
     hpc_db_dir: str = "/home/rec3141/scratch/databases"
     results_path: str = "/home/rec3141/scratch/omc_results"
 
+    # illumina_assembly host (human) read removal. The pipeline needs a bbmap
+    # index of the masked hg19 reference at ${OMC_DB_DIR}/human_ref (build it
+    # with danaSeq's download-databases.sh --human). Until that DB is present on
+    # every executing cluster, keep this off (--run_remove_human false), which is
+    # fine for environmental data with no human host. Flip to True once the DB is
+    # staged everywhere; OMC will then pass --human_ref instead.
+    illumina_remove_human: bool = False
+
     @property
     def admin_logins(self) -> set[str]:
         """Parsed, lowercased set of admin GitHub logins."""
