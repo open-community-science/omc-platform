@@ -11,7 +11,10 @@ import sys
 import urllib.request
 from pathlib import Path
 
-data_dir = Path(sys.argv[1]).resolve()
+_args = sys.argv[1:]
+flags = {a for a in _args if a.startswith("--")}
+positional = [a for a in _args if not a.startswith("--")]
+data_dir = Path(positional[0]).resolve()
 slug = data_dir.name
 
 # Point the fixture/explorer at this submission BEFORE importing them.
@@ -55,6 +58,16 @@ R.STUDY_GROUNDED = study
 R.OUT = HERE / "writings" / f"real_{slug}"
 R.OUT.mkdir(parents=True, exist_ok=True)
 
-sys.argv = [sys.argv[0]]  # avoid --reverify path
-R.main()
+# Offline reproduction of THIS submission's committed ledger (no fresh model run):
+# `run_real_sample.py <dir> --reverify [--reconcile]` re-checks writings/real_<slug>.
+if "--reverify" in flags:
+    client = None
+    if "--reconcile" in flags:
+        R._unload_all(); R._lms_load(R.MODEL, 65536, 300)
+        from openai import OpenAI
+        client = OpenAI(base_url=R.BASE_URL, api_key="lm-studio")
+    R.reverify_saved(client)
+else:
+    sys.argv = [sys.argv[0]]  # fresh run: don't let R.main() see our flags
+    R.main()
 print(f"\noutputs in {R.OUT}")

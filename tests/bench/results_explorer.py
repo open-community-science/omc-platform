@@ -18,10 +18,11 @@ Out:  writings/{claims_ledger.json, claims_dag.json, claims_dag.md, results_from
 """
 import gzip
 import json
+import os
 import re
+import subprocess
 import sys
 import time
-import traceback
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -118,35 +119,92 @@ def _navigate(path):
     return True, cur
 
 
-# ── Sandboxed analysis execution (prototype of a Marimo cell) ─────────────────
-_SAFE_BUILTINS = {k: __builtins__[k] if isinstance(__builtins__, dict) else getattr(__builtins__, k)
-                  for k in ("len range sum min max sorted list dict set tuple float int str bool "
-                            "round abs enumerate zip map filter any all print isinstance").split()}
+# ── Analysis execution in a resource-limited subprocess ───────────────────────
+# Model-written code runs in a SEPARATE python process with CPU + memory rlimits,
+# a wall-clock timeout, and network disabled — so a bad or hostile cell can't hang
+# the run, exhaust memory, or reach the network/model. It is NOT a full container:
+# the filesystem is not confined, so this is for TRUSTED local benchmarking over
+# vetted pipeline outputs, not untrusted input. (A container/seccomp jail would be
+# the next step to run this on arbitrary third-party code.)
+_CHILD_RUNNER = r'''
+import os, sys, json, gzip, resource
+resource.setrlimit(resource.RLIMIT_CPU, (25, 25))          # ~25s CPU
+try:  # generous virtual-address cap — numpy/BLAS reserve a lot even when RSS is small
+    resource.setrlimit(resource.RLIMIT_AS, (8 * 1024**3, 8 * 1024**3))
+except (ValueError, OSError):
+    pass
+DATA = os.environ["EXPLORER_DATA_DIR"]
+def _rj(name):
+    for p in (os.path.join(DATA, name + ".json"), os.path.join(DATA, name + ".json.gz")):
+        if os.path.exists(p):
+            op = gzip.open if p.endswith(".gz") else open
+            with op(p, "rt") as f:
+                return json.load(f)
+    return None
+# Trusted imports FIRST (ssl, loaded transitively, subclasses socket.socket) —
+# only after they're loaded do we disable the network for the model's code.
+import numpy as np, pandas as pd
+from scipy.spatial.distance import pdist, squareform, braycurtis
+from scipy.stats import entropy, pearsonr, spearmanr, kruskal, mannwhitneyu
+from sklearn.decomposition import PCA
+_c = _rj("counts"); counts = None
+if _c:
+    _m = np.zeros((len(_c["samples"]), len(_c["asvs"])))
+    for _s, _a, _n, _r in _c["data"]:
+        _m[_s, _a] = _n
+    counts = pd.DataFrame(_m, index=_c["samples"], columns=_c["asvs"])
+_t = _rj("taxonomy") or {}
+_db, _body = next(iter(_t.items()), ("none", {}))
+_lv = _body.get("levels", [])
+tax = pd.DataFrame.from_dict({a: dict(zip(_lv, l)) for a, l in _body.get("assignments", {}).items()},
+                            orient="index").reindex(columns=_lv)
+meta = pd.DataFrame(_rj("samples") or [])
+meta = meta.set_index("id") if "id" in meta.columns else meta
+import socket
+def _no_net(*a, **k):
+    raise OSError("network disabled in analysis sandbox")
+socket.socket = _no_net; socket.create_connection = _no_net; socket.getaddrinfo = _no_net
+def _j(v, d=0):
+    if d > 4: return str(v)
+    if isinstance(v, (np.floating, np.integer)): return round(float(v), 4)
+    if isinstance(v, float): return round(v, 4)
+    if isinstance(v, np.ndarray): return _j(v.tolist(), d + 1)
+    if isinstance(v, dict): return {str(k): _j(x, d + 1) for k, x in list(v.items())[:50]}
+    if isinstance(v, (list, tuple)): return [_j(x, d + 1) for x in list(v)[:50]]
+    if isinstance(v, (pd.Series, pd.DataFrame)): return _j(v.to_dict(), d + 1)
+    return v
+_ns = dict(np=np, pd=pd, counts=counts, tax=tax, meta=meta, pdist=pdist, squareform=squareform,
+           braycurtis=braycurtis, entropy=entropy, pearsonr=pearsonr, spearmanr=spearmanr,
+           kruskal=kruskal, mannwhitneyu=mannwhitneyu, PCA=PCA)
+try:
+    exec(sys.stdin.read(), _ns)
+    print(json.dumps({"__ok__": _j(_ns["result"])} if "result" in _ns
+                     else {"__err__": "code did not set a `result` variable"}))
+except Exception as e:
+    print(json.dumps({"__err__": f"{type(e).__name__}: {e}"}))
+'''
 
 
-def _analysis_namespace():
-    from scipy.spatial.distance import pdist, squareform, braycurtis
-    from scipy.stats import entropy, pearsonr, spearmanr, kruskal, mannwhitneyu
-    from sklearn.decomposition import PCA
-    return {"__builtins__": _SAFE_BUILTINS, "np": np, "pd": pd,
-            "counts": COUNTS.copy(),          # samples x ASV read counts
-            "tax": TAX_DF.copy(),             # ASV x rank (Domain..Genus)
-            "meta": SAMPLES_META.copy(),      # sample x metadata
-            "pdist": pdist, "squareform": squareform, "braycurtis": braycurtis,
-            "entropy": entropy, "pearsonr": pearsonr, "spearmanr": spearmanr,
-            "kruskal": kruskal, "mannwhitneyu": mannwhitneyu, "PCA": PCA}
-
-
-def _run_code(code: str):
-    """Exec analysis code that must set `result`. Returns (ok, result_or_err)."""
-    ns = _analysis_namespace()
+def _run_code(code: str, timeout: int = 30):
+    """Run model-written analysis code in a resource-limited subprocess. Returns
+    (ok, result_or_error). Data is loaded from OMC_BENCH_DATA inside the child, so
+    the same code re-runs deterministically at verification time."""
     try:
-        exec(code, ns)
-        if "result" not in ns:
-            return False, "code did not set a `result` variable"
-        return True, _jsonify(ns["result"])
-    except Exception:
-        return False, traceback.format_exc().splitlines()[-1]
+        p = subprocess.run(
+            [sys.executable, "-c", _CHILD_RUNNER], input=code, text=True,
+            capture_output=True, timeout=timeout,
+            env={**os.environ, "EXPLORER_DATA_DIR": str(DATA_DIR),
+                 # single-threaded BLAS: deterministic + far smaller virtual footprint
+                 "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"},
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"timeout >{timeout}s"
+    lines = (p.stdout or "").strip().splitlines()
+    try:
+        r = json.loads(lines[-1]) if lines else {}
+    except json.JSONDecodeError:
+        return False, ((p.stderr or p.stdout or "no output").strip().splitlines() or ["error"])[-1][:200]
+    return (True, r["__ok__"]) if "__ok__" in r else (False, r.get("__err__", "error"))
 
 
 def _jsonify(v, depth=0):
@@ -326,6 +384,17 @@ Work systematically and recursively:
    number). Be honest: record quality_caveat for depth bias, low evenness, contamination,
    or anything that undermines a result. Never claim a number you did not compute.
 
+KNOW WHAT THE FIELDS MEAN — do not over-interpret metadata:
+- `meta['x']`/`meta['y']` are PRECOMPUTED ORDINATION coordinates, NOT geographic latitude/
+  longitude. Never treat them as spatial coordinates or run a "geographic"/Mantel test on
+  them, and never claim a geographic/distance effect from them.
+- `meta['collection_date']` is often the database RECORD-CREATION date, not a verified
+  biological sampling date. Do NOT claim a temporal/seasonal/sampling-date effect from it.
+  If groups separate by this date, describe it as a processing/submission BATCH, and prefer
+  grouping by a field whose meaning is certain (domain, library_strategy, library_name).
+- A named test (Mantel, PERMANOVA, ...) must be the test you actually ran; if you computed a
+  plain correlation on distances, call it that — do not upgrade the label.
+
 Keep going until the agenda (including follow-ups) is worked through, then reply DONE."""
 
 
@@ -358,10 +427,13 @@ def explore(client, max_steps=48):
             print(f"  [{step}] {tc.function.name}({str(label)[:46]}) -> {str(result)[:70]}", flush=True)
             messages.append({"role": "tool", "tool_call_id": tc.id,
                              "content": json.dumps(result, default=str)[:3500]})
-    # safety: mark any dangling investigation done
+    # If we hit the step cap with work outstanding, DO NOT pretend it finished:
+    # the current item was interrupted (not done), and pending items stay pending.
+    # Returns True only when the agenda was actually worked through.
     for a in AGENDA:
         if a["status"] == "in_progress":
-            a["status"] = "done"
+            a["status"] = "interrupted"
+    return not any(a["status"] in ("pending", "in_progress", "interrupted") for a in AGENDA)
 
 
 # ── Verification: re-derive every claim ───────────────────────────────────────
@@ -602,9 +674,12 @@ def main():
 
     print("=== EXPLORE (agenda-driven, recursive) ===")
     t0 = time.time()
-    explore(client)
+    completed = explore(client)
     verify(client)  # deterministic first; escalate misses to skeptical model reconciliation
-    print(f"\n  agenda ({len(AGENDA)} investigations):")
+    done = sum(a["status"] == "done" for a in AGENDA)
+    outstanding = [a for a in AGENDA if a["status"] != "done"]
+    print(f"\n  agenda ({done}/{len(AGENDA)} investigations done"
+          f"{'' if completed else f' — INCOMPLETE, {len(outstanding)} outstanding'}):")
     for a in AGENDA:
         tag = "  └─" if a["parent"] else "•"
         print(f"    {tag} [{a['status']}] {a['id']}: {a['question'][:72]}")
@@ -613,12 +688,20 @@ def main():
         print(f"    [{c.get('verdict'):12}|{c.get('kind','?')[:7]:7}] {c['statement'][:60]}  (={c['value']})")
 
     verified = [c for c in LEDGER if c["verdict"] == "verified"]
+    status = "complete" if completed else f"INCOMPLETE ({done}/{len(AGENDA)} investigations)"
+    banner = "" if completed else (
+        f"> ⚠️ PRELIMINARY — exploration stopped with {len(outstanding)} of {len(AGENDA)} "
+        f"investigations outstanding ({', '.join(a['id'] for a in outstanding)}); "
+        f"these Results are partial.\n\n")
+    # One atomic snapshot: ledger, DAG, and prose written from the SAME run state.
     (OUT / "claims_ledger.json").write_text(json.dumps(
-        {"claims": LEDGER, "computations": COMPUTATIONS, "agenda": AGENDA}, indent=2, default=str) + "\n")
+        {"claims": LEDGER, "computations": COMPUTATIONS, "agenda": AGENDA,
+         "run": {"completed": completed, "investigations_done": done,
+                 "investigations_total": len(AGENDA)}}, indent=2, default=str) + "\n")
     dag = build_dag()
     (OUT / "claims_dag.json").write_text(json.dumps(dag, indent=2, default=str) + "\n")
     (OUT / "claims_dag.md").write_text(
-        f"# Claim provenance DAG ({MODEL})\n\n"
+        f"# Claim provenance DAG ({MODEL}) — {status}\n\n"
         f"{len(verified)}/{len(LEDGER)} claims verified · {len(COMPUTATIONS)} computations\n\n"
         f"Legend: 🟩 verified · 🟥 refuted · 🟨 unverifiable · 🟦 computation · ⬛ data\n\n"
         f"{dag_mermaid(dag)}\n")
@@ -629,9 +712,10 @@ def main():
     n_unsupported = sum(len(i["detail"].split("may be unsupported:")[1].split(","))
                         for i in unsupported) if unsupported else 0
     (OUT / "results_from_claims.md").write_text(
-        f"# Results from claims ({MODEL})\n\n_{len(verified)}/{len(LEDGER)} verified · "
-        f"{len(COMPUTATIONS)} computations · {n_unsupported} unsupported numbers_\n\n{text}\n")
-    print(f"  verified {len(verified)}/{len(LEDGER)}; {n_unsupported} unsupported numbers")
+        f"# Results from claims ({MODEL}) — {status}\n\n{banner}"
+        f"_{len(verified)}/{len(LEDGER)} verified · {len(COMPUTATIONS)} computations · "
+        f"{n_unsupported} unsupported numbers · {done}/{len(AGENDA)} investigations_\n\n{text}\n")
+    print(f"  {status}; verified {len(verified)}/{len(LEDGER)}; {n_unsupported} unsupported numbers")
     print(f"  -> claims_ledger.json, claims_dag.json, claims_dag.md, results_from_claims.md")
 
 
