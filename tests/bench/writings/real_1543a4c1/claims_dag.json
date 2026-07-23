@@ -63,7 +63,7 @@
       "id": "k3",
       "type": "claim",
       "label": "Sequencing depth varies widely (576 to 20,267 reads, median=",
-      "verdict": "refuted",
+      "verdict": "verified",
       "kind": "observation"
     },
     {

@@ -40,7 +40,7 @@
       "kind": "observation",
       "investigation": "a1",
       "method": "direct,direct,direct",
-      "verdict": "refuted",
+      "verdict": "verified",
       "checked": [
         "c1:run"
       ]

@@ -366,11 +366,12 @@ def explore(client, max_steps=48):
 
 # ── Verification: re-derive every claim ───────────────────────────────────────
 def _nums(s):
-    """Every genuine number in a string. The negative lookbehind drops digits glued
-    to letters (the '1'/'2' in 'PC1'/'PC2' are identifiers, not quantities).
-    Handles ranges ('19-98', '2.01-4.71') and thousands commas."""
+    """Every genuine quantity in a string. The lookbehind blocks numbers embedded in
+    an alphanumeric token — not just glued to a letter ('PC1') but mid-token digit
+    runs like 'SRR38966955' (block preceded-by letter/digit/dot) — so accession IDs
+    aren't mistaken for claimed values. Handles ranges ('19-98') and thousands commas."""
     return [float(x.replace(",", ""))
-            for x in re.findall(r"(?<![A-Za-z])\d[\d,]*(?:\.\d+)?", str(s))]
+            for x in re.findall(r"(?<![A-Za-z0-9.])\d[\d,]*(?:\.\d+)?", str(s))]
 
 
 def _close(x, n):
@@ -521,9 +522,10 @@ def reverify_saved():
     saved = json.loads((OUT / "claims_ledger.json").read_text())
     LEDGER[:] = saved["claims"]
     COMPUTATIONS.clear(); COMPUTATIONS.update(saved["computations"])
+    AGENDA[:] = saved.get("agenda", [])
     verify()
     (OUT / "claims_ledger.json").write_text(json.dumps(
-        {"claims": LEDGER, "computations": COMPUTATIONS}, indent=2, default=str) + "\n")
+        {"claims": LEDGER, "computations": COMPUTATIONS, "agenda": AGENDA}, indent=2, default=str) + "\n")
     dag = build_dag()
     (OUT / "claims_dag.json").write_text(json.dumps(dag, indent=2, default=str) + "\n")
     verified = sum(c["verdict"] == "verified" for c in LEDGER)
