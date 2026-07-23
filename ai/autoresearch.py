@@ -526,9 +526,13 @@ def _rj(name):
 # Trusted imports FIRST (ssl, loaded transitively, subclasses socket.socket) —
 # only after they're loaded do we disable the network for the model's code.
 import numpy as np, pandas as pd
-from scipy.spatial.distance import pdist, squareform, braycurtis
-from scipy.stats import entropy, pearsonr, spearmanr, kruskal, mannwhitneyu
-from sklearn.decomposition import PCA
+try:  # scipy/sklearn are the analysis toolkit; if a sandbox lacks them, numpy/
+    # pandas analyses still run and only toolkit-using code errors per-call.
+    from scipy.spatial.distance import pdist, squareform, braycurtis
+    from scipy.stats import entropy, pearsonr, spearmanr, kruskal, mannwhitneyu
+    from sklearn.decomposition import PCA
+except ImportError:
+    pdist = squareform = braycurtis = entropy = pearsonr = spearmanr = kruskal = mannwhitneyu = PCA = None
 _c = _rj("counts"); counts = None
 if _c:
     _m = np.zeros((len(_c["samples"]), len(_c["asvs"])))

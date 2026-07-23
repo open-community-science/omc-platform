@@ -7,7 +7,7 @@ the container is capped at 2g/1cpu and ephemeral (see ``portal/app/sessions.py``
 The child runner is the SAME ``_SUBPROCESS_RUNNER`` the dev/offline
 ``SubprocessExecutor`` uses (imported from ``ai.autoresearch``), so re-execution
 at verification time is byte-identical to exploration time — it reads the viz
-JSON from ``/data/viz/data`` (the ``.sqsh`` bind-mounted read-only) inside the
+JSON from ``/data/viz`` (the ``.sqsh`` bind-mounted read-only) inside the
 container and prints a single JSON line (``{"__ok__": ...}`` or ``{"__err__": ...}``).
 """
 from __future__ import annotations
@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 # The submission's viz JSON inside the container: the .sqsh is bind-mounted
 # read-only at /data (sessions.py: -v {mount}:/data:ro), and the amplicon viz
-# lives under viz/data (matching the host path the DirDataSource reads).
-CONTAINER_DATA_DIR = "/data/viz/data"
+# JSON lives directly under viz/ (matching the host path the DirDataSource reads).
+CONTAINER_DATA_DIR = "/data/viz"
 
 
 class ContainerExecutor:

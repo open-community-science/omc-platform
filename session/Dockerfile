@@ -9,6 +9,8 @@ RUN pip install --no-cache-dir \
     plotly \
     pandas \
     numpy \
+    scipy \
+    scikit-learn \
     openai \
     httpx
 
