@@ -274,32 +274,106 @@ async def read_data_file(path: str, max_rows: int = 50) -> dict:
         return {"error": f"Failed to read file: {e}"}
 
 
+def _available_datasets() -> list[str]:
+    """Dataset names actually present in the viz data dir (any *.json[.gz])."""
+    if not VIZ_DATA_DIR.exists():
+        return []
+    names = set()
+    for p in VIZ_DATA_DIR.glob("*.json*"):
+        if p.suffix in (".json", ".gz"):
+            names.add(p.name.split(".json")[0])
+    return sorted(names)
+
+
+def _load_viz_json(name: str):
+    """Load a viz JSON by base name, trying .json then .json.gz. None if absent."""
+    for cand in (VIZ_DATA_DIR / f"{name}.json", VIZ_DATA_DIR / f"{name}.json.gz"):
+        if cand.exists():
+            opener = gzip.open if cand.suffix == ".gz" else open
+            with opener(cand, "rt") as f:
+                return json.load(f)
+    return None
+
+
+def _synthesize_overview() -> dict:
+    """Build an overview from whatever viz files exist.
+
+    The MAG viz emits an `overview.json`; the amplicon (microscape) viz does not
+    — it emits renorm_stats/taxonomy/samples/provenance/network. Rather than
+    return an error for the model's very first call, synthesise a compact
+    overview from the files that are present so both pipeline types work.
+    """
+    ov = {}
+    # Amplicon signals
+    renorm = _load_viz_json("renorm_stats")
+    if isinstance(renorm, dict):
+        ov["pipeline_kind"] = "amplicon (ASV)"
+        ov["renorm"] = renorm
+    samples = _load_viz_json("samples")
+    if isinstance(samples, list):
+        ov["n_samples"] = len(samples)
+        ov["total_reads"] = sum(s.get("total_reads", 0) for s in samples if isinstance(s, dict))
+    tax = _load_viz_json("taxonomy")
+    if isinstance(tax, dict) and tax:
+        db, body = next(iter(tax.items()))
+        if isinstance(body, dict):
+            assigns = body.get("assignments", {})
+            levels = body.get("levels", [])
+            ov["taxonomy_db"] = db
+            ov["n_asvs_classified"] = len(assigns)
+            if levels and assigns:
+                pidx = levels.index("Phylum") if "Phylum" in levels else 1
+                from collections import Counter
+                phyla = Counter(a[pidx] for a in assigns.values()
+                                if isinstance(a, list) and pidx < len(a) and a[pidx])
+                ov["top_phyla"] = dict(phyla.most_common(5))
+    prov = _load_viz_json("provenance")
+    if isinstance(prov, dict) and prov.get("total"):
+        t = prov["total"]
+        stages = prov.get("stages", [])
+        first = stages[0]["id"] if stages else None
+        last = stages[-1]["id"] if stages else None
+        if first in t and last in t and t.get(first):
+            ov["read_retention"] = {
+                "input": t[first], "retained": t[last],
+                "pct": round(100 * t[last] / t[first], 1),
+            }
+        ov["n_samples_provenance"] = len(prov.get("samples", {}))
+    # If nothing amplicon-ish was found, say what's available for MAG runs.
+    if not ov:
+        return {"error": "No overview available", "available_datasets": _available_datasets()}
+    ov["available_datasets"] = _available_datasets()
+    return ov
+
+
 @tool(
     name="get_results_summary",
     description=(
-        "Get preprocessed pipeline result summaries. These are structured JSON files "
-        "prepared by the danaSeq viz preprocessor, containing assembly stats, MAG quality, "
-        "taxonomy, coverage, gene annotations, MGE detection, and more. "
-        "Available datasets depend on which pipeline steps produced results."
+        "Get preprocessed pipeline result summaries (structured JSON from the danaSeq "
+        "viz preprocessor). The available datasets depend on the pipeline type:\n"
+        "- Amplicon (microscape/16S/18S): overview, taxonomy, samples, heatmap, "
+        "aggregated_counts, asvs, counts, network, renorm_stats, provenance\n"
+        "- Metagenome (MAG): overview, mags, contig_lengths, taxonomy_sunburst, "
+        "kegg_heatmap, coverage, mge_summary, eukaryotic, biosynthetic, phylotree\n"
+        "Always start with 'overview' — it is synthesised from whatever exists, so it "
+        "works for either pipeline. Call with an unknown name to see the real available list."
     ),
     parameters={
         "type": "object",
         "properties": {
             "dataset": {
                 "type": "string",
-                "description": "Which summary to load",
-                "enum": [
-                    "overview", "mags", "contig_lengths", "taxonomy_sunburst",
-                    "kegg_heatmap", "coverage", "mge_summary", "mge_per_bin",
-                    "eukaryotic", "biosynthetic", "phylotree",
-                ],
+                "description": (
+                    "Which summary to load. Use 'overview' first. "
+                    "Then any name from the available list for this submission."
+                ),
             },
         },
         "required": ["dataset"],
     },
 )
 async def get_results_summary(dataset: str) -> dict:
-    """Read a preprocessed viz summary JSON file."""
+    """Read a preprocessed viz summary JSON file (synthesises 'overview' if absent)."""
     json_path = VIZ_DATA_DIR / f"{dataset}.json"
     gz_path = VIZ_DATA_DIR / f"{dataset}.json.gz"
 
@@ -310,12 +384,13 @@ async def get_results_summary(dataset: str) -> dict:
         target = json_path
 
     if not target:
-        # List what IS available
-        available = [
-            p.stem.replace(".json", "")
-            for p in VIZ_DATA_DIR.glob("*.json")
-        ] if VIZ_DATA_DIR.exists() else []
-        return {"error": f"Dataset '{dataset}' not available", "available": available}
+        # 'overview' is special: synthesise it from whatever files are present so
+        # the model's instructed first call never dead-ends (amplicon has no
+        # overview.json). Any other missing name returns the real available list.
+        if dataset == "overview":
+            return {"data": _synthesize_overview()}
+        return {"error": f"Dataset '{dataset}' not available",
+                "available": _available_datasets()}
 
     try:
         opener = gzip.open if target.suffix == ".gz" else open
