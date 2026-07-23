@@ -305,7 +305,12 @@ async def citation_queries(client, model):
 
 @_timed
 async def interview_open(client, model):
-    msg = await start_interview(STUDY_GROUNDED, PIPELINE_TYPE, base_url=BASE_URL, model=model)
+    # start_interview is async but calls the *synchronous* chat() directly, which
+    # would block the event loop and defeat the per-task wait_for timeout. Run it
+    # in a thread (fresh loop) so the timeout can actually fire on slow models.
+    msg = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: asyncio.run(
+            start_interview(STUDY_GROUNDED, PIPELINE_TYPE, base_url=BASE_URL, model=model)))
     words = len(msg.split())
     specific = bool(re.search(r"frost flower|sea[- ]ice|ice chamber|MiSeq|11 |amplicon|16S|grenoble", msg, re.I))
     asks = "?" in msg
@@ -365,7 +370,8 @@ def write_report(results, path):
         for t in tasks:
             m = tr.get(t, {})
             if m.get("error"):
-                cells.append(f"⏱{m['error']}" if "timeout" in str(m.get("error")) else "ERR")
+                err = str(m.get("error"))
+                cells.append("⏱timeout" if "timeout" in err else ("skip" if "skipped" in err else "ERR"))
             elif not m:
                 cells.append("—")
             else:
@@ -471,13 +477,22 @@ async def main():
         note = f"{actual_ctx} ctx" + (f" (fell back from {args.context})" if actual_ctx < args.context else "")
         print(f"  [loaded @ {note} in {load_s}s]", flush=True)
         tr = {"_load": {"latency_s": load_s, "context": actual_ctx, "passed": True}}
+        consec_timeouts = 0
         for name, fn in tasks.items():
+            # Circuit breaker: a model too slow to finish tasks within the timeout
+            # would otherwise burn timeout×len(tasks). After 2 consecutive
+            # timeouts, skip its remaining tasks (the verdict is already clear).
+            if consec_timeouts >= 2:
+                print(f"  {name} ... SKIP (model too slow)", flush=True)
+                tr[name] = {"error": "skipped-slow", "passed": False}
+                continue
             print(f"  {name} ...", end="", flush=True)
             try:
                 m = await asyncio.wait_for(fn(client, model), timeout=args.timeout)
             except asyncio.TimeoutError:
                 m = {"error": f"timeout>{args.timeout}s", "passed": False, "latency_s": args.timeout}
             tr[name] = m
+            consec_timeouts = consec_timeouts + 1 if "timeout" in str(m.get("error") or "") else 0
             status = "ERR" if m.get("error") else ("PASS" if m.get("passed") else "FAIL")
             print(f" {status} {m.get('latency_s')}s "
                   f"{('- '+m['error']) if m.get('error') else ('['+', '.join(m.get('flags',[]))+']' if m.get('flags') else '')}",
