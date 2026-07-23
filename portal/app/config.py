@@ -61,7 +61,7 @@ class Settings(BaseSettings):
 
     # Claim-grounded autoresearch (issue #29). An author drives an autonomous
     # analysis run over their pipeline data: the agent proposes an agenda, runs
-    # its own analysis code inside the isolated session container (the jail),
+    # its own analysis code inside the isolated session container (the sandbox),
     # records verifiable claims, then a two-layer verification (deterministic
     # re-execution + skeptical reconciliation) grades each claim before the
     # Results prose is written from the verified ones. Off by default — it needs
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     autoresearch_max_steps: int = 48          # agent tool-call budget per run
     autoresearch_max_followups: int = 12      # cap on self-added agenda items
     autoresearch_time_budget_s: int = 1800    # wall-clock cap on explore()
-    autoresearch_max_analysis_s: int = 60     # per run_analysis exec timeout (in-jail)
+    autoresearch_max_analysis_s: int = 60     # per run_analysis exec timeout (in-sandbox)
     autoresearch_reconcile_enabled: bool = True   # skeptical-model verify fallback
     autoresearch_commit_enabled: bool = False     # PR the Results prose to .omc/
     # Per-role model overrides for the two autoresearch phases (fall back to

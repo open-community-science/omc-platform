@@ -1,6 +1,6 @@
 """Production ``CodeExecutor`` — runs model-written analysis code INSIDE the
 isolated ``omc-session-{slug}`` container via ``docker exec``, never on the portal
-host. The container is the jail (issue #29): the ``omc-sessions`` bridge drops all
+host. The container is the sandbox (issue #29): the ``omc-sessions`` bridge drops all
 outbound except the portal proxy, ``/data`` is a read-only squashfuse mount, and
 the container is capped at 2g/1cpu and ephemeral (see ``portal/app/sessions.py``).
 

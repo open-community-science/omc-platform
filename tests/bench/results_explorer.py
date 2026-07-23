@@ -73,7 +73,7 @@ def _data_source() -> DirDataSource:
 
 
 def _executor() -> SubprocessExecutor:
-    """The DEV/offline jail: a resource-limited subprocess over the same data dir."""
+    """The DEV/offline sandbox: a resource-limited subprocess over the same data dir."""
     return SubprocessExecutor(DATA_DIR)
 
 

@@ -13,7 +13,7 @@ but respects the HARD CONSTRAINTS of #29:
   * the agent's tool-calling loop runs server-side here (it orchestrates only — it
     never runs model code on the portal host);
   * model-written ``run_analysis`` code runs inside the isolated ``omc-session``
-    container via ``ContainerExecutor`` (``docker exec`` into the jail);
+    container via ``ContainerExecutor`` (``docker exec`` into the sandbox);
   * the deterministic re-read half of ``verify()`` uses a ``DirDataSource`` over the
     SAME squashfuse ``.sqsh`` mount the container reads, preserving determinism;
   * the LLM is acquired only through ``resolve_llm`` (no hardcoded endpoint).
@@ -73,7 +73,7 @@ def _dir_has_content(path) -> bool:
 
 async def ensure_session_running(slug: str, metadata: dict, user_id: int | None):
     """Guarantee the ``omc-session-{slug}`` container is up before the executor is
-    built — the HARD CONSTRAINT that model code runs in the jail, never on the host.
+    built — the HARD CONSTRAINT that model code runs in the sandbox, never on the host.
 
     Delegates to ``sessions.launch_session``, which is idempotent: it returns the
     live container if one is already running, resumes a stopped one, and relaunches
@@ -188,7 +188,7 @@ async def run_autoresearch_stream(
 
         async def run():
             try:
-                # 1. Session container must be running — model code runs in the jail.
+                # 1. Session container must be running — model code runs in the sandbox.
                 await progress_queue.put({"event": "session", "detail": "starting session container"})
                 try:
                     await ensure_session_running(sub_slug, session_metadata, user_id)
@@ -198,7 +198,7 @@ async def run_autoresearch_stream(
                     return
                 await progress_queue.put({"event": "session", "detail": "container ready"})
 
-                # 2. Data source (server-side re-reads) + container executor (jail).
+                # 2. Data source (server-side re-reads) + container executor (sandbox).
                 data = await _build_data_source(sub_slug, sub_study_meta)
                 # Pre-warm the cached datasets off the event loop — the first read
                 # parses renorm/samples/taxonomy/provenance JSON and would otherwise

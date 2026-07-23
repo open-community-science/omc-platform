@@ -330,7 +330,7 @@ class DataSource(Protocol):
 
 @runtime_checkable
 class CodeExecutor(Protocol):
-    """Runs model-written analysis code in an isolated jail and returns
+    """Runs model-written analysis code in an isolated sandbox and returns
     ``(ok, result_or_error)``. The SAME call re-runs the stored code at verify
     time, which is what makes computed claims deterministically re-derivable."""
 
@@ -505,7 +505,7 @@ class DirDataSource:
 # ── DEV/offline executor: resource-limited subprocess ─────────────────────────
 # Ported verbatim from the prototype ``_CHILD_RUNNER``. In production the agent's
 # analysis runs inside the omc-session container (see portal/app/autoresearch_executor.py);
-# THIS approximates that jail with a separate python process (CPU+memory rlimits,
+# THIS approximates that sandbox with a separate python process (CPU+memory rlimits,
 # network cut after trusted imports). Data is read from EXPLORER_DATA_DIR inside the
 # child, so the same code re-runs deterministically at verification time.
 _SUBPROCESS_RUNNER = r'''
@@ -604,7 +604,7 @@ class Autoresearcher:
 
     All state is per-instance (``computations``/``ledger``/``agenda``) so two runs
     never share globals. Construct with an injected ``DataSource`` (reads),
-    ``LLMClient`` (tool-calling), and ``CodeExecutor`` (jail), then::
+    ``LLMClient`` (tool-calling), and ``CodeExecutor`` (sandbox), then::
 
         completed = await ar.explore()
         await ar.verify()
