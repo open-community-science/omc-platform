@@ -1,20 +1,29 @@
-# Prompt / Model Benchmark — Findings (2026-07-22)
+# Prompt / Model Benchmark — Findings (2026-07-22 → 07-23)
 
-Local LM Studio (GV100, 32 GB), fixture **c5af6277** (sea-ice frost-flower 16S,
+Local LM Studio (~20 GB GPU), fixture **c5af6277** (sea-ice frost-flower 16S,
 PRJNA1473294). Real production prompt builders; see `README.md` for the harness.
-Reproduce: `python tests/bench/run_bench.py --all`.
+Reproduce: `python tests/bench/run_bench.py --context 65536`.
 
-## Model recommendations for OMC roles
+## Clean matrix after the client/prompt fixes (2026-07-23)
 
-| model | draft | review (JSON) | interview | speed | verdict |
-|---|---|---|---|---|---|
-| **openai/gpt-oss-20b** | ✅ | ✅ | ✅ | fast (6–16s) | **Strong all-rounder.** Reports real read counts + 37.2% retention. Note: single-pass drafting fabricated more numbers than outline-first (6→1–2). |
-| **qwen/qwen3-coder-30b** | ✅ | ✅ | ✅ | fastest (0.5–15s) | **Current production default — well justified.** Robust across all writing styles (0–1 unsupported numbers). |
-| mistralai/devstral-small-2-2512 | ✅ | ✅ | ✅ | slow (3–64s) | Solid, slower. Good fallback. |
-| mistralai/ministral-3-14b-reasoning | ✅ | ✅ | ✅ | med (2–49s) | Passes, but reasoning burns `<think>` tokens and it fabricated more precise numbers (3–10 unsupported). |
-| nvidia/nemotron-3-nano | ✅ | ✅ (after #27 fix) | ✅ (after placeholder fix) | slow (6–82s) | Verbose; was silently degrading review JSON before the salvage fix. |
-| google/gemma-4-26b-a4b-qat | ✅ | ✅ (after #27 fix) | ✅ (after #28 fix) | med (13–59s) | **Fully capable across all tasks.** Both original failures were client bugs, not model weaknesses: review truncation (#27) and empty interview output from the reasoning-budget bug (#28). Hidden-reasoning model — give it room. |
-| **qwen/qwen3.6-27b** | ❌ timeouts | ❌ context overflow | (needs #28) | ~7 tok/s | **Avoid on this GPU.** Hidden-reasoning model AND 27B *dense* → ~7 tok/s (vs MoE peers). Drafting blew the 150s cap; review overran the loaded context. Even with #28, throughput makes it impractical here. Load with big context + budgeted/disabled thinking if you must. |
+Setup: harness now `lms unload`s + explicitly `lms load -c 65536 --parallel 1`
+per model (context fallback 64k→48k→32k→16k for VRAM fit), with a circuit
+breaker that skips a model's remaining tasks after 2 timeouts.
+
+**6 of 7 models pass every task (36/36).** Full report format in `run_bench.py --out`.
+
+| model | ctx | draft | 2-part | anti-fab | review | cites | interview | speed | verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| **qwen/qwen3-coder-30b** | 48k | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **fast** 0.6–14s | **Production default — best speed+correctness.** Robust across all writing styles (0–1 unsupported numbers). |
+| **openai/gpt-oss-20b** | 64k | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **fast** 2–11s | **Strong all-rounder.** Single-pass fabricated more numbers than outline-first (6→1–2). |
+| mistralai/ministral-3-14b-reasoning | 64k | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | med 2–36s | Reasoning model; a few unsupported numbers (3–4). |
+| mistralai/devstral-small-2-2512 | 64k | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | med 3–59s | Solid all-round, slower. |
+| google/gemma-4-26b-a4b-qat | 64k | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | slow 8–98s | **Fully capable** — both original failures were client bugs (#27 review truncation, #28 reasoning budget), not model weakness. Review: *"unsuitable for publication due to a fundamental discrepancy between n=84 and n=11."* |
+| nvidia/nemotron-3-nano | 64k | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | slow 7–99s | Verbose; was silently degrading review JSON before #27. Now clean, outlines cite data keys. |
+| **qwen/qwen3.6-27b** | 64k | ⏱ | ⏱ | skip | skip | skip | skip | **~7 tok/s** | **Avoid on this GPU.** Loads clean at 64k now (context solved) — the *sole* blocker is throughput: 27B dense (vs MoE peers) times out on every drafting task. Circuit breaker capped it. |
+
+Speeds ≥40s reflect 26–30B models partially CPU-offloading on the ~20 GB card.
+For OMC's latency: **qwen3-coder-30b** and **gpt-oss-20b** are the fast + correct picks.
 
 ## Cross-cutting findings
 
@@ -46,7 +55,15 @@ Reproduce: `python tests/bench/run_bench.py --all`.
    reasoning ate the whole budget → empty content. `_is_reasoning_model` didn't
    know these models. This alone explained gemma-4's interview "weakness" — it's
    actually a strong model. `gemma-4 max output = 32,768 tokens` (128K context on
-   most deployments), so our 4000-token review budget is well within its ceiling.
+   most deployments), so our review budget (raised to 8,000) is well within its ceiling.
+
+7. **Hardware / LM Studio setup matters as much as the prompts.** This is a ~20 GB
+   GPU (not 32). Relying on JIT to swap models crashed (SIGSEGV/SIGABRT) once VRAM
+   was near full; a model pinned at 144k×4-parallel filled the card. Fix: `lms
+   unload` then `lms load -c <ctx> --parallel 1` per model, with a context
+   fallback ladder (64k→48k→32k→16k) since even parallel-1 at 64k OOMs the larger
+   models (qwen3-coder-30b fits at 48k = 19.1 GB). qwen3.6-27b's original
+   "context exceeded" was purely the small default load context — solved by `-c`.
 
 ## Open issues filed
 
@@ -58,5 +75,9 @@ Reproduce: `python tests/bench/run_bench.py --all`.
 
 - Per-run number counts vary at temperature 0.7; treat single-run unsupported-number
   counts as indicative, not exact. Averaging N runs would sharpen the style comparison.
-- First-call latency excludes model load (harness warms each model first), but
-  JIT eviction between models still adds real wall-clock in a full sweep.
+- Residual `unsupported-num` flags (gpt-oss, ministral, devstral) are mostly computed
+  percentages / relative abundances not literally present in the data JSON — worth a
+  glance but not hard failures.
+- Per-task latency excludes model load (loaded separately, reported in the `load`
+  column), but the 26–30B models partially CPU-offload on this ~20 GB card, so their
+  inference times (40–100s) are hardware-bound, not model-quality signals.
