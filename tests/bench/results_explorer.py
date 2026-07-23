@@ -57,8 +57,21 @@ def _build_datasets():
     fx = load_fixture()
     prov = _rj("provenance") or {}
     samples = _rj("samples") or []
+    sg = STUDY_GROUNDED or {}
     return {
         "overview": fx,
+        # Stated study/methods context — the amplicon target here is the SRA metadata
+        # LABEL, which is frequently wrong; verify it against the observed taxonomy.
+        "study": {
+            "stated_target_label": sg.get("title"),
+            "study_name": sg.get("study_name"),
+            "organism": sg.get("organism"),
+            "platform": sg.get("platform"),
+            "taxonomy_database": fx.get("taxonomy_summary", {}).get("database"),
+            "pipeline_stages": [s.get("id") for s in prov.get("stages", [])],
+            "caveat": ("stated_target_label is the SRA-metadata amplicon label and can be "
+                       "wrong (18S runs are commonly mislabeled '16S'); confirm against tax Domain."),
+        },
         "renorm_stats": _rj("renorm_stats") or fx.get("renorm", {}),
         "provenance": {"total": prov.get("total", {}),
                        "stages": [s.get("id") for s in prov.get("stages", [])],
@@ -391,16 +404,16 @@ Work systematically and recursively:
    number). Be honest: record quality_caveat for depth bias, low evenness, contamination,
    or anything that undermines a result. Never claim a number you did not compute.
 
-KNOW WHAT THE FIELDS MEAN — do not over-interpret metadata:
-- `meta['x']`/`meta['y']` are PRECOMPUTED ORDINATION coordinates, NOT geographic latitude/
-  longitude. Never treat them as spatial coordinates or run a "geographic"/Mantel test on
-  them, and never claim a geographic/distance effect from them.
-- `meta['collection_date']` is often the database RECORD-CREATION date, not a verified
-  biological sampling date. Do NOT claim a temporal/seasonal/sampling-date effect from it.
-  If groups separate by this date, describe it as a processing/submission BATCH, and prefer
-  grouping by a field whose meaning is certain (domain, library_strategy, library_name).
-- A named test (Mantel, PERMANOVA, ...) must be the test you actually ran; if you computed a
-  plain correlation on distances, call it that — do not upgrade the label.
+KNOW WHAT THE FIELDS MEAN, then think critically about the data:
+- `meta['x']`/`meta['y']` are PRECOMPUTED ORDINATION coordinates, not geographic lat/lon.
+- `meta['collection_date']` is often a database record-creation date, not a verified sampling
+  date. Treat SRA metadata labels — including the stated amplicon target — as unverified: they
+  are frequently wrong.
+- A named test (Mantel, PERMANOVA, ...) must be the test you actually ran; don't upgrade a
+  plain correlation to a named test.
+- Sanity-check the data against the stated context in get_dataset('study'). Don't invent
+  effects the data doesn't support; equally, don't accept a label the data contradicts —
+  where they disagree, the contradiction is itself a grounded finding worth recording.
 
 Keep going until the agenda (including follow-ups) is worked through, then reply DONE."""
 
