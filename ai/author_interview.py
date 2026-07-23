@@ -79,7 +79,9 @@ PIPELINE: {pipeline_type}
 
     response_text = multi_turn(
         client, system, messages,
-        model=model, max_tokens=1000, temperature=0.7,
+        # 2000: leave room for hidden-reasoning models whose reasoning channel
+        # draws from the same budget (see llm_client / issue #28).
+        model=model, max_tokens=2000, temperature=0.7,
     )
 
     # Check if the interview is complete (AI says it has enough)
@@ -166,7 +168,8 @@ Return ONLY the JSON."""
         client,
         "Extract structured information from the interview. Return only valid JSON.",
         messages,
-        model=model, max_tokens=1000, temperature=0.3,
+        # 2000: the summary JSON plus any reasoning-channel tokens need headroom.
+        model=model, max_tokens=2000, temperature=0.3,
     )
 
     try:
