@@ -20,10 +20,32 @@ breaker that skips a model's remaining tasks after 2 timeouts.
 | mistralai/devstral-small-2-2512 | 64k | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | med 3–59s | Solid all-round, slower. |
 | google/gemma-4-26b-a4b-qat | 64k | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | slow 8–98s | **Fully capable** — both original failures were client bugs (#27 review truncation, #28 reasoning budget), not model weakness. Review: *"unsuitable for publication due to a fundamental discrepancy between n=84 and n=11."* |
 | nvidia/nemotron-3-nano | 64k | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | slow 7–99s | Verbose; was silently degrading review JSON before #27. Now clean, outlines cite data keys. |
-| **qwen/qwen3.6-27b** | 64k | ⏱ | ⏱ | skip | skip | skip | skip | **~7 tok/s** | **Avoid on this GPU.** Loads clean at 64k now (context solved) — the *sole* blocker is throughput: 27B dense (vs MoE peers) times out on every drafting task. Circuit breaker capped it. |
+| qwen/qwen3.6-35b-a3b | 64k | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🐢 95–116s | **Quality winner, but slow here.** 35B-A3B MoE — fully correct (needs #28: citation/interview retried from empty). 22 GB weights don't fit the 20 GB card → partial offload despite ~3B active. Best writing of all models (see voice review). |
+| **qwen/qwen3.6-27b** | 64k | ⏱ | ⏱ | skip | skip | skip | skip | **~7 tok/s** | **Avoid on this GPU.** Loads clean at 64k now (context solved) — the *sole* blocker is throughput: 27B *dense* (vs MoE peers) times out on every drafting task. Circuit breaker capped it. Use the -35b-a3b MoE variant instead. |
 
-Speeds ≥40s reflect 26–30B models partially CPU-offloading on the ~20 GB card.
-For OMC's latency: **qwen3-coder-30b** and **gpt-oss-20b** are the fast + correct picks.
+Speeds ≥40s reflect 22–30B models partially CPU-offloading on the ~20 GB card.
+For OMC's latency: **qwen3-coder-30b** and **gpt-oss-20b** are the fast + correct picks;
+**qwen3.6-35b-a3b** is the quality pick if you can fit it in VRAM (tighter quant / bigger GPU).
+
+## Science-voice review (qualitative, `writings/`)
+
+Full grounded Results sections generated per model (`dump_writings.py`) and scored on
+how well they read as a real microbial-ecology *Results* section — register + believability.
+
+| model | voice /10 | grounding | note |
+|---|---|---|---|
+| qwen/qwen3.6-35b-a3b | 9 | ✅ best | Register **and** honesty; the only model to correctly narrate the 84→11 dropout (*"11 samples met the downstream retention criteria"*). No fabricated stats. |
+| openai/gpt-oss-20b | 9 | ⚠️ fabricates | Sounds the most like a real paper — but invents Bray–Curtis/PCoA/genera and misreads the dropout ("84 processed samples"). The confident fabricator. |
+| nvidia/nemotron-3-nano | 8.5 | ✅ | Restrained, well-hedged; only model to keep `[CITE]` discipline. |
+| mistralai/devstral-small-2-2512 | 8 | ✅ (1 slip) | Natural cadence; invented the "V4 region." |
+| mistralai/ministral-3-14b-reasoning | 7.5 | ⚠️ | Real Limitations instinct; fabricated a 7/4 sample split + a 10× read-count slip. |
+| google/gemma-4-26b-a4b-qat | 6.5 | ✅ | Honest and exact but skeletal (962 chars) — reads as a summary, not a section. |
+| qwen/qwen3-coder-30b | 6 | ⚠️ | Best sentences, ruined by a fabricated per-sample table and six "[insert figure here]" editorial notes. |
+
+**Key tension:** the best-*voiced* models (gpt-oss) are often the least trustworthy — a
+convincing science voice can smuggle fabrication past a reader. This is the case for the
+outline-then-fill + honesty work. qwen3.6-35b-a3b is the exception that resolves it.
+(Samples are single-pass = the model's natural voice; production's outline-first pass reins in the fabrication.)
 
 ## Cross-cutting findings
 
