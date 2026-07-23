@@ -52,6 +52,27 @@ def _results_sqsh(slug: str) -> Path:
     return Path(settings.local_download_path).parent / "results" / f"{slug}.sqsh"
 
 
+def results_have_output(slug: str) -> bool:
+    """True if the results archive actually contains pipeline output (a viz site
+    or a final seqtab), False for an empty/failed run.
+
+    A microscape run whose REMOVE_PRIMERS steps all failed still exits 0 (task
+    errors are ignored to keep the node alive) and gets marked "transferred",
+    producing an all-empty archive that must not be reported as success.
+    """
+    sqsh = _results_sqsh(slug)
+    if not sqsh.exists():
+        return False
+    try:
+        out = subprocess.run(
+            ["unsquashfs", "-l", str(sqsh)],
+            capture_output=True, text=True, timeout=60,
+        ).stdout
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return True  # can't tell — don't falsely fail a real run
+    return ("/site/" in out or "/viz/" in out or "seqtab_final" in out)
+
+
 def _extract_site(slug: str) -> Path | None:
     """unsquashfs the built site + its viz data from the results archive.
 

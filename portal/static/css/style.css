@@ -1576,8 +1576,9 @@ body {
 
 /* Amplicon primer sets (multi-target submissions) */
 .primer-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; margin-bottom: 1rem; }
-/* Put the known-primer picker on its own line above the fwd/rev boxes. */
-.primer-known { flex-basis: 100%; max-width: 420px; }
+/* Own line above the fwd/rev boxes. flex:0 0 100% forces the wrap; a capped
+   max-width alone let the fwd box sit beside it on the same row. */
+.primer-known { flex: 0 0 100%; width: 100%; max-width: 420px; }
 .primer-remove { align-self: center; font-size: 1.1rem; line-height: 1; padding: 0 0.4rem; }
 .primer-set-list { margin: 0.5rem 0 0.75rem 1rem; font-size: 0.85rem; list-style: disc; }
 .primer-set-list li { margin-bottom: 0.35rem; }

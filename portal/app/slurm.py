@@ -20,32 +20,69 @@ logger = logging.getLogger(__name__)
 
 
 def _microscape_primer_prelude(submission: Submission) -> tuple[str, str]:
-    """Return (shell_prelude, primer_args) for microscape from submission.primers.
+    """Return (shell_prelude, primer_args) passing OMC-resolved primers to microscape.
 
-    Only *manually entered* primers are forced on the run. Passing
-    --primers_fwd/--primers_rev routes main.nf into its "one primer pair for
-    every sample" branch and skips DETECT_PRIMERS, which otherwise picks the
-    best-retaining primer set per sample from primers/primers-*.fa.
+    OMC always supplies the primers so the pipeline never falls back to its
+    DETECT_PRIMERS process, which is both wasteful (full cutadapt pass over all
+    reads, per sample, per primer file) and currently broken (it forwards the
+    chosen primer filename as a string but not the file, so REMOVE_PRIMERS's
+    `cutadapt -g file:<name>` can't find it and exits 1 for every sample —
+    which silently produced an empty run).
 
-    That override is actively harmful when a BioProject mixes amplicon targets.
-    PRJNA1473294 labels all 84 runs "16S amplicon sequencing", but 40 of them
-    are eukaryotic 18S (reads start with TAReuk454FWD1's GCGGTAATTCC, not
-    341F). Inferring 341F/805R from a subset and applying it globally made
-    cutadapt --discard-untrimmed throw away 99.9% of those runs' reads.
+    Crucially we emit *every* resolved set into one combined fwd.fa / rev.fa.
+    cutadapt with `-g file:` tries each primer and trims the best match per
+    read, so a BioProject that mixes amplicon targets (PRJNA1473294 is really
+    16S + 18S despite all runs being labelled "16S") is handled in a single
+    pass — 16S reads get 341F, 18S reads get TAReuk, both survive. This is why
+    it's safe to force detected primers now, unlike forcing a single inferred
+    pair globally (which discarded 99.9% of the mismatched reads).
 
-    So for detected/metadata-derived primers we return nothing and let the
-    pipeline decide per sample; a manual entry still wins, since that's an
-    explicit statement from the author.
+    Falls back to the full known-primer pool when nothing was resolved, so the
+    pipeline still never needs DETECT_PRIMERS.
     """
     p = submission.primers or {}
-    fwd, rev = (p.get("fwd") or "").strip(), (p.get("rev") or "").strip()
-    if not (fwd and rev) or p.get("source") != "manual":
-        return "", ""
-    name = f"{p.get('fwd_name', '?')}/{p.get('rev_name', '?')}"
-    prelude = f"""echo ">>> Using primers {name} (source: {p.get('source', '?')})"
+    # Collect every resolved pair: the primary plus any additional detected sets,
+    # deduped by (fwd, rev) so a set that repeats the primary isn't listed twice.
+    pairs, _seen = [], set()
+    for src in ([p] + list(p.get("sets") or [])):
+        fwd, rev = (src.get("fwd") or "").strip(), (src.get("rev") or "").strip()
+        if fwd and rev and (fwd, rev) not in _seen:
+            _seen.add((fwd, rev))
+            pairs.append((fwd, rev, src.get("fwd_name", "fwd"), src.get("rev_name", "rev")))
+
+    source = p.get("source", "detected")
+    if not pairs:
+        # Nothing resolved — hand cutadapt the entire curated pool so it can
+        # still trim per read without the pipeline's DETECT_PRIMERS fallback.
+        from . import primers as _pm
+        seen_f, seen_r = {}, {}
+        for pr in _pm.PRIMER_DB:
+            seen_f.setdefault(pr["fwd"].upper(), pr["name"])
+            seen_r.setdefault(pr["rev"].upper(), pr["rev_name"])
+        pairs = None  # signal pool mode
+        source = "known-pool"
+
+    # De-dup sequences across sets so the combined FASTA stays tidy.
+    def _fasta(entries: dict) -> str:
+        return "".join(f">{n}\\n{s}\\n" for s, n in entries.items())
+
+    if pairs is None:
+        fwd_fa = _fasta(seen_f)
+        rev_fa = _fasta(seen_r)
+        label = f"{len(seen_f)} known forward / {len(seen_r)} reverse primers"
+    else:
+        fwd_seen, rev_seen = {}, {}
+        for fwd, rev, fn, rn in pairs:
+            fwd_seen.setdefault(fwd.upper(), fn or "fwd")
+            rev_seen.setdefault(rev.upper(), rn or "rev")
+        fwd_fa = _fasta(fwd_seen)
+        rev_fa = _fasta(rev_seen)
+        label = " + ".join(f"{fn}/{rn}" for _, _, fn, rn in pairs)
+
+    prelude = f"""echo ">>> Primers: {label} (source: {source})"
 mkdir -p "${{OUTPUT_DIR}}/primers"
-printf '>fwd\\n{fwd}\\n' > "${{OUTPUT_DIR}}/primers/fwd.fa"
-printf '>rev\\n{rev}\\n' > "${{OUTPUT_DIR}}/primers/rev.fa"
+printf '{fwd_fa}' > "${{OUTPUT_DIR}}/primers/fwd.fa"
+printf '{rev_fa}' > "${{OUTPUT_DIR}}/primers/rev.fa"
 """
     args = (' \\\n    --primers_fwd "${OUTPUT_DIR}/primers/fwd.fa"'
             ' \\\n    --primers_rev "${OUTPUT_DIR}/primers/rev.fa"')
@@ -831,6 +868,21 @@ async def poll_all_running_jobs(db_session) -> list:
             if phase == "transferred":
                 from .database import ResultsFormat
                 sub.results_format = ResultsFormat.TRANSFERRED
+                # Guard against a run that "succeeded" (exit 0, task errors
+                # ignored) but produced nothing — e.g. every REMOVE_PRIMERS
+                # failed. Such an archive has no viz/seqtab; mark it FAILED
+                # instead of RESULTS_READY so it doesn't read as done.
+                if sub.pipeline == PipelineType.MICROSCAPE:
+                    from .microscape_deploy import results_have_output
+                    if not results_have_output(sub.slug):
+                        sub.status = SubmissionStatus.FAILED
+                        sub.error_message = (
+                            "Pipeline finished but produced no results "
+                            "(all samples lost their reads — check primers)."
+                        )
+                        logger.warning("Submission %s transferred but empty — marked FAILED", sub.slug)
+                        completed.append(sub.slug)
+                        continue
                 # Deploy the amplicon viz site to microscape.app (once).
                 if sub.pipeline == PipelineType.MICROSCAPE:
                     meta = dict(sub.sample_metadata or {})

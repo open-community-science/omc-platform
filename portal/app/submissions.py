@@ -148,8 +148,15 @@ def _run_accession(run) -> Optional[str]:
 
 
 async def _resolve_primers(submission: Submission):
-    """Resolve amplicon primers for a microscape submission (tiers: manual >
-    metadata > inferred-from-reads). Best-effort — never blocks submission."""
+    """Resolve amplicon primers for a microscape submission.
+
+    Order is manual > empirical read detection > metadata. Read detection wins
+    over metadata deliberately: SRA metadata is unreliable (PRJNA1473294 labels
+    every run "16S" though 40 are 18S), and a single wrong metadata pair would
+    then be forced on every sample. The read-based detector is multi-set, so it
+    catches genuinely mixed BioProjects; OMC passes all detected sets to the
+    pipeline (see slurm._microscape_primer_prelude). Best-effort — never blocks.
+    """
     import asyncio
     from . import primers as pm
 
@@ -157,33 +164,35 @@ async def _resolve_primers(submission: Submission):
     if existing.get("source") == "manual" and existing.get("fwd") and existing.get("rev"):
         return  # user-specified on the submission sheet — respect it
 
-    resolved = pm.parse_metadata_primers(submission.sample_metadata)
+    resolved = None
+    # 1) Empirical multi-set detection from a spread of runs. A BioProject can
+    #    mix amplicon targets (16S + 18S) while labelling every run the same, so
+    #    probe several runs, not one, and keep every distinct set found.
+    accs = []
+    for run in (submission.selected_runs or []):
+        acc = _run_accession(run)
+        if acc:
+            accs.append(acc)
+        elif isinstance(run, dict):
+            accs.extend(a for a in (run.get("run_accessions") or []) if a)
+    if accs:
+        try:
+            sets = await asyncio.get_event_loop().run_in_executor(
+                None, pm.detect_primer_sets, accs
+            )
+        except Exception:
+            sets = []
+        if sets:
+            resolved = dict(sets[0])  # primary = widest coverage
+            if len(sets) > 1:
+                resolved["sets"] = [
+                    {k: v for k, v in st.items() if k != "runs"} for st in sets
+                ]
+
+    # 2) Fall back to metadata-declared primers only if read detection found none.
     if not resolved:
-        # Probe a spread of runs, not just the first: a BioProject can mix
-        # amplicon targets (16S + 18S) while labelling every run the same, and
-        # one run's primers then misrepresent the whole selection.
-        accs = []
-        for run in (submission.selected_runs or []):
-            acc = _run_accession(run)
-            if acc:
-                accs.append(acc)
-            elif isinstance(run, dict):
-                accs.extend(a for a in (run.get("run_accessions") or []) if a)
-        if accs:
-            try:
-                sets = await asyncio.get_event_loop().run_in_executor(
-                    None, pm.detect_primer_sets, accs
-                )
-            except Exception:
-                sets = []
-            if sets:
-                # Primary set = widest coverage; keep the rest so the UI can say
-                # "multiple primer sets detected" instead of quietly picking one.
-                resolved = dict(sets[0])
-                if len(sets) > 1:
-                    resolved["sets"] = [
-                        {k: v for k, v in st.items() if k != "runs"} for st in sets
-                    ]
+        resolved = pm.parse_metadata_primers(submission.sample_metadata)
+
     if resolved:
         submission.primers = resolved
 
