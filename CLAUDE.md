@@ -308,7 +308,7 @@ relay channels                     # list active channels
 ## Pipeline (danaSeq)
 
 - **Code:** `/data/danaseq` locally, `/home/rec3141/GENICE/danaSeq` on fir
-- **Container:** `ghcr.io/rec3141/danaseq-mag:latest` — rebuilt via GitHub Actions on push to `main`
+- **Containers (per stage):** `ghcr.io/rec3141/danaseq-illumina-assembly`, `danaseq-nanopore-assembly`, `danaseq-mag-analysis`, `danaseq-illumina-rna` (each `:latest`, rebuilt via GitHub Actions on push to `main`). The single `danaseq-mag` image was retired when the pipeline was split into per-stage images.
 - **Important:** Pipeline runs inside apptainer container. Host edits to `.nf` files don't take effect until container is rebuilt.
 - **Default flags:** `--all --run_sendsketch false --run_vamb_tax false` (sendsketch needs TaxServer)
 - **Resources:** 128G mem, 32 CPUs for `--all` mode (kaiju/kraken2/GTDB need 128G minimum)
