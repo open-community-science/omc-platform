@@ -24,6 +24,7 @@ import argparse
 import asyncio
 import json
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -395,15 +396,29 @@ def write_report(results, path):
     path.write_text("\n".join(lines) + "\n")
 
 
-def _warm(client, model):
-    """One tiny generation to force the model to load. Returns load seconds."""
+def _unload_all():
+    """Unload every loaded model. LM Studio's JIT tries to load-on-top when
+    switching, which crashes (SIGSEGV/SIGABRT) once VRAM is near full — so we
+    explicitly unload between models for a clean swap on this ~20 GB card."""
+    try:
+        subprocess.run(["lms", "unload", "--all"], capture_output=True, timeout=60)
+    except Exception as e:
+        print(f"  [lms unload failed: {e}]", flush=True)
+
+
+def _lms_load(model, context, timeout):
+    """Explicitly load a model at a chosen context length. Returns (seconds, ok, msg).
+
+    Loading with `lms load -c` (rather than JIT via an API call) lets us set a
+    context window big enough that review prompts + 8k output + any reasoning
+    never overflow (the qwen3.6 'Context size has been exceeded' failure)."""
     t0 = time.time()
-    llm_client._call_with_retry(
-        client.chat.completions.create,
-        model=model, messages=[{"role": "user", "content": "Reply with: ok"}],
-        max_tokens=5, temperature=0,
-    )
-    return round(time.time() - t0, 1)
+    try:
+        r = subprocess.run(["lms", "load", model, "-c", str(context), "-y"],
+                           capture_output=True, text=True, timeout=timeout)
+        return round(time.time() - t0, 1), r.returncode == 0, (r.stderr or r.stdout or "").strip()[-300:]
+    except subprocess.TimeoutExpired:
+        return round(time.time() - t0, 1), False, f"lms load timed out >{timeout}s"
 
 
 async def main():
@@ -413,7 +428,8 @@ async def main():
     ap.add_argument("--tasks", nargs="+", default=None)
     ap.add_argument("--out", default=str(HERE / "results.md"))
     ap.add_argument("--timeout", type=float, default=150.0, help="per-task seconds")
-    ap.add_argument("--load-timeout", type=float, default=240.0, help="model warm-up seconds")
+    ap.add_argument("--load-timeout", type=float, default=240.0, help="model load seconds")
+    ap.add_argument("--context", type=int, default=65536, help="context length to load each model at")
     args = ap.parse_args()
 
     models = ([m for m, _, _ in ALL_MODELS] if args.all
@@ -426,16 +442,15 @@ async def main():
     results = {}
     for model in models:
         print(f"\n=== {model} ===", flush=True)
-        # Warm up (load) the model first so per-task latency is inference, not load.
-        try:
-            load_s = await asyncio.wait_for(
-                loop.run_in_executor(None, _warm, client, model), timeout=args.load_timeout)
-            print(f"  [loaded in {load_s}s]", flush=True)
-        except (asyncio.TimeoutError, Exception) as e:
-            reason = "load-timeout" if isinstance(e, asyncio.TimeoutError) else f"load-error: {e}"
-            print(f"  SKIP — {reason}", flush=True)
-            results[model] = {"_load": {"error": reason, "passed": False}}
+        # Unload the previous model, then explicitly load this one at --context.
+        _unload_all()
+        load_s, ok, msg = await loop.run_in_executor(
+            None, _lms_load, model, args.context, args.load_timeout)
+        if not ok:
+            print(f"  SKIP — load failed: {msg}", flush=True)
+            results[model] = {"_load": {"error": f"load failed: {msg}", "passed": False}}
             continue
+        print(f"  [loaded @ {args.context} ctx in {load_s}s]", flush=True)
         tr = {"_load": {"latency_s": load_s, "passed": True}}
         for name, fn in tasks.items():
             print(f"  {name} ...", end="", flush=True)
