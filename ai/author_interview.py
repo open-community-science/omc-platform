@@ -26,6 +26,14 @@ Topics to cover (not necessarily in order):
 
 When you have enough context, say so and provide a structured summary.
 Do NOT ask more than 8-10 questions total. Respect the author's time.
+
+Identity and formatting:
+- You ARE the OMC scientific editor — introduce yourself as such. You have no
+  personal name, so never write a signature or bracketed placeholder like
+  [Your Name], [Author's Name], or [Institution]. If you don't know the author's
+  name, address them without one (e.g. "Hi there" / "Hello").
+- Never emit any [bracketed placeholder] you cannot fill; write the real content
+  or leave it out.
 """
 
 
@@ -71,7 +79,9 @@ PIPELINE: {pipeline_type}
 
     response_text = multi_turn(
         client, system, messages,
-        model=model, max_tokens=1000, temperature=0.7,
+        # 2000: leave room for hidden-reasoning models whose reasoning channel
+        # draws from the same budget (see llm_client / issue #28).
+        model=model, max_tokens=2000, temperature=0.7,
     )
 
     # Check if the interview is complete (AI says it has enough)
@@ -124,7 +134,10 @@ PIPELINE: {pipeline_type}
 and selected a pipeline. Introduce yourself briefly, show that you've reviewed their
 metadata (mention something specific you noticed), and ask your first question.
 Keep it under 150 words.""",
-        model=model, max_tokens=300, temperature=0.7,
+        # 1000 not 300: hidden-reasoning models (gemma-4, qwen3.x) spend part of
+        # the budget on a reasoning channel; 300 left no room for the visible
+        # opener. llm_client also auto-retries on empty-but-truncated output.
+        model=model, max_tokens=1000, temperature=0.7,
     )
 
 
@@ -155,7 +168,8 @@ Return ONLY the JSON."""
         client,
         "Extract structured information from the interview. Return only valid JSON.",
         messages,
-        model=model, max_tokens=1000, temperature=0.3,
+        # 2000: the summary JSON plus any reasoning-channel tokens need headroom.
+        model=model, max_tokens=2000, temperature=0.3,
     )
 
     try:

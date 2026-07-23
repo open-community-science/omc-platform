@@ -69,13 +69,56 @@ async def _achat(client, system, user, model=None, max_tokens=20000, on_token=No
     return _strip_think(result)
 
 
+# Outline-then-fill (two-phase drafting). Benchmarking showed that asking a model
+# to outline first, tying each bullet to a specific data value, then expand the
+# outline, substantially reduces fabricated numbers on smaller models (e.g.
+# gpt-oss-20b: 6 unsupported numbers single-pass -> 1-2 outline-first) without
+# hurting stronger models. Only the DRAFT is kept; the outline never reaches the
+# manuscript.
+_OUTLINE_INSTRUCTION = """
+
+First, produce ONLY a nested bullet-point outline of this section. Each bullet must be a
+specific point grounded in a value from the data/context above (name the number or fact).
+Do not write prose yet — just the outline."""
+
+
+def _draft_from_outline_instruction(outline: str) -> str:
+    return f"""
+
+Here is an approved outline for this section:
+
+{outline}
+
+Now write the finished section as flowing scientific prose that follows this outline.
+Output the prose ONLY — no bullet points, no outline, no headers like "Outline"/"Draft"."""
+
+
+async def _draft_section(client, system, prompt, model=None, max_tokens=20000,
+                         on_token=None, outline_first=False):
+    """Draft one section, optionally via an outline-then-fill two-phase pass.
+
+    outline_first=True runs two calls: (1) a cheap, non-streamed outline whose
+    bullets are tied to specific data values, then (2) the streamed prose draft
+    grounded in that outline. Only the draft is returned — the outline is scratch
+    scaffolding to reduce fabrication and is never shown or stored.
+    """
+    if not outline_first:
+        return await _achat(client, system, prompt, model=model,
+                            max_tokens=max_tokens, on_token=on_token)
+    outline = await _achat(client, system, prompt + _OUTLINE_INSTRUCTION,
+                           model=model, max_tokens=2000, on_token=None)
+    return await _achat(client, system, prompt + _draft_from_outline_instruction(outline),
+                        model=model, max_tokens=max_tokens, on_token=on_token)
+
+
 SYSTEM_PROMPT = """You are a scientific writing assistant for microbial ecology research.
 You help generate clear, accurate manuscript drafts based on bioinformatics pipeline outputs
 and author-provided context. Write in a professional academic style suitable for publication.
 
 Key principles:
 - Be precise and accurate about the data
-- Acknowledge limitations
+- Acknowledge limitations; be candid about incomplete or low-quality data rather
+  than presenting it as complete and solid (honest caveats help the author)
 - Use appropriate hedging language for interpretations
 - Follow standard scientific paper structure
 - Include placeholders [CITE] where citations would be needed
@@ -92,6 +135,131 @@ context you are given:
 - Do NOT state numbers that aren't in the provided results. Never fill in
   placeholder values like [X] with guesses.
 """
+
+
+def build_introduction_prompt(interview_context: str, study_context: str,
+                              bioproject_accession: str, pipeline_type: str) -> str:
+    """User prompt for the Introduction section (paired with SYSTEM_PROMPT)."""
+    return f"""Generate an Introduction section for a paper with this context:
+
+RESEARCH CONTEXT FROM AUTHOR:
+{interview_context}
+
+STUDY (authoritative — the paper is about THIS and nothing else):
+{study_context}
+
+BioProject: {bioproject_accession}
+Pipeline: {pipeline_type}
+
+Write 2-3 paragraphs that:
+1. Establish the scientific context and importance
+2. State the research question/hypothesis
+3. Briefly preview the approach
+
+Use [CITE] placeholders where literature citations would go."""
+
+
+def build_methods_prompt(pipeline_type: str, study_context: str, bioproject_accession: str,
+                         interview_data: dict, results_summary: str) -> str:
+    """User prompt for the Methods section."""
+    return f"""Generate a Methods section for this analysis:
+
+Pipeline: {pipeline_type}
+STUDY (authoritative — the paper is about THIS and nothing else):
+{study_context}
+
+BioProject: {bioproject_accession}
+
+AUTHOR CONTEXT ON SAMPLES:
+{interview_data.get('study_context', 'Not provided')}
+{interview_data.get('sample_info', 'Not provided')}
+
+PIPELINE OUTPUTS:
+{results_summary}
+
+Write a Methods section covering:
+1. Data acquisition (SRA/BioProject)
+2. Sequence processing pipeline
+3. Analysis parameters (inferred from outputs)
+4. Statistical approaches used
+
+Be specific about tools and versions where inferable."""
+
+
+def build_results_prompt(study_context: str, pipeline_outputs: dict, interview_data: dict) -> str:
+    """User prompt for the Results section."""
+    return f"""Generate a Results section based on these pipeline outputs:
+
+STUDY (authoritative — the paper is about THIS and nothing else):
+{study_context}
+
+{json.dumps(pipeline_outputs, indent=2, default=str) if pipeline_outputs else 'No pipeline outputs available yet.'}
+
+RESEARCH QUESTION:
+{interview_data.get('research_question', 'Not specified')}
+
+Write a Results section that:
+1. Reports findings objectively without interpretation
+2. References figures and tables (Figure 1, Table 1, etc.)
+3. Includes key statistics and quantitative findings
+4. Follows a logical flow from overview to specific findings
+
+Do not interpret results - save that for Discussion."""
+
+
+def build_discussion_prompt(study_context: str, results_text: str, interview_data: dict) -> str:
+    """User prompt for the Discussion section."""
+    return f"""Generate a Discussion section:
+
+STUDY (authoritative — the paper is about THIS and nothing else):
+{study_context}
+
+KEY RESULTS:
+{results_text[:1500]}
+
+AUTHOR EXPECTATIONS:
+{interview_data.get('expected_findings', 'Not specified')}
+
+BROADER SIGNIFICANCE (from author):
+{interview_data.get('broader_significance', 'Not specified')}
+
+KNOWN LIMITATIONS (from author):
+{interview_data.get('limitations', 'Not specified')}
+
+Write a Discussion that:
+1. Summarizes main findings and their significance
+2. Compares with expected findings and explains differences
+3. Places results in broader context
+4. Addresses limitations honestly
+5. Suggests future directions
+
+Use [CITE] placeholders for literature references."""
+
+
+def build_abstract_prompt(study_context: str, sections: dict) -> str:
+    """User prompt for the Abstract (written last, from the other sections)."""
+    return f"""Write an abstract for this manuscript:
+
+STUDY (authoritative — the paper is about THIS and nothing else):
+{study_context}
+
+INTRODUCTION (summary):
+{sections['introduction'][:500]}
+
+METHODS (summary):
+{sections['methods'][:500]}
+
+KEY RESULTS:
+{sections['results'][:500]}
+
+DISCUSSION (summary):
+{sections['discussion'][:500]}
+
+Write a single paragraph (200-300 words) covering:
+1. Background and objective
+2. Methods
+3. Key results
+4. Conclusions"""
 
 
 def _format_study(study_metadata: dict | None) -> str:
@@ -128,6 +296,7 @@ async def generate_manuscript_draft(
     api_key: str | None = None,
     model: str | None = None,
     cite_model: str | None = None,
+    outline_first: bool = False,
     on_progress=None,
 ) -> dict:
     """
@@ -163,138 +332,45 @@ async def generate_manuscript_draft(
     # Introduction
     await emit("start", "Generating Introduction...")
     log.info(f"Generating introduction for {bioproject_accession}...")
-    sections["introduction"] = await _achat(client, SYSTEM_PROMPT, f"""Generate an Introduction section for a paper with this context:
-
-RESEARCH CONTEXT FROM AUTHOR:
-{interview_context}
-
-STUDY (authoritative — the paper is about THIS and nothing else):
-{study_context}
-
-BioProject: {bioproject_accession}
-Pipeline: {pipeline_type}
-
-Write 2-3 paragraphs that:
-1. Establish the scientific context and importance
-2. State the research question/hypothesis
-3. Briefly preview the approach
-
-Use [CITE] placeholders where literature citations would go.""",
-        model=model, max_tokens=20000, on_token=stream_tokens)
+    sections["introduction"] = await _draft_section(client, SYSTEM_PROMPT,
+        build_introduction_prompt(interview_context, study_context, bioproject_accession, pipeline_type),
+        model=model, max_tokens=20000, on_token=stream_tokens, outline_first=outline_first)
 
     await emit("done", f"Introduction complete ({len(sections['introduction'])} chars)")
 
     # Methods
     await emit("start", "Generating Methods...")
     log.info("Generating methods...")
-    sections["methods"] = await _achat(client, SYSTEM_PROMPT, f"""Generate a Methods section for this analysis:
-
-Pipeline: {pipeline_type}
-STUDY (authoritative — the paper is about THIS and nothing else):
-{study_context}
-
-BioProject: {bioproject_accession}
-
-AUTHOR CONTEXT ON SAMPLES:
-{interview_data.get('study_context', 'Not provided')}
-{interview_data.get('sample_info', 'Not provided')}
-
-PIPELINE OUTPUTS:
-{results_summary}
-
-Write a Methods section covering:
-1. Data acquisition (SRA/BioProject)
-2. Sequence processing pipeline
-3. Analysis parameters (inferred from outputs)
-4. Statistical approaches used
-
-Be specific about tools and versions where inferable.""",
-        model=model, max_tokens=20000, on_token=stream_tokens)
+    sections["methods"] = await _draft_section(client, SYSTEM_PROMPT,
+        build_methods_prompt(pipeline_type, study_context, bioproject_accession, interview_data, results_summary),
+        model=model, max_tokens=20000, on_token=stream_tokens, outline_first=outline_first)
 
     await emit("done", f"Methods complete ({len(sections['methods'])} chars)")
 
     # Results
     await emit("start", "Generating Results...")
     log.info("Generating results...")
-    sections["results"] = await _achat(client, SYSTEM_PROMPT, f"""Generate a Results section based on these pipeline outputs:
-
-STUDY (authoritative — the paper is about THIS and nothing else):
-{study_context}
-
-{json.dumps(pipeline_outputs, indent=2, default=str) if pipeline_outputs else 'No pipeline outputs available yet.'}
-
-RESEARCH QUESTION:
-{interview_data.get('research_question', 'Not specified')}
-
-Write a Results section that:
-1. Reports findings objectively without interpretation
-2. References figures and tables (Figure 1, Table 1, etc.)
-3. Includes key statistics and quantitative findings
-4. Follows a logical flow from overview to specific findings
-
-Do not interpret results - save that for Discussion.""",
-        model=model, max_tokens=30000, on_token=stream_tokens)
+    sections["results"] = await _draft_section(client, SYSTEM_PROMPT,
+        build_results_prompt(study_context, pipeline_outputs, interview_data),
+        model=model, max_tokens=30000, on_token=stream_tokens, outline_first=outline_first)
 
     await emit("done", f"Results complete ({len(sections['results'])} chars)")
 
     # Discussion
     await emit("start", "Generating Discussion...")
     log.info("Generating discussion...")
-    sections["discussion"] = await _achat(client, SYSTEM_PROMPT, f"""Generate a Discussion section:
-
-STUDY (authoritative — the paper is about THIS and nothing else):
-{study_context}
-
-KEY RESULTS:
-{sections['results'][:1500]}
-
-AUTHOR EXPECTATIONS:
-{interview_data.get('expected_findings', 'Not specified')}
-
-BROADER SIGNIFICANCE (from author):
-{interview_data.get('broader_significance', 'Not specified')}
-
-KNOWN LIMITATIONS (from author):
-{interview_data.get('limitations', 'Not specified')}
-
-Write a Discussion that:
-1. Summarizes main findings and their significance
-2. Compares with expected findings and explains differences
-3. Places results in broader context
-4. Addresses limitations honestly
-5. Suggests future directions
-
-Use [CITE] placeholders for literature references.""",
-        model=model, max_tokens=30000, on_token=stream_tokens)
+    sections["discussion"] = await _draft_section(client, SYSTEM_PROMPT,
+        build_discussion_prompt(study_context, sections['results'], interview_data),
+        model=model, max_tokens=30000, on_token=stream_tokens, outline_first=outline_first)
 
     await emit("done", f"Discussion complete ({len(sections['discussion'])} chars)")
 
     # Abstract (written last, based on all sections)
     await emit("start", "Generating Abstract...")
     log.info("Generating abstract...")
-    sections["abstract"] = await _achat(client, SYSTEM_PROMPT, f"""Write an abstract for this manuscript:
-
-STUDY (authoritative — the paper is about THIS and nothing else):
-{study_context}
-
-INTRODUCTION (summary):
-{sections['introduction'][:500]}
-
-METHODS (summary):
-{sections['methods'][:500]}
-
-KEY RESULTS:
-{sections['results'][:500]}
-
-DISCUSSION (summary):
-{sections['discussion'][:500]}
-
-Write a single paragraph (200-300 words) covering:
-1. Background and objective
-2. Methods
-3. Key results
-4. Conclusions""",
-        model=model, max_tokens=5000, on_token=stream_tokens)
+    sections["abstract"] = await _draft_section(client, SYSTEM_PROMPT,
+        build_abstract_prompt(study_context, sections),
+        model=model, max_tokens=5000, on_token=stream_tokens, outline_first=outline_first)
     await emit("done", f"Abstract complete ({len(sections['abstract'])} chars)")
     log.info("All sections generated.")
 

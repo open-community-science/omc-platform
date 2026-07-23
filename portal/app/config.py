@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     manuscript_revise_enabled: bool = False
     manuscript_revise_max_passes: int = 2
 
+    # Outline-then-fill drafting. When on, each section is drafted in two phases
+    # (a data-grounded bullet outline, then prose from that outline; the outline
+    # is discarded). Benchmarks show this cuts fabricated numbers on smaller
+    # models with negligible cost on stronger ones. Doubles per-section LLM calls.
+    manuscript_outline_first: bool = True
+
     # Database
     database_url: str = "sqlite+aiosqlite:///./omc.db"
 

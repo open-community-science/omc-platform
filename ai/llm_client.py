@@ -84,6 +84,47 @@ def _call_with_retry(create_fn, **kwargs):
     raise RuntimeError("Exhausted retries")
 
 
+def _visible_and_finish(response) -> tuple[str, str]:
+    """Return (cleaned visible content, finish_reason) from a completion.
+
+    Handles reasoning models two ways: inline <think> blocks (stripped) and a
+    separate reasoning channel (`reasoning_content`/`reasoning`), which the SDK
+    keeps out of `.content` — so no stripping is needed there, but the budget
+    still has to leave room for the visible answer.
+    """
+    choice = response.choices[0]
+    content = _strip_think(choice.message.content)
+    return content, getattr(choice, "finish_reason", None)
+
+
+def _chat_with_budget(client, messages, model, max_tokens, temperature) -> str:
+    """Run a completion, retrying once with a larger budget if a reasoning model
+    consumed the whole budget on hidden reasoning and returned empty content.
+
+    Hidden-reasoning models (e.g. gemma-4, qwen3.x) emit their reasoning on a
+    separate channel that still counts against max_tokens. At small budgets the
+    reasoning can eat the entire allowance, leaving `.content` empty with
+    finish_reason='length'. Detect that and retry with a much larger budget so
+    the answer has room after the thinking.
+    """
+    m = model or DEFAULT_MODEL
+
+    def _do(mt):
+        return _call_with_retry(
+            client.chat.completions.create,
+            model=m, messages=messages,
+            max_tokens=_effective_tokens(mt, model), temperature=temperature,
+        )
+
+    content, finish = _visible_and_finish(_do(max_tokens))
+    if not content.strip() and finish == "length":
+        bigger = max(max_tokens * 4, 4000)
+        log.warning("Empty content at max_tokens=%d (reasoning consumed budget); "
+                    "retrying at %d for model %s", max_tokens, bigger, m)
+        content, _ = _visible_and_finish(_do(bigger))
+    return content
+
+
 def chat(
     client: OpenAI,
     system: str,
@@ -93,17 +134,11 @@ def chat(
     temperature: float = 0.7,
 ) -> str:
     """Single-turn chat completion. Returns the response text."""
-    response = _call_with_retry(
-        client.chat.completions.create,
-        model=model or DEFAULT_MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        max_tokens=_effective_tokens(max_tokens, model),
-        temperature=temperature,
+    return _chat_with_budget(
+        client,
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        model, max_tokens, temperature,
     )
-    return _strip_think(response.choices[0].message.content)
 
 
 def multi_turn(
@@ -116,11 +151,4 @@ def multi_turn(
 ) -> str:
     """Multi-turn chat completion. Messages should be [{"role": ..., "content": ...}, ...]."""
     all_messages = [{"role": "system", "content": system}] + messages
-    response = _call_with_retry(
-        client.chat.completions.create,
-        model=model or DEFAULT_MODEL,
-        messages=all_messages,
-        max_tokens=_effective_tokens(max_tokens, model),
-        temperature=temperature,
-    )
-    return _strip_think(response.choices[0].message.content)
+    return _chat_with_budget(client, all_messages, model, max_tokens, temperature)

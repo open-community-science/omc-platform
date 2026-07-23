@@ -281,6 +281,7 @@ async def generate_manuscript(
         api_key=llm["api_key"],
         model=settings.role_model("draft", llm["model"]),
         cite_model=settings.role_model("cite", llm["model"]),
+        outline_first=settings.manuscript_outline_first,
     )
 
     # Store manuscript in interview_data (but don't publish yet)
@@ -379,6 +380,7 @@ async def generate_manuscript_stream(
                     api_key=llm["api_key"],
                     model=settings.role_model("draft", llm["model"]),
                     cite_model=settings.role_model("cite", llm["model"]),
+                    outline_first=settings.manuscript_outline_first,
                     on_progress=on_progress,
                 )
                 result_holder["sections"] = sections

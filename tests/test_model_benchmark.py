@@ -9,7 +9,9 @@ import json
 import pytest
 from pathlib import Path
 
-sys.path.insert(0, "/data/omc/omc-platform")
+# Repo root (two levels up from tests/) — not a hardcoded absolute path, so the
+# suite runs from any checkout location.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from ai.llm_client import get_client, chat, _strip_think
 
 pytestmark = pytest.mark.ai
