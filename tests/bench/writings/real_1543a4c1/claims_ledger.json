@@ -208,11 +208,15 @@
       ],
       "kind": "pattern",
       "investigation": "a5",
-      "method": "direct,direct,x100,direct,direct,direct,direct,direct,direct,direct,direct,direct",
-      "verdict": "refuted",
+      "method": "reconciled",
+      "verdict": "verified",
       "checked": [
         "c8:run"
-      ]
+      ],
+      "reconcile": {
+        "verdict": "supported",
+        "reasoning": "VERDICT: SUPPORTED\nAll claimed quantitative values exactly match the provided independent evidence."
+      }
     },
     {
       "id": "k15",

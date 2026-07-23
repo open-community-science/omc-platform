@@ -406,11 +406,54 @@ def _match_num(x, cands):
     return None
 
 
-def verify():
+RECONCILE_SYSTEM = """You are a skeptical verification auditor. You are given a CLAIM and the
+INDEPENDENT EVIDENCE that was re-executed from the raw data (computation results and data
+values). Decide whether the evidence genuinely supports the claim's quantitative content.
+
+- Judge only against the evidence shown — never from prior knowledge.
+- Allow equivalent representations: unit conversions (a fraction vs a percent), values that
+  are a simple derivation of the evidence (e.g. a difference or ratio), and ranges.
+- IGNORE tokens that are identifiers, not quantities (sample accessions like SRR38966955).
+- If the claim packs several numbers, it is SUPPORTED only if every quantitative number is
+  backed; if some are and some aren't, say PARTIAL and list which fail.
+- Default to UNSUPPORTED when the evidence does not clearly back a number. Be strict.
+
+Reply with exactly one line 'VERDICT: SUPPORTED|PARTIAL|UNSUPPORTED' then one sentence why."""
+
+
+def _evidence_for(claim) -> str:
+    """The deterministic evidence block for a claim: re-executed computation results
+    and re-read data values for each antecedent. This is what the reconciler judges
+    against — not memory."""
+    parts = []
+    for ant in claim["antecedents"]:
+        if ant in COMPUTATIONS:
+            good, res = _run_code(COMPUTATIONS[ant]["code"])
+            parts.append(f"[{ant}] {COMPUTATIONS[ant]['label']} (re-executed) = "
+                         + (json.dumps(res)[:600] if good else "ERROR"))
+        else:
+            found, val = _navigate(ant)
+            parts.append(f"[{ant}] = {json.dumps(val)[:300] if found else 'NOT FOUND'}")
+    return "\n".join(parts)
+
+
+def reconcile_claim(client, claim) -> dict:
+    """Model adjudication of a claim against its re-executed evidence (issue #29).
+    Only invoked on a deterministic miss. Returns {verdict, reasoning}."""
+    user = (f"CLAIM: {claim['statement']}\nCLAIMED VALUE: {claim['value']}\n\n"
+            f"INDEPENDENT EVIDENCE (re-executed from raw data):\n{_evidence_for(claim)}")
+    from ai.llm_client import chat
+    resp = chat(client, RECONCILE_SYSTEM, user, model=MODEL, max_tokens=4000, temperature=0.0)
+    m = re.search(r"VERDICT:\s*(SUPPORTED|PARTIAL|UNSUPPORTED)", resp.upper())
+    return {"verdict": m.group(1).lower() if m else "unsupported", "reasoning": resp.strip()[:400]}
+
+
+def verify(client=None):
     """Re-derive each claim from its antecedents (data re-read; computations
-    re-EXECUTED). Distinguishes refuted (contradicts data) from unverifiable
-    (no checkable antecedent), so a true claim is never marked refuted for a
-    representation mismatch."""
+    re-EXECUTED). Deterministic first; a true claim is never marked refuted for a
+    representation mismatch. If `client` is given, a deterministic MISS escalates to
+    a skeptical model reconciliation against the same re-executed evidence — robust
+    on the hard cases, and labeled so it's clear which claims leaned on judgment."""
     for c in LEDGER:
         claim_nums = _nums(c["value"])
         candidates, strvals, checked = [], [], []
@@ -436,6 +479,13 @@ def verify():
             ok = any(c["value"].strip().lower() in s.lower() for s in strvals) if strvals else None
         c["verdict"] = "verified" if ok else ("unverifiable" if (ok is None or not have_evidence) else "refuted")
         c["checked"] = checked
+        # Escalate deterministic misses to a skeptical model reconciliation against
+        # the SAME re-executed evidence (labeled, so judgment-backed claims are visible).
+        if c["verdict"] != "verified" and client is not None and have_evidence:
+            rec = reconcile_claim(client, c)
+            c["reconcile"] = rec
+            if rec["verdict"] == "supported":
+                c["verdict"], c["method"] = "verified", "reconciled"
 
 
 def _supported_results_data():
@@ -516,14 +566,15 @@ def write_results(client, verified):
     return content
 
 
-def reverify_saved():
-    """Re-run verification (and rebuild the DAG) on the saved ledger — no model.
-    Lets us test verifier changes against the exact recorded claims/computations."""
+def reverify_saved(client=None):
+    """Re-run verification (and rebuild the DAG) on the saved ledger. With no client
+    it is purely deterministic (no model — fully reproducible); with a client, a
+    deterministic miss escalates to skeptical model reconciliation."""
     saved = json.loads((OUT / "claims_ledger.json").read_text())
     LEDGER[:] = saved["claims"]
     COMPUTATIONS.clear(); COMPUTATIONS.update(saved["computations"])
     AGENDA[:] = saved.get("agenda", [])
-    verify()
+    verify(client)
     (OUT / "claims_ledger.json").write_text(json.dumps(
         {"claims": LEDGER, "computations": COMPUTATIONS, "agenda": AGENDA}, indent=2, default=str) + "\n")
     dag = build_dag()
@@ -539,7 +590,11 @@ def reverify_saved():
 
 def main():
     if "--reverify" in sys.argv:
-        reverify_saved(); return
+        client = None
+        if "--reconcile" in sys.argv:   # escalate deterministic misses to the model
+            _unload_all(); _lms_load(MODEL, 65536, 300)
+            client = OpenAI(base_url=BASE_URL, api_key="lm-studio")
+        reverify_saved(client); return
     _unload_all()
     if not _lms_load(MODEL, 65536, 300)[1]:
         print("load failed"); return
@@ -548,7 +603,7 @@ def main():
     print("=== EXPLORE (agenda-driven, recursive) ===")
     t0 = time.time()
     explore(client)
-    verify()
+    verify(client)  # deterministic first; escalate misses to skeptical model reconciliation
     print(f"\n  agenda ({len(AGENDA)} investigations):")
     for a in AGENDA:
         tag = "  └─" if a["parent"] else "•"

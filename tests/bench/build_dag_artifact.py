@@ -35,6 +35,7 @@ for c in claims:
         "id": c["id"], "statement": c["statement"], "value": c["value"],
         "verdict": c.get("verdict", "unverifiable"), "kind": c.get("kind", "observation"),
         "method": c.get("method"),
+        "reconcile": c.get("reconcile"),
         "antecedents": [resolve(a) for a in c.get("antecedents", [])],
     })
 
@@ -144,6 +145,9 @@ pre{margin:9px 0 0;background:var(--bg);border:1px solid var(--border);border-ra
   word-break:break-word;font-variant-numeric:tabular-nums}
 .reverify{font-size:12px;color:var(--muted);margin-top:6px}
 .reverify b{color:var(--verified)}
+.reconcile{font-size:12px;color:var(--muted);margin-top:8px;padding:8px 11px;border-radius:7px;
+  background:color-mix(in srgb,var(--accent) 8%,transparent);border:1px solid var(--border)}
+.reconcile b{color:var(--accent)}
 .foot{margin-top:34px;padding-top:16px;border-top:1px solid var(--border);color:var(--muted);font-size:12.5px}
 .foot code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px}
 .empty{color:var(--muted);font-size:13px;padding:20px 4px}
@@ -226,8 +230,10 @@ function select(i){
       + `<div class="val">= ${esc(a.value)}</div></div>`;
   }).join('') || '<p class="empty">No antecedents recorded.</p>';
   const how = {direct:'a direct data/computation read', 'x100':'a unit conversion (fraction→%)',
-    '/100':'a unit conversion (%→fraction)', 'derived':'a derivation from its inputs'};
-  const name = {direct:'direct read','x100':'fraction→%','/100':'%→fraction',derived:'derived'};
+    '/100':'a unit conversion (%→fraction)', 'derived':'a derivation from its inputs',
+    reconciled:'a skeptical model adjudication against the re-executed evidence'};
+  const name = {direct:'direct read','x100':'fraction→%','/100':'%→fraction',derived:'derived',
+    reconciled:'model-reconciled'};
   const parts = [...new Set((c.method||'').split(',').map(s=>s.trim()).filter(Boolean))];
   const nonDirect = parts.filter(p=>p.split(':')[0] !== 'direct');
   const pick = (nonDirect.length ? nonDirect : parts);
@@ -248,6 +254,7 @@ function select(i){
     + `<h2>${esc(c.statement)}</h2>`
     + `<div class="kv"><span class="k">value</span><span class="v">${esc(c.value)}</span></div>`
     + `<div class="reverify">${reverify}</div>`
+    + (c.reconcile ? `<div class="reconcile"><b>Model adjudication:</b> ${esc((c.reconcile.reasoning||'').replace(/^VERDICT:[^\n]*\n?/i,''))}</div>` : '')
     + `<p class="prov-h">Antecedents (${c.antecedents.length})</p>${ants}`;
 }
 select(0);
