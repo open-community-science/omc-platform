@@ -117,6 +117,10 @@ button.claim:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .badge.verified{background:color-mix(in srgb,var(--verified) 16%,transparent);color:var(--verified)}
 .badge.refuted{background:color-mix(in srgb,var(--refuted) 16%,transparent);color:var(--refuted)}
 .badge.unverifiable{background:color-mix(in srgb,var(--unverifiable) 16%,transparent);color:var(--unverifiable)}
+.badge.method{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);
+  margin-left:8px;text-transform:none;letter-spacing:.02em}
+.chip{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid var(--accent);
+  border-radius:5px;padding:0 5px;margin-left:6px;opacity:.85;text-transform:none}
 .detail h2{font-size:17px;margin:12px 0 8px;line-height:1.35;text-wrap:balance;font-weight:600}
 .kv{font-family:var(--mono);font-size:13px;background:var(--panel2);border:1px solid var(--border);
   border-radius:7px;padding:8px 11px;margin:8px 0;display:flex;gap:8px}
@@ -186,8 +190,12 @@ DATA.claims.forEach((c,i) => {
   const b = document.createElement('button');
   b.className = 'claim'; b.setAttribute('role','option'); b.dataset.i = i;
   b.setAttribute('aria-selected','false');
+  const nd = [...new Set((c.method||'').split(',').map(s=>s.split(':')[0].trim()).filter(x=>x && x!=='direct'))];
+  const chipMap = {'x100':'frac→%','/100':'%→frac','derived':'derived'};
+  const chip = (c.verdict==='verified' && nd.length)
+    ? `<span class="chip">${nd.map(x=>chipMap[x]||x).join(' · ')}</span>` : '';
   b.innerHTML = `<span class="dot ${c.verdict}"></span><span class="txt">`
-    + `<span class="cid">${c.id}</span>`
+    + `<span class="cid">${c.id}</span>` + chip
     + (c.kind==='quality_caveat' ? '<span class="kind caveat">caveat</span>' : '')
     + `<br>${esc(c.statement)}</span>`;
   b.onclick = () => select(i);
@@ -210,7 +218,14 @@ function select(i){
   }).join('') || '<p class="empty">No antecedents recorded.</p>';
   const how = {direct:'a direct data/computation read', 'x100':'a unit conversion (fraction→%)',
     '/100':'a unit conversion (%→fraction)', 'derived':'a derivation from its inputs'};
-  const method = (c.method||'').split(',').map(m=>m.split(':')[0]).find(m=>m&&m!=='direct');
+  const name = {direct:'direct read','x100':'fraction→%','/100':'%→fraction',derived:'derived'};
+  const parts = [...new Set((c.method||'').split(',').map(s=>s.trim()).filter(Boolean))];
+  const nonDirect = parts.filter(p=>p.split(':')[0] !== 'direct');
+  const pick = (nonDirect.length ? nonDirect : parts);
+  const mlabel = pick.map(p=>{const[b,sub]=p.split(':'); return (name[b]||b)+(sub?` (${sub})`:'');}).join(' · ');
+  const methodBadge = (c.verdict==='verified' && mlabel)
+    ? `<span class="badge method" title="method: ${esc(c.method)}">✓ ${esc(mlabel)}</span>` : '';
+  const method = nonDirect.map(p=>p.split(':')[0])[0];
   const via = method ? ` via ${how[method]||method}` : '';
   const reverify = c.verdict==='verified'
     ? `Re-derived from the antecedents below${via} — <b>verified</b>.`
@@ -218,7 +233,7 @@ function select(i){
         ? 'The cited antecedents contradicted this value — <b style="color:var(--refuted)">refuted</b>, excluded from the manuscript.'
         : 'No checkable antecedent — <b style="color:var(--unverifiable)">unverifiable</b>, excluded from the manuscript.');
   document.getElementById('detail').innerHTML =
-    `<span class="badge ${c.verdict}">${c.verdict}</span>`
+    `<span class="badge ${c.verdict}">${c.verdict}</span>` + methodBadge
     + (c.kind==='quality_caveat' ? '<span class="kind caveat" style="margin-left:8px">quality caveat</span>' : '')
     + `<h2>${esc(c.statement)}</h2>`
     + `<div class="kv"><span class="k">value</span><span class="v">${esc(c.value)}</span></div>`
