@@ -291,14 +291,14 @@
       "id": "k12",
       "type": "claim",
       "label": "PCA on log-transformed counts: PC1 explained 36.76% and PC2 ",
-      "verdict": "refuted",
+      "verdict": "verified",
       "kind": "observation"
     },
     {
       "id": "k13",
       "type": "claim",
       "label": "QUALITY CAVEAT: 73 of 84 samples (86.9%) were lost during de",
-      "verdict": "refuted",
+      "verdict": "verified",
       "kind": "quality_caveat"
     },
     {

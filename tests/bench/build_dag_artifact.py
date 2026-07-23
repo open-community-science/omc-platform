@@ -32,6 +32,7 @@ for c in claims:
     view.append({
         "id": c["id"], "statement": c["statement"], "value": c["value"],
         "verdict": c.get("verdict", "unverifiable"), "kind": c.get("kind", "observation"),
+        "method": c.get("method"),
         "antecedents": [resolve(a) for a in c.get("antecedents", [])],
     })
 
@@ -207,11 +208,15 @@ function select(i){
       + `<span class="lab">${esc(a.label)}</span>`
       + `<div class="val">= ${esc(a.value)}</div></div>`;
   }).join('') || '<p class="empty">No antecedents recorded.</p>';
+  const how = {direct:'a direct data/computation read', 'x100':'a unit conversion (fraction→%)',
+    '/100':'a unit conversion (%→fraction)', 'derived':'a derivation from its inputs'};
+  const method = (c.method||'').split(',').map(m=>m.split(':')[0]).find(m=>m&&m!=='direct');
+  const via = method ? ` via ${how[method]||method}` : '';
   const reverify = c.verdict==='verified'
-    ? 'Re-derived from the antecedents below — <b>verified</b>.'
+    ? `Re-derived from the antecedents below${via} — <b>verified</b>.`
     : (c.verdict==='refuted'
-        ? 'The cited antecedents did not reproduce this value — <b style="color:var(--refuted)">refuted</b>, excluded from the manuscript.'
-        : 'Could not be checked against the data — excluded from the manuscript.');
+        ? 'The cited antecedents contradicted this value — <b style="color:var(--refuted)">refuted</b>, excluded from the manuscript.'
+        : 'No checkable antecedent — <b style="color:var(--unverifiable)">unverifiable</b>, excluded from the manuscript.');
   document.getElementById('detail').innerHTML =
     `<span class="badge ${c.verdict}">${c.verdict}</span>`
     + (c.kind==='quality_caveat' ? '<span class="kind caveat" style="margin-left:8px">quality caveat</span>' : '')

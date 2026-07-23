@@ -261,13 +261,50 @@ def explore(client, max_steps=20):
 
 # ── Verification: re-derive every claim ───────────────────────────────────────
 def _nums(s):
-    """Every number in a string — handles ranges ('19-98', '2.01–4.71') and commas."""
-    return [float(x.replace(",", "")) for x in re.findall(r"\d[\d,]*(?:\.\d+)?", str(s))]
+    """Every genuine number in a string. The negative lookbehind drops digits glued
+    to letters (the '1'/'2' in 'PC1'/'PC2' are identifiers, not quantities).
+    Handles ranges ('19-98', '2.01-4.71') and thousands commas."""
+    return [float(x.replace(",", ""))
+            for x in re.findall(r"(?<![A-Za-z])\d[\d,]*(?:\.\d+)?", str(s))]
+
+
+def _close(x, n):
+    return abs(x - n) < 0.05 * max(abs(n), 1)
+
+
+def _match_num(x, cands):
+    """How (if at all) claim number x is backed by the antecedent numbers `cands`.
+
+    Verification must re-derive x in its STATED representation, not demand a literal
+    match: a value can be the same truth in different units (fraction<->percent) or
+    a simple derivation of the inputs (difference, ratio). Pairwise derivation is
+    limited to small summary sources so it can't spuriously fire on big result sets.
+    """
+    for n in cands:
+        if _close(x, n):
+            return "direct"
+        if _close(x, n * 100):
+            return "x100"          # claim in %, source a fraction
+        if n and _close(x, n / 100):
+            return "/100"          # claim a fraction, source in %
+    if len(cands) <= 12:            # derived from a summary (e.g. 73 = 84 - 11)
+        for a in cands:
+            for b in cands:
+                if a is b:
+                    continue
+                for val, tag in ((a - b, "diff"), (a + b, "sum"),
+                                 (100 * a / b if b else None, "pct"),
+                                 (100 * (b - a) / b if b else None, "pct")):
+                    if val is not None and _close(x, val):
+                        return "derived:" + tag
+    return None
 
 
 def verify():
-    """Re-derive each claim: numbers must appear among its antecedents' values
-    (data re-read; computations re-EXECUTED). A range claim requires BOTH ends."""
+    """Re-derive each claim from its antecedents (data re-read; computations
+    re-EXECUTED). Distinguishes refuted (contradicts data) from unverifiable
+    (no checkable antecedent), so a true claim is never marked refuted for a
+    representation mismatch."""
     for c in LEDGER:
         claim_nums = _nums(c["value"])
         candidates, strvals, checked = [], [], []
@@ -284,14 +321,14 @@ def verify():
                     strvals.append(str(actual))
                 checked.append(f"{ant}:{'ok' if found else 'nopath'}")
 
-        def _match(x):
-            return any(abs(x - n) < 0.05 * max(abs(n), 1) for n in candidates)
-
+        have_evidence = bool(candidates or strvals)
         if claim_nums:
-            ok = all(_match(x) for x in claim_nums) if candidates else None
+            methods = [_match_num(x, candidates) for x in claim_nums]
+            ok = all(methods) if candidates else None
+            c["method"] = ",".join(m for m in methods if m) or None
         else:  # non-numeric claim (e.g. a database name)
             ok = any(c["value"].strip().lower() in s.lower() for s in strvals) if strvals else None
-        c["verdict"] = "verified" if ok else ("unverifiable" if ok is None else "refuted")
+        c["verdict"] = "verified" if ok else ("unverifiable" if (ok is None or not have_evidence) else "refuted")
         c["checked"] = checked
 
 
@@ -373,7 +410,29 @@ def write_results(client, verified):
     return content
 
 
+def reverify_saved():
+    """Re-run verification (and rebuild the DAG) on the saved ledger — no model.
+    Lets us test verifier changes against the exact recorded claims/computations."""
+    saved = json.loads((OUT / "claims_ledger.json").read_text())
+    LEDGER[:] = saved["claims"]
+    COMPUTATIONS.clear(); COMPUTATIONS.update(saved["computations"])
+    verify()
+    (OUT / "claims_ledger.json").write_text(json.dumps(
+        {"claims": LEDGER, "computations": COMPUTATIONS}, indent=2, default=str) + "\n")
+    dag = build_dag()
+    (OUT / "claims_dag.json").write_text(json.dumps(dag, indent=2, default=str) + "\n")
+    verified = sum(c["verdict"] == "verified" for c in LEDGER)
+    print(f"re-verified {verified}/{len(LEDGER)} claims (offline)")
+    for c in LEDGER:
+        if c["verdict"] != "verified":
+            print(f"    [{c['verdict']:12}] {c['id']} {c['statement'][:60]}")
+        elif c.get("method") and c["method"] != "direct":
+            print(f"    [verified:{c['method']:14}] {c['id']} {c['statement'][:52]}")
+
+
 def main():
+    if "--reverify" in sys.argv:
+        reverify_saved(); return
     _unload_all()
     if not _lms_load(MODEL, 65536, 300)[1]:
         print("load failed"); return

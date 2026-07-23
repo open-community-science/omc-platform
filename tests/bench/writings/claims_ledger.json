@@ -13,7 +13,8 @@
       "checked": [
         "overview.filtering.n_samples:ok",
         "provenance.total.raw:ok"
-      ]
+      ],
+      "method": "direct"
     },
     {
       "id": "k2",
@@ -26,7 +27,8 @@
       "verdict": "verified",
       "checked": [
         "provenance.total.primer:ok"
-      ]
+      ],
+      "method": "direct"
     },
     {
       "id": "k3",
@@ -41,7 +43,8 @@
       "checked": [
         "overview.filtering.reads_retained:ok",
         "overview.filtering.retention_pct:ok"
-      ]
+      ],
+      "method": "direct"
     },
     {
       "id": "k4",
@@ -56,7 +59,8 @@
       "checked": [
         "overview.asv_summary.n_samples:ok",
         "samples.n:ok"
-      ]
+      ],
+      "method": "direct"
     },
     {
       "id": "k5",
@@ -71,7 +75,8 @@
       "checked": [
         "renorm_stats.prokaryote.n_asvs:ok",
         "renorm_stats.prokaryote.n_reads:ok"
-      ]
+      ],
+      "method": "direct"
     },
     {
       "id": "k6",
@@ -86,7 +91,8 @@
       "checked": [
         "taxonomy_summary.total_asvs_classified:ok",
         "taxonomy_summary.database:ok"
-      ]
+      ],
+      "method": "direct"
     },
     {
       "id": "k7",
@@ -99,7 +105,8 @@
       "verdict": "verified",
       "checked": [
         "taxonomy_summary.top_phyla:ok"
-      ]
+      ],
+      "method": "direct,direct,direct,direct,direct"
     },
     {
       "id": "k8",
@@ -114,7 +121,8 @@
       "checked": [
         "c23:run",
         "c25:run"
-      ]
+      ],
+      "method": "direct"
     },
     {
       "id": "k9",
@@ -129,7 +137,8 @@
       "checked": [
         "c24:run",
         "c26:run"
-      ]
+      ],
+      "method": "direct"
     },
     {
       "id": "k10",
@@ -142,7 +151,8 @@
       "verdict": "verified",
       "checked": [
         "c28:run"
-      ]
+      ],
+      "method": "direct,direct"
     },
     {
       "id": "k11",
@@ -155,7 +165,8 @@
       "verdict": "verified",
       "checked": [
         "c29:run"
-      ]
+      ],
+      "method": "direct"
     },
     {
       "id": "k12",
@@ -165,10 +176,11 @@
         "c30"
       ],
       "kind": "observation",
-      "verdict": "refuted",
+      "verdict": "verified",
       "checked": [
         "c30:run"
-      ]
+      ],
+      "method": "direct,direct"
     },
     {
       "id": "k13",
@@ -179,11 +191,12 @@
         "overview.asv_summary.n_samples"
       ],
       "kind": "quality_caveat",
-      "verdict": "refuted",
+      "verdict": "verified",
       "checked": [
         "overview.filtering.n_samples:ok",
         "overview.asv_summary.n_samples:ok"
-      ]
+      ],
+      "method": "derived:diff"
     },
     {
       "id": "k14",
@@ -198,7 +211,8 @@
       "checked": [
         "renorm_stats.chloroplast.n_asvs:ok",
         "renorm_stats.chloroplast.n_samples:ok"
-      ]
+      ],
+      "method": "direct"
     },
     {
       "id": "k15",
@@ -211,7 +225,8 @@
       "verdict": "verified",
       "checked": [
         "overview.filtering.retention_pct:ok"
-      ]
+      ],
+      "method": "direct"
     },
     {
       "id": "k16",
@@ -224,7 +239,8 @@
       "verdict": "verified",
       "checked": [
         "taxonomy_summary.classified_per_rank:ok"
-      ]
+      ],
+      "method": "direct,direct,direct,direct,direct,direct,direct,direct,direct,direct,direct,direct"
     },
     {
       "id": "k17",
@@ -239,7 +255,8 @@
       "checked": [
         "c23:run",
         "c24:run"
-      ]
+      ],
+      "method": "direct"
     },
     {
       "id": "k18",
@@ -254,7 +271,8 @@
       "checked": [
         "c23:run",
         "c24:run"
-      ]
+      ],
+      "method": "direct"
     }
   ],
   "computations": {
