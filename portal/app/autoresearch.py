@@ -110,13 +110,13 @@ async def _build_data_source(slug: str, study: dict):
 
     viz_dir = None
     for base in (sqsh_mount, Path(settings.local_download_path) / slug):
-        cand = Path(base) / "viz" / "data"
+        cand = Path(base) / "viz"
         if _dir_has_content(cand):
             viz_dir = cand
             break
     if viz_dir is None:
         raise RuntimeError(
-            "No pipeline viz data found (expected .../viz/data) — autoresearch "
+            "No pipeline viz data found (expected .../viz) — autoresearch "
             "requires completed pipeline results (.sqsh) for this submission.")
     return DirDataSource(viz_dir, study=study)
 
