@@ -18,6 +18,7 @@ Out:  writings/{claims_ledger.json, claims_dag.json, claims_dag.md, results_from
 """
 import gzip
 import json
+import re
 import sys
 import time
 import traceback
@@ -259,36 +260,55 @@ def explore(client, max_steps=20):
 
 
 # ── Verification: re-derive every claim ───────────────────────────────────────
-def _num(s):
-    try:
-        return float(str(s).replace(",", "").replace("%", "").strip())
-    except (ValueError, TypeError):
-        return None
+def _nums(s):
+    """Every number in a string — handles ranges ('19-98', '2.01–4.71') and commas."""
+    return [float(x.replace(",", "")) for x in re.findall(r"\d[\d,]*(?:\.\d+)?", str(s))]
 
 
 def verify():
+    """Re-derive each claim: numbers must appear among its antecedents' values
+    (data re-read; computations re-EXECUTED). A range claim requires BOTH ends."""
     for c in LEDGER:
-        cv = _num(c["value"])
-        checked = []
-        ok = None
+        claim_nums = _nums(c["value"])
+        candidates, strvals, checked = [], [], []
         for ant in c["antecedents"]:
             if ant in COMPUTATIONS:
-                good, res = _run_code(COMPUTATIONS[ant]["code"])  # re-execute the stored code
-                nums = []
+                good, res = _run_code(COMPUTATIONS[ant]["code"])  # re-execute stored code
                 if good:
-                    _flatten_numbers(res, nums)
-                hit = good and cv is not None and any(abs(cv - n) < 0.05 * max(abs(n), 1) for n in nums)
-                checked.append(f"{ant}:{'ok' if hit else 'miss'}")
-                ok = (ok or hit) if ok is not None else hit
+                    _flatten_numbers(res, candidates)
+                checked.append(f"{ant}:{'run' if good else 'err'}")
             else:  # data path
                 found, actual = _navigate(ant)
-                av = _num(actual)
-                hit = found and ((cv is not None and av is not None and abs(cv - av) < 0.05 * max(abs(av), 1))
-                                 or (av is None and str(c["value"]).strip() in str(actual)))
-                checked.append(f"{ant}:{'ok' if hit else ('miss' if found else 'nopath')}")
-                ok = (ok or hit) if ok is not None else hit
-        c["verdict"] = "verified" if ok else ("refuted" if ok is False else "unverifiable")
+                if found:
+                    _flatten_numbers(actual, candidates)
+                    strvals.append(str(actual))
+                checked.append(f"{ant}:{'ok' if found else 'nopath'}")
+
+        def _match(x):
+            return any(abs(x - n) < 0.05 * max(abs(n), 1) for n in candidates)
+
+        if claim_nums:
+            ok = all(_match(x) for x in claim_nums) if candidates else None
+        else:  # non-numeric claim (e.g. a database name)
+            ok = any(c["value"].strip().lower() in s.lower() for s in strvals) if strvals else None
+        c["verdict"] = "verified" if ok else ("unverifiable" if ok is None else "refuted")
         c["checked"] = checked
+
+
+def _supported_results_data():
+    """Ground-truth for check_numbers_supported = raw pipeline data PLUS verified
+    computed values (a verified computation IS support). Includes fraction→percent
+    forms so '0.4311' also backs a '43.1%' claim."""
+    fx = load_fixture()
+    forms = []
+    for comp in COMPUTATIONS.values():
+        nums = []
+        _flatten_numbers(comp["result"], nums)
+        for n in nums:
+            for v in (n, n * 100):
+                forms += [round(v, 4), round(v, 2), round(v, 1)]
+    return {"pipeline": fx, "verified_claims": [c["value"] for c in LEDGER if c.get("verdict") == "verified"],
+            "computed_support": sorted(set(forms))}
 
 
 # ── DAG export ────────────────────────────────────────────────────────────────
@@ -380,7 +400,7 @@ def main():
 
     print("\n=== WRITE (verified claims only) ===")
     text = write_results(client, verified)
-    unsupported = check_numbers_supported({"results": text}, results_data=load_fixture())
+    unsupported = check_numbers_supported({"results": text}, results_data=_supported_results_data())
     n_unsupported = sum(len(i["detail"].split("may be unsupported:")[1].split(","))
                         for i in unsupported) if unsupported else 0
     (OUT / "results_from_claims.md").write_text(

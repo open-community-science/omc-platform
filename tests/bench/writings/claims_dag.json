@@ -8,44 +8,159 @@
     {
       "id": "c2",
       "type": "computation",
-      "label": "richness_per_sample"
+      "label": "shannon_diversity"
     },
     {
       "id": "c3",
       "type": "computation",
-      "label": "shannon_diversity"
+      "label": "richness_per_sample"
     },
     {
       "id": "c4",
       "type": "computation",
-      "label": "counts_shape"
+      "label": "bray_curtis_matrix"
     },
     {
       "id": "c5",
       "type": "computation",
-      "label": "richness_per_sample"
+      "label": "shannon_corrected"
     },
     {
       "id": "c6",
       "type": "computation",
-      "label": "shannon_diversity"
+      "label": "richness_corrected"
     },
     {
       "id": "c7",
       "type": "computation",
-      "label": "bray_curtis_matrix"
+      "label": "mean_shannon"
     },
     {
       "id": "c8",
       "type": "computation",
-      "label": "pca_ordination"
+      "label": "mean_richness"
+    },
+    {
+      "id": "c9",
+      "type": "computation",
+      "label": "total_reads_per_sample"
+    },
+    {
+      "id": "c10",
+      "type": "computation",
+      "label": "shannon_per_sample"
+    },
+    {
+      "id": "c11",
+      "type": "computation",
+      "label": "richness_per_sample"
+    },
+    {
+      "id": "c12",
+      "type": "computation",
+      "label": "mean_shannon_sample"
+    },
+    {
+      "id": "c13",
+      "type": "computation",
+      "label": "mean_richness_sample"
+    },
+    {
+      "id": "c14",
+      "type": "computation",
+      "label": "pca_final"
+    },
+    {
+      "id": "c15",
+      "type": "computation",
+      "label": "min_max_shannon"
+    },
+    {
+      "id": "c16",
+      "type": "computation",
+      "label": "min_max_richness"
+    },
+    {
+      "id": "c17",
+      "type": "computation",
+      "label": "check_counts_structure"
+    },
+    {
+      "id": "c18",
+      "type": "computation",
+      "label": "richness_per_sample_correct"
+    },
+    {
+      "id": "c19",
+      "type": "computation",
+      "label": "mean_shannon_final"
+    },
+    {
+      "id": "c20",
+      "type": "computation",
+      "label": "mean_richness_final"
+    },
+    {
+      "id": "c21",
+      "type": "computation",
+      "label": "pca_samples"
+    },
+    {
+      "id": "c22",
+      "type": "computation",
+      "label": "total_reads_per_sample"
+    },
+    {
+      "id": "c23",
+      "type": "computation",
+      "label": "shannon_per_sample_fixed"
+    },
+    {
+      "id": "c24",
+      "type": "computation",
+      "label": "richness_per_sample_fixed"
+    },
+    {
+      "id": "c25",
+      "type": "computation",
+      "label": "mean_shannon_fixed"
+    },
+    {
+      "id": "c26",
+      "type": "computation",
+      "label": "mean_richness_fixed"
+    },
+    {
+      "id": "c27",
+      "type": "computation",
+      "label": "pca_samples_fixed"
+    },
+    {
+      "id": "c28",
+      "type": "computation",
+      "label": "total_reads_per_sample_fixed"
+    },
+    {
+      "id": "c29",
+      "type": "computation",
+      "label": "bray_curtis_mean"
+    },
+    {
+      "id": "c30",
+      "type": "computation",
+      "label": "pca_variance"
     },
     {
       "id": "k1",
       "type": "claim",
-      "label": "Initial sequencing yielded 1,398,204 raw reads across 84 sam",
+      "label": "Initial dataset comprised 84 samples with 1,398,204 raw read",
       "verdict": "verified",
       "kind": "observation"
+    },
+    {
+      "id": "overview.filtering.n_samples",
+      "type": "data",
+      "label": "overview.filtering.n_samples"
     },
     {
       "id": "provenance.total.raw",
@@ -72,14 +187,19 @@
       "kind": "observation"
     },
     {
-      "id": "overview.filtering",
+      "id": "overview.filtering.reads_retained",
       "type": "data",
-      "label": "overview.filtering"
+      "label": "overview.filtering.reads_retained"
+    },
+    {
+      "id": "overview.filtering.retention_pct",
+      "type": "data",
+      "label": "overview.filtering.retention_pct"
     },
     {
       "id": "k4",
       "type": "claim",
-      "label": "Quality filtering resulted in loss of 73 of 84 initial sampl",
+      "label": "84 samples were reduced to 11 samples after denoising and re",
       "verdict": "verified",
       "kind": "quality_caveat"
     },
@@ -89,14 +209,14 @@
       "label": "overview.asv_summary.n_samples"
     },
     {
-      "id": "provenance.n_samples",
+      "id": "samples.n",
       "type": "data",
-      "label": "provenance.n_samples"
+      "label": "samples.n"
     },
     {
       "id": "k5",
       "type": "claim",
-      "label": "161 prokaryotic ASVs were identified in the final denoised d",
+      "label": "161 prokaryotic ASVs were retained across 11 samples with 46",
       "verdict": "verified",
       "kind": "observation"
     },
@@ -106,21 +226,14 @@
       "label": "renorm_stats.prokaryote.n_asvs"
     },
     {
-      "id": "k6",
-      "type": "claim",
-      "label": "A total of 46,656 reads were assigned to prokaryotic ASVs ac",
-      "verdict": "verified",
-      "kind": "observation"
-    },
-    {
       "id": "renorm_stats.prokaryote.n_reads",
       "type": "data",
       "label": "renorm_stats.prokaryote.n_reads"
     },
     {
-      "id": "k7",
+      "id": "k6",
       "type": "claim",
-      "label": "Taxonomic classification against SILVA database yielded 162 ",
+      "label": "162 ASVs were classified against the SILVA database.",
       "verdict": "verified",
       "kind": "observation"
     },
@@ -130,14 +243,14 @@
       "label": "taxonomy_summary.total_asvs_classified"
     },
     {
-      "id": "taxonomy_summary.classified_per_rank",
+      "id": "taxonomy_summary.database",
       "type": "data",
-      "label": "taxonomy_summary.classified_per_rank"
+      "label": "taxonomy_summary.database"
     },
     {
-      "id": "k8",
+      "id": "k7",
       "type": "claim",
-      "label": "Pseudomonadota was the dominant phylum with 116 ASVs, follow",
+      "label": "Taxonomic classification at phylum level: Pseudomonadota (11",
       "verdict": "verified",
       "kind": "observation"
     },
@@ -147,35 +260,103 @@
       "label": "taxonomy_summary.top_phyla"
     },
     {
+      "id": "k8",
+      "type": "claim",
+      "label": "Shannon diversity (bits) per sample ranged from 2.01 to 4.71",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
       "id": "k9",
       "type": "claim",
-      "label": "Observed ASV richness varied across samples from 19 (SRR3895",
-      "verdict": "refuted",
+      "label": "Observed richness (ASVs per sample) ranged from 19 to 98, wi",
+      "verdict": "verified",
       "kind": "observation"
     },
     {
       "id": "k10",
       "type": "claim",
-      "label": "Shannon diversity index (base 2) ranged from 2.01 (SRR389581",
-      "verdict": "refuted",
+      "label": "Total reads per sample ranged from 1,218 (SRR38958128) to 7,",
+      "verdict": "verified",
       "kind": "observation"
     },
     {
       "id": "k11",
       "type": "claim",
-      "label": "PCA ordination of relative abundance data showed PC1 explain",
+      "label": "Mean pairwise Bray-Curtis dissimilarity between samples was ",
       "verdict": "verified",
       "kind": "observation"
     },
     {
       "id": "k12",
       "type": "claim",
-      "label": "Bray-Curtis dissimilarity between the most similar pair (SRR",
+      "label": "PCA on log-transformed counts: PC1 explained 36.76% and PC2 ",
+      "verdict": "refuted",
+      "kind": "observation"
+    },
+    {
+      "id": "k13",
+      "type": "claim",
+      "label": "QUALITY CAVEAT: 73 of 84 samples (86.9%) were lost during de",
+      "verdict": "refuted",
+      "kind": "quality_caveat"
+    },
+    {
+      "id": "k14",
+      "type": "claim",
+      "label": "QUALITY CAVEAT: 1 chloroplast ASV was detected in 3 samples ",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    },
+    {
+      "id": "renorm_stats.chloroplast.n_asvs",
+      "type": "data",
+      "label": "renorm_stats.chloroplast.n_asvs"
+    },
+    {
+      "id": "renorm_stats.chloroplast.n_samples",
+      "type": "data",
+      "label": "renorm_stats.chloroplast.n_samples"
+    },
+    {
+      "id": "k15",
+      "type": "claim",
+      "label": "QUALITY CAVEAT: Only 37.2% of raw reads were retained after ",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    },
+    {
+      "id": "k16",
+      "type": "claim",
+      "label": "Taxonomic classification completeness: 162/162 ASVs classifi",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "taxonomy_summary.classified_per_rank",
+      "type": "data",
+      "label": "taxonomy_summary.classified_per_rank"
+    },
+    {
+      "id": "k17",
+      "type": "claim",
+      "label": "SRR38958118 had the highest Shannon diversity (4.71 bits) an",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k18",
+      "type": "claim",
+      "label": "SRR38958147 had the lowest Shannon diversity (2.01 bits) and",
       "verdict": "verified",
       "kind": "observation"
     }
   ],
   "edges": [
+    {
+      "from": "overview.filtering.n_samples",
+      "to": "k1"
+    },
     {
       "from": "provenance.total.raw",
       "to": "k1"
@@ -185,7 +366,11 @@
       "to": "k2"
     },
     {
-      "from": "overview.filtering",
+      "from": "overview.filtering.reads_retained",
+      "to": "k3"
+    },
+    {
+      "from": "overview.filtering.retention_pct",
       "to": "k3"
     },
     {
@@ -193,7 +378,7 @@
       "to": "k4"
     },
     {
-      "from": "provenance.n_samples",
+      "from": "samples.n",
       "to": "k4"
     },
     {
@@ -202,35 +387,87 @@
     },
     {
       "from": "renorm_stats.prokaryote.n_reads",
-      "to": "k6"
+      "to": "k5"
     },
     {
       "from": "taxonomy_summary.total_asvs_classified",
-      "to": "k7"
+      "to": "k6"
     },
     {
-      "from": "taxonomy_summary.classified_per_rank",
-      "to": "k7"
+      "from": "taxonomy_summary.database",
+      "to": "k6"
     },
     {
       "from": "taxonomy_summary.top_phyla",
+      "to": "k7"
+    },
+    {
+      "from": "c23",
       "to": "k8"
     },
     {
-      "from": "c5",
+      "from": "c25",
+      "to": "k8"
+    },
+    {
+      "from": "c24",
       "to": "k9"
     },
     {
-      "from": "c6",
+      "from": "c26",
+      "to": "k9"
+    },
+    {
+      "from": "c28",
       "to": "k10"
     },
     {
-      "from": "c8",
+      "from": "c29",
       "to": "k11"
     },
     {
-      "from": "c7",
+      "from": "c30",
       "to": "k12"
+    },
+    {
+      "from": "overview.filtering.n_samples",
+      "to": "k13"
+    },
+    {
+      "from": "overview.asv_summary.n_samples",
+      "to": "k13"
+    },
+    {
+      "from": "renorm_stats.chloroplast.n_asvs",
+      "to": "k14"
+    },
+    {
+      "from": "renorm_stats.chloroplast.n_samples",
+      "to": "k14"
+    },
+    {
+      "from": "overview.filtering.retention_pct",
+      "to": "k15"
+    },
+    {
+      "from": "taxonomy_summary.classified_per_rank",
+      "to": "k16"
+    },
+    {
+      "from": "c23",
+      "to": "k17"
+    },
+    {
+      "from": "c24",
+      "to": "k17"
+    },
+    {
+      "from": "c23",
+      "to": "k18"
+    },
+    {
+      "from": "c24",
+      "to": "k18"
     }
   ]
 }

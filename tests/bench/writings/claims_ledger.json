@@ -2,14 +2,16 @@
   "claims": [
     {
       "id": "k1",
-      "statement": "Initial sequencing yielded 1,398,204 raw reads across 84 samples.",
-      "value": "1398204",
+      "statement": "Initial dataset comprised 84 samples with 1,398,204 raw reads.",
+      "value": "84",
       "antecedents": [
+        "overview.filtering.n_samples",
         "provenance.total.raw"
       ],
       "kind": "observation",
       "verdict": "verified",
       "checked": [
+        "overview.filtering.n_samples:ok",
         "provenance.total.raw:ok"
       ]
     },
@@ -28,77 +30,68 @@
     },
     {
       "id": "k3",
-      "statement": "After quality filtering, 519,769 reads were retained (37.2% retention rate).",
-      "value": "37.2",
+      "statement": "After quality filtering, 519,769 reads were retained (37.2% of raw reads).",
+      "value": "519769",
       "antecedents": [
-        "overview.filtering"
+        "overview.filtering.reads_retained",
+        "overview.filtering.retention_pct"
       ],
       "kind": "observation",
       "verdict": "verified",
       "checked": [
-        "overview.filtering:ok"
+        "overview.filtering.reads_retained:ok",
+        "overview.filtering.retention_pct:ok"
       ]
     },
     {
       "id": "k4",
-      "statement": "Quality filtering resulted in loss of 73 of 84 initial samples, with 11 samples retained.",
+      "statement": "84 samples were reduced to 11 samples after denoising and renormalization.",
       "value": "11",
       "antecedents": [
         "overview.asv_summary.n_samples",
-        "provenance.n_samples"
+        "samples.n"
       ],
       "kind": "quality_caveat",
       "verdict": "verified",
       "checked": [
         "overview.asv_summary.n_samples:ok",
-        "provenance.n_samples:miss"
+        "samples.n:ok"
       ]
     },
     {
       "id": "k5",
-      "statement": "161 prokaryotic ASVs were identified in the final denoised dataset.",
+      "statement": "161 prokaryotic ASVs were retained across 11 samples with 46,656 total reads.",
       "value": "161",
       "antecedents": [
-        "renorm_stats.prokaryote.n_asvs"
-      ],
-      "kind": "observation",
-      "verdict": "verified",
-      "checked": [
-        "renorm_stats.prokaryote.n_asvs:ok"
-      ]
-    },
-    {
-      "id": "k6",
-      "statement": "A total of 46,656 reads were assigned to prokaryotic ASVs across 11 samples.",
-      "value": "46656",
-      "antecedents": [
+        "renorm_stats.prokaryote.n_asvs",
         "renorm_stats.prokaryote.n_reads"
       ],
       "kind": "observation",
       "verdict": "verified",
       "checked": [
+        "renorm_stats.prokaryote.n_asvs:ok",
         "renorm_stats.prokaryote.n_reads:ok"
       ]
     },
     {
-      "id": "k7",
-      "statement": "Taxonomic classification against SILVA database yielded 162 ASVs classified at domain level, 162 at phylum, 162 at class, 161 at order, 158 at family, and 137 at genus level.",
+      "id": "k6",
+      "statement": "162 ASVs were classified against the SILVA database.",
       "value": "162",
       "antecedents": [
         "taxonomy_summary.total_asvs_classified",
-        "taxonomy_summary.classified_per_rank"
+        "taxonomy_summary.database"
       ],
       "kind": "observation",
       "verdict": "verified",
       "checked": [
         "taxonomy_summary.total_asvs_classified:ok",
-        "taxonomy_summary.classified_per_rank:ok"
+        "taxonomy_summary.database:ok"
       ]
     },
     {
-      "id": "k8",
-      "statement": "Pseudomonadota was the dominant phylum with 116 ASVs, followed by Bacteroidota (22), Campylobacterota (13), Verrucomicrobiota (4), and Actinomycetota (3).",
-      "value": "116",
+      "id": "k7",
+      "statement": "Taxonomic classification at phylum level: Pseudomonadota (116 ASVs), Bacteroidota (22), Campylobacterota (13), Verrucomicrobiota (4), Actinomycetota (3).",
+      "value": "Pseudomonadota:116, Bacteroidota:22, Campylobacterota:13, Verrucomicrobiota:4, Actinomycetota:3",
       "antecedents": [
         "taxonomy_summary.top_phyla"
       ],
@@ -109,62 +102,165 @@
       ]
     },
     {
-      "id": "k9",
-      "statement": "Observed ASV richness varied across samples from 19 (SRR38958128) to 98 (SRR38958118).",
-      "value": "19-98",
+      "id": "k8",
+      "statement": "Shannon diversity (bits) per sample ranged from 2.01 to 4.71, with mean 3.82.",
+      "value": "3.8162",
       "antecedents": [
-        "c5"
+        "c23",
+        "c25"
       ],
       "kind": "observation",
-      "verdict": "refuted",
+      "verdict": "verified",
       "checked": [
-        "c5:miss"
+        "c23:run",
+        "c25:run"
+      ]
+    },
+    {
+      "id": "k9",
+      "statement": "Observed richness (ASVs per sample) ranged from 19 to 98, with mean 58.73.",
+      "value": "58.7273",
+      "antecedents": [
+        "c24",
+        "c26"
+      ],
+      "kind": "observation",
+      "verdict": "verified",
+      "checked": [
+        "c24:run",
+        "c26:run"
       ]
     },
     {
       "id": "k10",
-      "statement": "Shannon diversity index (base 2) ranged from 2.01 (SRR38958147) to 4.71 (SRR38958118) across samples.",
-      "value": "2.01-4.71",
+      "statement": "Total reads per sample ranged from 1,218 (SRR38958128) to 7,026 (SRR38958118).",
+      "value": "1218-7026",
       "antecedents": [
-        "c6"
+        "c28"
       ],
       "kind": "observation",
-      "verdict": "refuted",
+      "verdict": "verified",
       "checked": [
-        "c6:miss"
+        "c28:run"
       ]
     },
     {
       "id": "k11",
-      "statement": "PCA ordination of relative abundance data showed PC1 explained 43.1% and PC2 explained 33.8% of variance.",
-      "value": "0.4311",
+      "statement": "Mean pairwise Bray-Curtis dissimilarity between samples was 0.635.",
+      "value": "0.6348",
       "antecedents": [
-        "c8"
+        "c29"
       ],
       "kind": "observation",
       "verdict": "verified",
       "checked": [
-        "c8:ok"
+        "c29:run"
       ]
     },
     {
       "id": "k12",
-      "statement": "Bray-Curtis dissimilarity between the most similar pair (SRR38958117 and SRR38958158) was 0.1746, while the most dissimilar pair (SRR38958135 and SRR38958147) was 0.9372.",
-      "value": "0.1746",
+      "statement": "PCA on log-transformed counts: PC1 explained 36.76% and PC2 explained 15.73% of variance.",
+      "value": "PC1:0.3676, PC2:0.1573",
       "antecedents": [
-        "c7"
+        "c30"
+      ],
+      "kind": "observation",
+      "verdict": "refuted",
+      "checked": [
+        "c30:run"
+      ]
+    },
+    {
+      "id": "k13",
+      "statement": "QUALITY CAVEAT: 73 of 84 samples (86.9%) were lost during denoising/renormalization, retaining only 11 samples. This represents substantial sample attrition that may bias downstream analyses.",
+      "value": "73",
+      "antecedents": [
+        "overview.filtering.n_samples",
+        "overview.asv_summary.n_samples"
+      ],
+      "kind": "quality_caveat",
+      "verdict": "refuted",
+      "checked": [
+        "overview.filtering.n_samples:ok",
+        "overview.asv_summary.n_samples:ok"
+      ]
+    },
+    {
+      "id": "k14",
+      "statement": "QUALITY CAVEAT: 1 chloroplast ASV was detected in 3 samples with 26 total reads, indicating potential mitochondrial/chloroplast contamination.",
+      "value": "1",
+      "antecedents": [
+        "renorm_stats.chloroplast.n_asvs",
+        "renorm_stats.chloroplast.n_samples"
+      ],
+      "kind": "quality_caveat",
+      "verdict": "verified",
+      "checked": [
+        "renorm_stats.chloroplast.n_asvs:ok",
+        "renorm_stats.chloroplast.n_samples:ok"
+      ]
+    },
+    {
+      "id": "k15",
+      "statement": "QUALITY CAVEAT: Only 37.2% of raw reads were retained after filtering, indicating aggressive quality filtering that may have removed valid biological signal.",
+      "value": "37.2",
+      "antecedents": [
+        "overview.filtering.retention_pct"
+      ],
+      "kind": "quality_caveat",
+      "verdict": "verified",
+      "checked": [
+        "overview.filtering.retention_pct:ok"
+      ]
+    },
+    {
+      "id": "k16",
+      "statement": "Taxonomic classification completeness: 162/162 ASVs classified at domain and phylum level, 161/162 at class level, 161/162 at order level, 158/162 at family level, and 137/162 at genus level.",
+      "value": "domain:162/162, phylum:162/162, class:162/162, order:161/162, family:158/162, genus:137/162",
+      "antecedents": [
+        "taxonomy_summary.classified_per_rank"
       ],
       "kind": "observation",
       "verdict": "verified",
       "checked": [
-        "c7:ok"
+        "taxonomy_summary.classified_per_rank:ok"
+      ]
+    },
+    {
+      "id": "k17",
+      "statement": "SRR38958118 had the highest Shannon diversity (4.71 bits) and highest observed richness (98 ASVs) among the 11 retained samples.",
+      "value": "4.7138",
+      "antecedents": [
+        "c23",
+        "c24"
+      ],
+      "kind": "observation",
+      "verdict": "verified",
+      "checked": [
+        "c23:run",
+        "c24:run"
+      ]
+    },
+    {
+      "id": "k18",
+      "statement": "SRR38958147 had the lowest Shannon diversity (2.01 bits) and lowest observed richness (32 ASVs) among the 11 retained samples.",
+      "value": "2.0139",
+      "antecedents": [
+        "c23",
+        "c24"
+      ],
+      "kind": "observation",
+      "verdict": "verified",
+      "checked": [
+        "c23:run",
+        "c24:run"
       ]
     }
   ],
   "computations": {
     "c1": {
       "label": "richness_per_sample",
-      "code": "# Compute observed ASV richness per sample\nrichness = {}\nfor sample in counts.columns:\n    richness[sample] = int((counts[sample] > 0).sum())\n\nresult = richness",
+      "code": "# Compute observed richness (number of ASVs with reads > 0) per sample\nrichness = {}\nfor sample in counts.columns:\n    richness[sample] = int((counts[sample] > 0).sum())\n\nresult = pd.Series(richness, name='Observed_richness')",
       "result": {
         "ASV_000001": 10,
         "ASV_000002": 11,
@@ -219,8 +315,64 @@
       }
     },
     "c2": {
+      "label": "shannon_diversity",
+      "code": "# Compute Shannon diversity per sample using available scope\n# Available: counts (DataFrame), np, pd, pdist, squareform, braycurtis, entropy, PCA\nshannon = {}\nfor sample in counts.columns:\n    s = counts[sample]\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(-entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nresult = pd.Series(shannon, name='Shannon_diversity')",
+      "result": {
+        "ASV_000001": -2.8415,
+        "ASV_000002": -2.6116,
+        "ASV_000003": -2.7009,
+        "ASV_000004": -2.8744,
+        "ASV_000005": -3.1542,
+        "ASV_000006": -1.4181,
+        "ASV_000007": -3.0922,
+        "ASV_000008": -2.5257,
+        "ASV_000009": -2.8449,
+        "ASV_000010": -3.0478,
+        "ASV_000011": -2.938,
+        "ASV_000012": -2.5442,
+        "ASV_000013": -2.7823,
+        "ASV_000014": -2.5498,
+        "ASV_000015": -2.6513,
+        "ASV_000016": -2.8607,
+        "ASV_000017": -2.4696,
+        "ASV_000018": -1.5705,
+        "ASV_000019": -1.5103,
+        "ASV_000020": -3.0207,
+        "ASV_000021": -1.9679,
+        "ASV_000022": -2.5109,
+        "ASV_000023": -3.1132,
+        "ASV_000024": -1.9369,
+        "ASV_000025": -2.7071,
+        "ASV_000026": -2.3018,
+        "ASV_000027": -2.249,
+        "ASV_000028": -2.4136,
+        "ASV_000029": -0.9829,
+        "ASV_000030": -2.474,
+        "ASV_000031": -2.2835,
+        "ASV_000032": -1.2309,
+        "ASV_000033": -2.1171,
+        "ASV_000034": -1.259,
+        "ASV_000035": -1.5508,
+        "ASV_000036": -1.5355,
+        "ASV_000037": -1.2851,
+        "ASV_000038": -1.5065,
+        "ASV_000039": -2.8063,
+        "ASV_000040": -2.7499,
+        "ASV_000041": -1.5594,
+        "ASV_000042": -2.8104,
+        "ASV_000043": -1.9761,
+        "ASV_000044": -2.4733,
+        "ASV_000045": -2.5109,
+        "ASV_000046": -0.9701,
+        "ASV_000047": -3.0663,
+        "ASV_000048": -2.1762,
+        "ASV_000049": -1.5624,
+        "ASV_000050": -1.7853
+      }
+    },
+    "c3": {
       "label": "richness_per_sample",
-      "code": "# Compute observed ASV richness per sample\nrichness = {}\nfor sample in counts.columns:\n    richness[sample] = int((counts[sample] > 0).sum())\n\nresult = richness",
+      "code": "# Compute observed richness per sample\nrichness = {}\nfor sample in counts.columns:\n    richness[sample] = int((counts[sample] > 0).sum())\n\nresult = pd.Series(richness, name='Observed_richness')",
       "result": {
         "ASV_000001": 10,
         "ASV_000002": 11,
@@ -274,9 +426,158 @@
         "ASV_000050": 4
       }
     },
-    "c3": {
-      "label": "shannon_diversity",
-      "code": "# Compute Shannon diversity per sample\nshannon = {}\nfor sample in counts.columns:\n    s = counts[sample]\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nresult = shannon",
+    "c4": {
+      "label": "bray_curtis_matrix",
+      "code": "# Compute Bray-Curtis dissimilarity matrix\nbc_dist = pdist(counts, metric='braycurtis')\nbc_matrix = squareform(bc_dist)\nresult = pd.DataFrame(bc_matrix, index=counts.index, columns=counts.index)",
+      "result": {
+        "SRR38958117": {
+          "SRR38958117": 0.0,
+          "SRR38958118": 0.2141,
+          "SRR38958119": 0.3681,
+          "SRR38958126": 0.2467,
+          "SRR38958127": 0.7968,
+          "SRR38958128": 0.9301,
+          "SRR38958135": 0.6896,
+          "SRR38958136": 0.4877,
+          "SRR38958147": 0.79,
+          "SRR38958151": 0.2791,
+          "SRR38958158": 0.2959
+        },
+        "SRR38958118": {
+          "SRR38958117": 0.2141,
+          "SRR38958118": 0.0,
+          "SRR38958119": 0.4762,
+          "SRR38958126": 0.3529,
+          "SRR38958127": 0.8135,
+          "SRR38958128": 0.934,
+          "SRR38958135": 0.5633,
+          "SRR38958136": 0.4261,
+          "SRR38958147": 0.8229,
+          "SRR38958151": 0.3325,
+          "SRR38958158": 0.4157
+        },
+        "SRR38958119": {
+          "SRR38958117": 0.3681,
+          "SRR38958118": 0.4762,
+          "SRR38958119": 0.0,
+          "SRR38958126": 0.2309,
+          "SRR38958127": 0.7822,
+          "SRR38958128": 0.912,
+          "SRR38958135": 0.6913,
+          "SRR38958136": 0.4224,
+          "SRR38958147": 0.8446,
+          "SRR38958151": 0.5051,
+          "SRR38958158": 0.2338
+        },
+        "SRR38958126": {
+          "SRR38958117": 0.2467,
+          "SRR38958118": 0.3529,
+          "SRR38958119": 0.2309,
+          "SRR38958126": 0.0,
+          "SRR38958127": 0.7682,
+          "SRR38958128": 0.921,
+          "SRR38958135": 0.671,
+          "SRR38958136": 0.4426,
+          "SRR38958147": 0.8172,
+          "SRR38958151": 0.4267,
+          "SRR38958158": 0.1291
+        },
+        "SRR38958127": {
+          "SRR38958117": 0.7968,
+          "SRR38958118": 0.8135,
+          "SRR38958119": 0.7822,
+          "SRR38958126": 0.7682,
+          "SRR38958127": 0.0,
+          "SRR38958128": 0.3873,
+          "SRR38958135": 0.7706,
+          "SRR38958136": 0.755,
+          "SRR38958147": 0.831,
+          "SRR38958151": 0.8354,
+          "SRR38958158": 0.8246
+        },
+        "SRR38958128": {
+          "SRR38958117": 0.9301,
+          "SRR38958118": 0.934,
+          "SRR38958119": 0.912,
+          "SRR38958126": 0.921,
+          "SRR38958127": 0.3873,
+          "SRR38958128": 0.0,
+          "SRR38958135": 0.9222,
+          "SRR38958136": 0.9267,
+          "SRR38958147": 0.9007,
+          "SRR38958151": 0.9209,
+          "SRR38958158": 0.9341
+        },
+        "SRR38958135": {
+          "SRR38958117": 0.6896,
+          "SRR38958118": 0.5633,
+          "SRR38958119": 0.6913,
+          "SRR38958126": 0.671,
+          "SRR38958127": 0.7706,
+          "SRR38958128": 0.9222,
+          "SRR38958135": 0.0,
+          "SRR38958136": 0.4001,
+          "SRR38958147": 0.9371,
+          "SRR38958151": 0.7763,
+          "SRR38958158": 0.7315
+        },
+        "SRR38958136": {
+          "SRR38958117": 0.4877,
+          "SRR38958118": 0.4261,
+          "SRR38958119": 0.4224,
+          "SRR38958126": 0.4426,
+          "SRR38958127": 0.755,
+          "SRR38958128": 0.9267,
+          "SRR38958135": 0.4001,
+          "SRR38958136": 0.0,
+          "SRR38958147": 0.8922,
+          "SRR38958151": 0.6452,
+          "SRR38958158": 0.4775
+        },
+        "SRR38958147": {
+          "SRR38958117": 0.79,
+          "SRR38958118": 0.8229,
+          "SRR38958119": 0.8446,
+          "SRR38958126": 0.8172,
+          "SRR38958127": 0.831,
+          "SRR38958128": 0.9007,
+          "SRR38958135": 0.9371,
+          "SRR38958136": 0.8922,
+          "SRR38958147": 0.0,
+          "SRR38958151": 0.7371,
+          "SRR38958158": 0.8114
+        },
+        "SRR38958151": {
+          "SRR38958117": 0.2791,
+          "SRR38958118": 0.3325,
+          "SRR38958119": 0.5051,
+          "SRR38958126": 0.4267,
+          "SRR38958127": 0.8354,
+          "SRR38958128": 0.9209,
+          "SRR38958135": 0.7763,
+          "SRR38958136": 0.6452,
+          "SRR38958147": 0.7371,
+          "SRR38958151": 0.0,
+          "SRR38958158": 0.4622
+        },
+        "SRR38958158": {
+          "SRR38958117": 0.2959,
+          "SRR38958118": 0.4157,
+          "SRR38958119": 0.2338,
+          "SRR38958126": 0.1291,
+          "SRR38958127": 0.8246,
+          "SRR38958128": 0.9341,
+          "SRR38958135": 0.7315,
+          "SRR38958136": 0.4775,
+          "SRR38958147": 0.8114,
+          "SRR38958151": 0.4622,
+          "SRR38958158": 0.0
+        }
+      }
+    },
+    "c5": {
+      "label": "shannon_corrected",
+      "code": "# Shannon diversity per sample (positive values)\n# counts: 11 samples x 162 ASVs\nshannon = {}\nfor sample in counts.columns:\n    s = counts[sample]\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))  # Positive entropy\n    else:\n        shannon[sample] = 0.0\n\nresult = pd.Series(shannon, name='Shannon_diversity')",
       "result": {
         "ASV_000001": 2.8415,
         "ASV_000002": 2.6116,
@@ -330,101 +631,669 @@
         "ASV_000050": 1.7853
       }
     },
-    "c4": {
-      "label": "counts_shape",
-      "code": "# Inspect counts matrix structure\nresult = {\"shape\": list(counts.shape), \"columns\": list(counts.columns), \"index\": list(counts.index)}",
-      "result": {
-        "shape": [
-          11,
-          162
-        ],
-        "columns": [
-          "ASV_000001",
-          "ASV_000002",
-          "ASV_000003",
-          "ASV_000004",
-          "ASV_000005",
-          "ASV_000006",
-          "ASV_000007",
-          "ASV_000008",
-          "ASV_000009",
-          "ASV_000010",
-          "ASV_000011",
-          "ASV_000012",
-          "ASV_000013",
-          "ASV_000014",
-          "ASV_000015",
-          "ASV_000016",
-          "ASV_000017",
-          "ASV_000018",
-          "ASV_000019",
-          "ASV_000020",
-          "ASV_000021",
-          "ASV_000022",
-          "ASV_000023",
-          "ASV_000024",
-          "ASV_000025",
-          "ASV_000026",
-          "ASV_000027",
-          "ASV_000028",
-          "ASV_000029",
-          "ASV_000030",
-          "ASV_000031",
-          "ASV_000032",
-          "ASV_000033",
-          "ASV_000034",
-          "ASV_000035",
-          "ASV_000036",
-          "ASV_000037",
-          "ASV_000038",
-          "ASV_000039",
-          "ASV_000040",
-          "ASV_000041",
-          "ASV_000042",
-          "ASV_000043",
-          "ASV_000044",
-          "ASV_000045",
-          "ASV_000046",
-          "ASV_000047",
-          "ASV_000048",
-          "ASV_000049",
-          "ASV_000050"
-        ],
-        "index": [
-          "SRR38958117",
-          "SRR38958118",
-          "SRR38958119",
-          "SRR38958126",
-          "SRR38958127",
-          "SRR38958128",
-          "SRR38958135",
-          "SRR38958136",
-          "SRR38958147",
-          "SRR38958151",
-          "SRR38958158"
-        ]
-      }
-    },
-    "c5": {
-      "label": "richness_per_sample",
-      "code": "# Compute observed ASV richness per sample (rows are samples)\nrichness = {}\nfor sample in counts.index:\n    richness[sample] = int((counts.loc[sample] > 0).sum())\n\nresult = richness",
-      "result": {
-        "SRR38958117": 79,
-        "SRR38958118": 98,
-        "SRR38958119": 53,
-        "SRR38958126": 73,
-        "SRR38958127": 39,
-        "SRR38958128": 19,
-        "SRR38958135": 59,
-        "SRR38958136": 50,
-        "SRR38958147": 32,
-        "SRR38958151": 82,
-        "SRR38958158": 62
-      }
-    },
     "c6": {
-      "label": "shannon_diversity",
-      "code": "# Compute Shannon diversity per sample (rows are samples)\nshannon = {}\nfor sample in counts.index:\n    s = counts.loc[sample]\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nresult = shannon",
+      "label": "richness_corrected",
+      "code": "# Observed richness per sample (number of ASVs with reads > 0)\nrichness = {}\nfor sample in counts.columns:\n    richness[sample] = int((counts[sample] > 0).sum())\n\nresult = pd.Series(richness, name='Observed_richness')",
+      "result": {
+        "ASV_000001": 10,
+        "ASV_000002": 11,
+        "ASV_000003": 10,
+        "ASV_000004": 9,
+        "ASV_000005": 11,
+        "ASV_000006": 7,
+        "ASV_000007": 10,
+        "ASV_000008": 6,
+        "ASV_000009": 9,
+        "ASV_000010": 10,
+        "ASV_000011": 10,
+        "ASV_000012": 6,
+        "ASV_000013": 8,
+        "ASV_000014": 6,
+        "ASV_000015": 9,
+        "ASV_000016": 9,
+        "ASV_000017": 6,
+        "ASV_000018": 3,
+        "ASV_000019": 3,
+        "ASV_000020": 10,
+        "ASV_000021": 4,
+        "ASV_000022": 6,
+        "ASV_000023": 10,
+        "ASV_000024": 5,
+        "ASV_000025": 8,
+        "ASV_000026": 5,
+        "ASV_000027": 7,
+        "ASV_000028": 7,
+        "ASV_000029": 2,
+        "ASV_000030": 6,
+        "ASV_000031": 5,
+        "ASV_000032": 3,
+        "ASV_000033": 5,
+        "ASV_000034": 3,
+        "ASV_000035": 3,
+        "ASV_000036": 3,
+        "ASV_000037": 3,
+        "ASV_000038": 3,
+        "ASV_000039": 9,
+        "ASV_000040": 7,
+        "ASV_000041": 3,
+        "ASV_000042": 8,
+        "ASV_000043": 4,
+        "ASV_000044": 6,
+        "ASV_000045": 6,
+        "ASV_000046": 2,
+        "ASV_000047": 10,
+        "ASV_000048": 5,
+        "ASV_000049": 3,
+        "ASV_000050": 4
+      }
+    },
+    "c7": {
+      "label": "mean_shannon",
+      "code": "# Compute mean Shannon diversity across all samples\nshannon = {}\nfor sample in counts.columns:\n    s = counts[sample]\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nshannon_series = pd.Series(shannon)\nresult = float(shannon_series.mean())",
+      "result": 1.6128
+    },
+    "c8": {
+      "label": "mean_richness",
+      "code": "# Compute mean observed richness across all samples\nrichness = {}\nfor sample in counts.columns:\n    richness[sample] = int((counts[sample] > 0).sum())\n\nrichness_series = pd.Series(richness)\nresult = float(richness_series.mean())",
+      "result": 3.9877
+    },
+    "c9": {
+      "label": "total_reads_per_sample",
+      "code": "# Total reads per sample after denoising/renormalization\ntotal_reads = counts.sum(axis=0)\nresult = total_reads",
+      "result": {
+        "ASV_000001": 9986.0,
+        "ASV_000002": 7138.0,
+        "ASV_000003": 6689.0,
+        "ASV_000004": 1696.0,
+        "ASV_000005": 1580.0,
+        "ASV_000006": 1441.0,
+        "ASV_000007": 1188.0,
+        "ASV_000008": 980.0,
+        "ASV_000009": 752.0,
+        "ASV_000010": 658.0,
+        "ASV_000011": 627.0,
+        "ASV_000012": 595.0,
+        "ASV_000013": 516.0,
+        "ASV_000014": 413.0,
+        "ASV_000015": 405.0,
+        "ASV_000016": 395.0,
+        "ASV_000017": 382.0,
+        "ASV_000018": 370.0,
+        "ASV_000019": 357.0,
+        "ASV_000020": 329.0,
+        "ASV_000021": 328.0,
+        "ASV_000022": 308.0,
+        "ASV_000023": 292.0,
+        "ASV_000024": 289.0,
+        "ASV_000025": 244.0,
+        "ASV_000026": 239.0,
+        "ASV_000027": 232.0,
+        "ASV_000028": 229.0,
+        "ASV_000029": 215.0,
+        "ASV_000030": 212.0,
+        "ASV_000031": 212.0,
+        "ASV_000032": 196.0,
+        "ASV_000033": 193.0,
+        "ASV_000034": 189.0,
+        "ASV_000035": 185.0,
+        "ASV_000036": 184.0,
+        "ASV_000037": 181.0,
+        "ASV_000038": 172.0,
+        "ASV_000039": 159.0,
+        "ASV_000040": 156.0,
+        "ASV_000041": 151.0,
+        "ASV_000042": 147.0,
+        "ASV_000043": 140.0,
+        "ASV_000044": 135.0,
+        "ASV_000045": 134.0,
+        "ASV_000046": 133.0,
+        "ASV_000047": 132.0,
+        "ASV_000048": 127.0,
+        "ASV_000049": 125.0,
+        "ASV_000050": 122.0
+      }
+    },
+    "c10": {
+      "label": "shannon_per_sample",
+      "code": "# counts is 162 ASVs (rows) x 11 samples (columns)\n# Compute Shannon diversity per sample (column-wise)\nshannon = {}\nfor sample in counts.columns:\n    s = counts[sample]  # This is a Series of 162 ASV counts for this sample\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nresult = pd.Series(shannon, name='Shannon_diversity')",
+      "result": {
+        "ASV_000001": 2.8415,
+        "ASV_000002": 2.6116,
+        "ASV_000003": 2.7009,
+        "ASV_000004": 2.8744,
+        "ASV_000005": 3.1542,
+        "ASV_000006": 1.4181,
+        "ASV_000007": 3.0922,
+        "ASV_000008": 2.5257,
+        "ASV_000009": 2.8449,
+        "ASV_000010": 3.0478,
+        "ASV_000011": 2.938,
+        "ASV_000012": 2.5442,
+        "ASV_000013": 2.7823,
+        "ASV_000014": 2.5498,
+        "ASV_000015": 2.6513,
+        "ASV_000016": 2.8607,
+        "ASV_000017": 2.4696,
+        "ASV_000018": 1.5705,
+        "ASV_000019": 1.5103,
+        "ASV_000020": 3.0207,
+        "ASV_000021": 1.9679,
+        "ASV_000022": 2.5109,
+        "ASV_000023": 3.1132,
+        "ASV_000024": 1.9369,
+        "ASV_000025": 2.7071,
+        "ASV_000026": 2.3018,
+        "ASV_000027": 2.249,
+        "ASV_000028": 2.4136,
+        "ASV_000029": 0.9829,
+        "ASV_000030": 2.474,
+        "ASV_000031": 2.2835,
+        "ASV_000032": 1.2309,
+        "ASV_000033": 2.1171,
+        "ASV_000034": 1.259,
+        "ASV_000035": 1.5508,
+        "ASV_000036": 1.5355,
+        "ASV_000037": 1.2851,
+        "ASV_000038": 1.5065,
+        "ASV_000039": 2.8063,
+        "ASV_000040": 2.7499,
+        "ASV_000041": 1.5594,
+        "ASV_000042": 2.8104,
+        "ASV_000043": 1.9761,
+        "ASV_000044": 2.4733,
+        "ASV_000045": 2.5109,
+        "ASV_000046": 0.9701,
+        "ASV_000047": 3.0663,
+        "ASV_000048": 2.1762,
+        "ASV_000049": 1.5624,
+        "ASV_000050": 1.7853
+      }
+    },
+    "c11": {
+      "label": "richness_per_sample",
+      "code": "# Observed richness per sample (number of ASVs with reads > 0)\nrichness = {}\nfor sample in counts.columns:\n    richness[sample] = int((counts[sample] > 0).sum())\n\nresult = pd.Series(richness, name='Observed_richness')",
+      "result": {
+        "ASV_000001": 10,
+        "ASV_000002": 11,
+        "ASV_000003": 10,
+        "ASV_000004": 9,
+        "ASV_000005": 11,
+        "ASV_000006": 7,
+        "ASV_000007": 10,
+        "ASV_000008": 6,
+        "ASV_000009": 9,
+        "ASV_000010": 10,
+        "ASV_000011": 10,
+        "ASV_000012": 6,
+        "ASV_000013": 8,
+        "ASV_000014": 6,
+        "ASV_000015": 9,
+        "ASV_000016": 9,
+        "ASV_000017": 6,
+        "ASV_000018": 3,
+        "ASV_000019": 3,
+        "ASV_000020": 10,
+        "ASV_000021": 4,
+        "ASV_000022": 6,
+        "ASV_000023": 10,
+        "ASV_000024": 5,
+        "ASV_000025": 8,
+        "ASV_000026": 5,
+        "ASV_000027": 7,
+        "ASV_000028": 7,
+        "ASV_000029": 2,
+        "ASV_000030": 6,
+        "ASV_000031": 5,
+        "ASV_000032": 3,
+        "ASV_000033": 5,
+        "ASV_000034": 3,
+        "ASV_000035": 3,
+        "ASV_000036": 3,
+        "ASV_000037": 3,
+        "ASV_000038": 3,
+        "ASV_000039": 9,
+        "ASV_000040": 7,
+        "ASV_000041": 3,
+        "ASV_000042": 8,
+        "ASV_000043": 4,
+        "ASV_000044": 6,
+        "ASV_000045": 6,
+        "ASV_000046": 2,
+        "ASV_000047": 10,
+        "ASV_000048": 5,
+        "ASV_000049": 3,
+        "ASV_000050": 4
+      }
+    },
+    "c12": {
+      "label": "mean_shannon_sample",
+      "code": "# Compute mean Shannon diversity across samples\nshannon = {}\nfor sample in counts.columns:\n    s = counts[sample]\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nshannon_series = pd.Series(shannon)\nresult = float(shannon_series.mean())",
+      "result": 1.6128
+    },
+    "c13": {
+      "label": "mean_richness_sample",
+      "code": "# Compute mean observed richness across samples\nrichness = {}\nfor sample in counts.columns:\n    richness[sample] = int((counts[sample] > 0).sum())\n\nrichness_series = pd.Series(richness)\nresult = float(richness_series.mean())",
+      "result": 3.9877
+    },
+    "c14": {
+      "label": "pca_final",
+      "code": "# PCA on log-transformed counts (transpose so samples are rows)\ncounts_T = counts.T  # Now 11 samples x 162 ASVs\ncounts_log = np.log1p(counts_T)\npca = PCA(n_components=2)\npca_result = pca.fit_transform(counts_log)\nresult = pd.DataFrame(pca_result, index=counts_T.index, columns=['PC1', 'PC2'])",
+      "result": {
+        "PC1": {
+          "ASV_000001": 16.0846,
+          "ASV_000002": 14.4158,
+          "ASV_000003": 14.0146,
+          "ASV_000004": 10.9081,
+          "ASV_000005": 10.1897,
+          "ASV_000006": 2.4113,
+          "ASV_000007": 10.4318,
+          "ASV_000008": 6.9629,
+          "ASV_000009": 8.5429,
+          "ASV_000010": 8.517,
+          "ASV_000011": 7.935,
+          "ASV_000012": 6.1786,
+          "ASV_000013": 7.2157,
+          "ASV_000014": 5.4021,
+          "ASV_000015": 6.3663,
+          "ASV_000016": 6.7264,
+          "ASV_000017": 5.104,
+          "ASV_000018": 1.2965,
+          "ASV_000019": 0.2398,
+          "ASV_000020": 6.1904,
+          "ASV_000021": 2.5899,
+          "ASV_000022": 4.3379,
+          "ASV_000023": 6.1401,
+          "ASV_000024": -1.0656,
+          "ASV_000025": 3.6685,
+          "ASV_000026": 2.9366,
+          "ASV_000027": 1.3269,
+          "ASV_000028": 4.138,
+          "ASV_000029": -3.1923,
+          "ASV_000030": 3.8361,
+          "ASV_000031": 3.0401,
+          "ASV_000032": -1.8253,
+          "ASV_000033": 2.6421,
+          "ASV_000034": -2.3555,
+          "ASV_000035": -0.2372,
+          "ASV_000036": 0.2837,
+          "ASV_000037": -2.3455,
+          "ASV_000038": -0.379,
+          "ASV_000039": 4.0332,
+          "ASV_000040": 3.851,
+          "ASV_000041": 0.4205,
+          "ASV_000042": 2.4799,
+          "ASV_000043": 1.4433,
+          "ASV_000044": 2.2024,
+          "ASV_000045": 2.3965,
+          "ASV_000046": -0.8704,
+          "ASV_000047": 3.5019,
+          "ASV_000048": 1.7943,
+          "ASV_000049": -0.1272,
+          "ASV_000050": -0.7075
+        },
+        "PC2": {
+          "ASV_000001": 0.274,
+          "ASV_000002": 4.3183,
+          "ASV_000003": 5.0023,
+          "ASV_000004": 0.0475,
+          "ASV_000005": 5.7833,
+          "ASV_000006": 6.6718,
+          "ASV_000007": 1.7968,
+          "ASV_000008": -3.1686,
+          "ASV_000009": -0.2078,
+          "ASV_000010": 1.7014,
+          "ASV_000011": 2.6524,
+          "ASV_000012": -3.8541,
+          "ASV_000013": -2.2643,
+          "ASV_000014": -3.6419,
+          "ASV_000015": -0.5205,
+          "ASV_000016": -0.7207,
+          "ASV_000017": -3.4953,
+          "ASV_000018": -2.7008,
+          "ASV_000019": 2.0827,
+          "ASV_000020": 0.7799,
+          "ASV_000021": -2.98,
+          "ASV_000022": -1.9067,
+          "ASV_000023": 1.6984,
+          "ASV_000024": 6.5615,
+          "ASV_000025": 1.3336,
+          "ASV_000026": -2.1652,
+          "ASV_000027": 5.2858,
+          "ASV_000028": -2.2617,
+          "ASV_000029": 4.7099,
+          "ASV_000030": -3.0171,
+          "ASV_000031": -3.1408,
+          "ASV_000032": 3.5727,
+          "ASV_000033": -2.6905,
+          "ASV_000034": 4.2774,
+          "ASV_000035": 1.4929,
+          "ASV_000036": -0.4979,
+          "ASV_000037": 4.3267,
+          "ASV_000038": 1.6219,
+          "ASV_000039": 0.3875,
+          "ASV_000040": -2.3215,
+          "ASV_000041": -1.5404,
+          "ASV_000042": 2.4857,
+          "ASV_000043": -2.6614,
+          "ASV_000044": 0.26,
+          "ASV_000045": -2.0522,
+          "ASV_000046": -2.0159,
+          "ASV_000047": 1.6934,
+          "ASV_000048": -1.5692,
+          "ASV_000049": -1.081,
+          "ASV_000050": 2.1744
+        }
+      }
+    },
+    "c15": {
+      "label": "min_max_shannon",
+      "code": "# Min and max Shannon diversity across samples\nshannon = {}\nfor sample in counts.columns:\n    s = counts[sample]\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nshannon_series = pd.Series(shannon)\nresult = {'min': float(shannon_series.min()), 'max': float(shannon_series.max()), 'mean': float(shannon_series.mean())}",
+      "result": {
+        "min": 0.5917,
+        "max": 3.1542,
+        "mean": 1.6128
+      }
+    },
+    "c16": {
+      "label": "min_max_richness",
+      "code": "# Min and max observed richness across samples\nrichness = {}\nfor sample in counts.columns:\n    richness[sample] = int((counts[sample] > 0).sum())\n\nrichness_series = pd.Series(richness)\nresult = {'min': int(richness_series.min()), 'max': int(richness_series.max()), 'mean': float(richness_series.mean())}",
+      "result": {
+        "min": 2,
+        "max": 11,
+        "mean": 3.9877
+      }
+    },
+    "c17": {
+      "label": "check_counts_structure",
+      "code": "# Check the actual structure of counts\nprint(\"Shape:\", counts.shape)\nprint(\"Columns (first 5):\", list(counts.columns[:5]))\nprint(\"Index (first 5):\", list(counts.index[:5]))\n# Compute Shannon per sample (each column is a sample)\nshannon = {}\nfor sample in counts.columns:\n    s = counts[sample]\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nresult = pd.Series(shannon)",
+      "result": {
+        "ASV_000001": 2.8415,
+        "ASV_000002": 2.6116,
+        "ASV_000003": 2.7009,
+        "ASV_000004": 2.8744,
+        "ASV_000005": 3.1542,
+        "ASV_000006": 1.4181,
+        "ASV_000007": 3.0922,
+        "ASV_000008": 2.5257,
+        "ASV_000009": 2.8449,
+        "ASV_000010": 3.0478,
+        "ASV_000011": 2.938,
+        "ASV_000012": 2.5442,
+        "ASV_000013": 2.7823,
+        "ASV_000014": 2.5498,
+        "ASV_000015": 2.6513,
+        "ASV_000016": 2.8607,
+        "ASV_000017": 2.4696,
+        "ASV_000018": 1.5705,
+        "ASV_000019": 1.5103,
+        "ASV_000020": 3.0207,
+        "ASV_000021": 1.9679,
+        "ASV_000022": 2.5109,
+        "ASV_000023": 3.1132,
+        "ASV_000024": 1.9369,
+        "ASV_000025": 2.7071,
+        "ASV_000026": 2.3018,
+        "ASV_000027": 2.249,
+        "ASV_000028": 2.4136,
+        "ASV_000029": 0.9829,
+        "ASV_000030": 2.474,
+        "ASV_000031": 2.2835,
+        "ASV_000032": 1.2309,
+        "ASV_000033": 2.1171,
+        "ASV_000034": 1.259,
+        "ASV_000035": 1.5508,
+        "ASV_000036": 1.5355,
+        "ASV_000037": 1.2851,
+        "ASV_000038": 1.5065,
+        "ASV_000039": 2.8063,
+        "ASV_000040": 2.7499,
+        "ASV_000041": 1.5594,
+        "ASV_000042": 2.8104,
+        "ASV_000043": 1.9761,
+        "ASV_000044": 2.4733,
+        "ASV_000045": 2.5109,
+        "ASV_000046": 0.9701,
+        "ASV_000047": 3.0663,
+        "ASV_000048": 2.1762,
+        "ASV_000049": 1.5624,
+        "ASV_000050": 1.7853
+      }
+    },
+    "c18": {
+      "label": "richness_per_sample_correct",
+      "code": "# Observed richness per sample\nrichness = {}\nfor sample in counts.columns:\n    richness[sample] = int((counts[sample] > 0).sum())\n\nresult = pd.Series(richness)",
+      "result": {
+        "ASV_000001": 10,
+        "ASV_000002": 11,
+        "ASV_000003": 10,
+        "ASV_000004": 9,
+        "ASV_000005": 11,
+        "ASV_000006": 7,
+        "ASV_000007": 10,
+        "ASV_000008": 6,
+        "ASV_000009": 9,
+        "ASV_000010": 10,
+        "ASV_000011": 10,
+        "ASV_000012": 6,
+        "ASV_000013": 8,
+        "ASV_000014": 6,
+        "ASV_000015": 9,
+        "ASV_000016": 9,
+        "ASV_000017": 6,
+        "ASV_000018": 3,
+        "ASV_000019": 3,
+        "ASV_000020": 10,
+        "ASV_000021": 4,
+        "ASV_000022": 6,
+        "ASV_000023": 10,
+        "ASV_000024": 5,
+        "ASV_000025": 8,
+        "ASV_000026": 5,
+        "ASV_000027": 7,
+        "ASV_000028": 7,
+        "ASV_000029": 2,
+        "ASV_000030": 6,
+        "ASV_000031": 5,
+        "ASV_000032": 3,
+        "ASV_000033": 5,
+        "ASV_000034": 3,
+        "ASV_000035": 3,
+        "ASV_000036": 3,
+        "ASV_000037": 3,
+        "ASV_000038": 3,
+        "ASV_000039": 9,
+        "ASV_000040": 7,
+        "ASV_000041": 3,
+        "ASV_000042": 8,
+        "ASV_000043": 4,
+        "ASV_000044": 6,
+        "ASV_000045": 6,
+        "ASV_000046": 2,
+        "ASV_000047": 10,
+        "ASV_000048": 5,
+        "ASV_000049": 3,
+        "ASV_000050": 4
+      }
+    },
+    "c19": {
+      "label": "mean_shannon_final",
+      "code": "# Mean Shannon diversity across samples\nshannon = {}\nfor sample in counts.columns:\n    s = counts[sample]\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nshannon_series = pd.Series(shannon)\nresult = float(shannon_series.mean())",
+      "result": 1.6128
+    },
+    "c20": {
+      "label": "mean_richness_final",
+      "code": "# Mean observed richness across samples\nrichness = {}\nfor sample in counts.columns:\n    richness[sample] = int((counts[sample] > 0).sum())\n\nrichness_series = pd.Series(richness)\nresult = float(richness_series.mean())",
+      "result": 3.9877
+    },
+    "c21": {
+      "label": "pca_samples",
+      "code": "# PCA on samples (transpose so samples are rows)\ncounts_T = counts.T  # Now samples x ASVs\ncounts_log = np.log1p(counts_T)\npca = PCA(n_components=2)\npca_result = pca.fit_transform(counts_log)\nresult = pd.DataFrame(pca_result, index=counts_T.index, columns=['PC1', 'PC2'])",
+      "result": {
+        "PC1": {
+          "ASV_000001": 16.0846,
+          "ASV_000002": 14.4158,
+          "ASV_000003": 14.0146,
+          "ASV_000004": 10.9081,
+          "ASV_000005": 10.1897,
+          "ASV_000006": 2.4113,
+          "ASV_000007": 10.4318,
+          "ASV_000008": 6.9629,
+          "ASV_000009": 8.5429,
+          "ASV_000010": 8.517,
+          "ASV_000011": 7.935,
+          "ASV_000012": 6.1786,
+          "ASV_000013": 7.2157,
+          "ASV_000014": 5.4021,
+          "ASV_000015": 6.3663,
+          "ASV_000016": 6.7264,
+          "ASV_000017": 5.104,
+          "ASV_000018": 1.2965,
+          "ASV_000019": 0.2398,
+          "ASV_000020": 6.1904,
+          "ASV_000021": 2.5899,
+          "ASV_000022": 4.3379,
+          "ASV_000023": 6.1401,
+          "ASV_000024": -1.0656,
+          "ASV_000025": 3.6685,
+          "ASV_000026": 2.9366,
+          "ASV_000027": 1.3269,
+          "ASV_000028": 4.138,
+          "ASV_000029": -3.1923,
+          "ASV_000030": 3.8361,
+          "ASV_000031": 3.0401,
+          "ASV_000032": -1.8253,
+          "ASV_000033": 2.6421,
+          "ASV_000034": -2.3555,
+          "ASV_000035": -0.2372,
+          "ASV_000036": 0.2837,
+          "ASV_000037": -2.3455,
+          "ASV_000038": -0.379,
+          "ASV_000039": 4.0332,
+          "ASV_000040": 3.851,
+          "ASV_000041": 0.4205,
+          "ASV_000042": 2.4799,
+          "ASV_000043": 1.4433,
+          "ASV_000044": 2.2024,
+          "ASV_000045": 2.3965,
+          "ASV_000046": -0.8704,
+          "ASV_000047": 3.5019,
+          "ASV_000048": 1.7943,
+          "ASV_000049": -0.1272,
+          "ASV_000050": -0.7075
+        },
+        "PC2": {
+          "ASV_000001": 0.274,
+          "ASV_000002": 4.3183,
+          "ASV_000003": 5.0023,
+          "ASV_000004": 0.0475,
+          "ASV_000005": 5.7833,
+          "ASV_000006": 6.6718,
+          "ASV_000007": 1.7968,
+          "ASV_000008": -3.1686,
+          "ASV_000009": -0.2078,
+          "ASV_000010": 1.7014,
+          "ASV_000011": 2.6524,
+          "ASV_000012": -3.8541,
+          "ASV_000013": -2.2643,
+          "ASV_000014": -3.6419,
+          "ASV_000015": -0.5205,
+          "ASV_000016": -0.7207,
+          "ASV_000017": -3.4953,
+          "ASV_000018": -2.7008,
+          "ASV_000019": 2.0827,
+          "ASV_000020": 0.7799,
+          "ASV_000021": -2.98,
+          "ASV_000022": -1.9067,
+          "ASV_000023": 1.6984,
+          "ASV_000024": 6.5615,
+          "ASV_000025": 1.3336,
+          "ASV_000026": -2.1652,
+          "ASV_000027": 5.2858,
+          "ASV_000028": -2.2617,
+          "ASV_000029": 4.7099,
+          "ASV_000030": -3.0171,
+          "ASV_000031": -3.1408,
+          "ASV_000032": 3.5727,
+          "ASV_000033": -2.6905,
+          "ASV_000034": 4.2774,
+          "ASV_000035": 1.4929,
+          "ASV_000036": -0.4979,
+          "ASV_000037": 4.3267,
+          "ASV_000038": 1.6219,
+          "ASV_000039": 0.3875,
+          "ASV_000040": -2.3215,
+          "ASV_000041": -1.5404,
+          "ASV_000042": 2.4857,
+          "ASV_000043": -2.6614,
+          "ASV_000044": 0.26,
+          "ASV_000045": -2.0522,
+          "ASV_000046": -2.0159,
+          "ASV_000047": 1.6934,
+          "ASV_000048": -1.5692,
+          "ASV_000049": -1.081,
+          "ASV_000050": 2.1744
+        }
+      }
+    },
+    "c22": {
+      "label": "total_reads_per_sample",
+      "code": "# Total reads per sample\ntotal_reads = counts.sum(axis=0)\nresult = total_reads",
+      "result": {
+        "ASV_000001": 9986.0,
+        "ASV_000002": 7138.0,
+        "ASV_000003": 6689.0,
+        "ASV_000004": 1696.0,
+        "ASV_000005": 1580.0,
+        "ASV_000006": 1441.0,
+        "ASV_000007": 1188.0,
+        "ASV_000008": 980.0,
+        "ASV_000009": 752.0,
+        "ASV_000010": 658.0,
+        "ASV_000011": 627.0,
+        "ASV_000012": 595.0,
+        "ASV_000013": 516.0,
+        "ASV_000014": 413.0,
+        "ASV_000015": 405.0,
+        "ASV_000016": 395.0,
+        "ASV_000017": 382.0,
+        "ASV_000018": 370.0,
+        "ASV_000019": 357.0,
+        "ASV_000020": 329.0,
+        "ASV_000021": 328.0,
+        "ASV_000022": 308.0,
+        "ASV_000023": 292.0,
+        "ASV_000024": 289.0,
+        "ASV_000025": 244.0,
+        "ASV_000026": 239.0,
+        "ASV_000027": 232.0,
+        "ASV_000028": 229.0,
+        "ASV_000029": 215.0,
+        "ASV_000030": 212.0,
+        "ASV_000031": 212.0,
+        "ASV_000032": 196.0,
+        "ASV_000033": 193.0,
+        "ASV_000034": 189.0,
+        "ASV_000035": 185.0,
+        "ASV_000036": 184.0,
+        "ASV_000037": 181.0,
+        "ASV_000038": 172.0,
+        "ASV_000039": 159.0,
+        "ASV_000040": 156.0,
+        "ASV_000041": 151.0,
+        "ASV_000042": 147.0,
+        "ASV_000043": 140.0,
+        "ASV_000044": 135.0,
+        "ASV_000045": 134.0,
+        "ASV_000046": 133.0,
+        "ASV_000047": 132.0,
+        "ASV_000048": 127.0,
+        "ASV_000049": 125.0,
+        "ASV_000050": 122.0
+      }
+    },
+    "c23": {
+      "label": "shannon_per_sample_fixed",
+      "code": "# counts is 11 samples (rows) x 162 ASVs (columns)\n# Shannon diversity per sample (row-wise)\nshannon = {}\nfor sample in counts.index:\n    s = counts.loc[sample]  # This is a Series of 162 ASV counts for this sample\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nresult = pd.Series(shannon, name='Shannon_diversity')",
       "result": {
         "SRR38958117": 4.3108,
         "SRR38958118": 4.7138,
@@ -439,207 +1308,93 @@
         "SRR38958158": 4.2885
       }
     },
-    "c7": {
-      "label": "bray_curtis_matrix",
-      "code": "# Compute Bray-Curtis dissimilarity matrix between samples (rows)\n# Use relative abundances for Bray-Curtis\nrel_counts = counts.div(counts.sum(axis=1), axis=0)\nbc_dist = pdist(rel_counts.values, metric='braycurtis')\nbc_matrix = squareform(bc_dist)\n\nsample_names = list(counts.index)\nresult = {sample_names[i]: {sample_names[j]: float(bc_matrix[i,j]) for j in range(len(sample_names))} for i in range(len(sample_names))}",
+    "c24": {
+      "label": "richness_per_sample_fixed",
+      "code": "# Observed richness per sample (row-wise)\nrichness = {}\nfor sample in counts.index:\n    richness[sample] = int((counts.loc[sample] > 0).sum())\n\nresult = pd.Series(richness, name='Observed_richness')",
       "result": {
-        "SRR38958117": {
-          "SRR38958117": 0.0,
-          "SRR38958118": 0.2233,
-          "SRR38958119": 0.1541,
-          "SRR38958126": 0.1483,
-          "SRR38958127": 0.784,
-          "SRR38958128": 0.8973,
-          "SRR38958135": 0.6844,
-          "SRR38958136": 0.4186,
-          "SRR38958147": 0.8049,
-          "SRR38958151": 0.2088,
-          "SRR38958158": 0.1746
+        "SRR38958117": 79,
+        "SRR38958118": 98,
+        "SRR38958119": 53,
+        "SRR38958126": 73,
+        "SRR38958127": 39,
+        "SRR38958128": 19,
+        "SRR38958135": 59,
+        "SRR38958136": 50,
+        "SRR38958147": 32,
+        "SRR38958151": 82,
+        "SRR38958158": 62
+      }
+    },
+    "c25": {
+      "label": "mean_shannon_fixed",
+      "code": "# Mean Shannon diversity across samples\nshannon = {}\nfor sample in counts.index:\n    s = counts.loc[sample]\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nshannon_series = pd.Series(shannon)\nresult = float(shannon_series.mean())",
+      "result": 3.8162
+    },
+    "c26": {
+      "label": "mean_richness_fixed",
+      "code": "# Mean observed richness across samples\nrichness = {}\nfor sample in counts.index:\n    richness[sample] = int((counts.loc[sample] > 0).sum())\n\nrichness_series = pd.Series(richness)\nresult = float(richness_series.mean())",
+      "result": 58.7273
+    },
+    "c27": {
+      "label": "pca_samples_fixed",
+      "code": "# PCA on samples (counts is already 11 samples x 162 ASVs)\ncounts_log = np.log1p(counts)\npca = PCA(n_components=2)\npca_result = pca.fit_transform(counts_log)\nresult = pd.DataFrame(pca_result, index=counts.index, columns=['PC1', 'PC2'])",
+      "result": {
+        "PC1": {
+          "SRR38958117": 10.3851,
+          "SRR38958118": 13.0962,
+          "SRR38958119": 3.3742,
+          "SRR38958126": 8.6814,
+          "SRR38958127": -15.2463,
+          "SRR38958128": -17.2948,
+          "SRR38958135": -3.7366,
+          "SRR38958136": -1.844,
+          "SRR38958147": -11.4223,
+          "SRR38958151": 8.3908,
+          "SRR38958158": 5.6163
         },
-        "SRR38958118": {
-          "SRR38958117": 0.2233,
-          "SRR38958118": 0.0,
-          "SRR38958119": 0.2733,
-          "SRR38958126": 0.2323,
-          "SRR38958127": 0.7158,
-          "SRR38958128": 0.8975,
-          "SRR38958135": 0.5566,
-          "SRR38958136": 0.328,
-          "SRR38958147": 0.8438,
-          "SRR38958151": 0.3358,
-          "SRR38958158": 0.3275
-        },
-        "SRR38958119": {
-          "SRR38958117": 0.1541,
-          "SRR38958118": 0.2733,
-          "SRR38958119": 0.0,
-          "SRR38958126": 0.1518,
-          "SRR38958127": 0.7832,
-          "SRR38958128": 0.893,
-          "SRR38958135": 0.6996,
-          "SRR38958136": 0.4449,
-          "SRR38958147": 0.8152,
-          "SRR38958151": 0.2749,
-          "SRR38958158": 0.1867
-        },
-        "SRR38958126": {
-          "SRR38958117": 0.1483,
-          "SRR38958118": 0.2323,
-          "SRR38958119": 0.1518,
-          "SRR38958126": 0.0,
-          "SRR38958127": 0.7732,
-          "SRR38958128": 0.8944,
-          "SRR38958135": 0.6721,
-          "SRR38958136": 0.4184,
-          "SRR38958147": 0.8125,
-          "SRR38958151": 0.2826,
-          "SRR38958158": 0.1435
-        },
-        "SRR38958127": {
-          "SRR38958117": 0.784,
-          "SRR38958118": 0.7158,
-          "SRR38958119": 0.7832,
-          "SRR38958126": 0.7732,
-          "SRR38958127": 0.0,
-          "SRR38958128": 0.2946,
-          "SRR38958135": 0.7283,
-          "SRR38958136": 0.7306,
-          "SRR38958147": 0.7947,
-          "SRR38958151": 0.8359,
-          "SRR38958158": 0.8256
-        },
-        "SRR38958128": {
-          "SRR38958117": 0.8973,
-          "SRR38958118": 0.8975,
-          "SRR38958119": 0.893,
-          "SRR38958126": 0.8944,
-          "SRR38958127": 0.2946,
-          "SRR38958128": 0.0,
-          "SRR38958135": 0.9117,
-          "SRR38958136": 0.8974,
-          "SRR38958147": 0.837,
-          "SRR38958151": 0.8919,
-          "SRR38958158": 0.9029
-        },
-        "SRR38958135": {
-          "SRR38958117": 0.6844,
-          "SRR38958118": 0.5566,
-          "SRR38958119": 0.6996,
-          "SRR38958126": 0.6721,
-          "SRR38958127": 0.7283,
-          "SRR38958128": 0.9117,
-          "SRR38958135": 0.0,
-          "SRR38958136": 0.3611,
-          "SRR38958147": 0.9372,
-          "SRR38958151": 0.7542,
-          "SRR38958158": 0.7378
-        },
-        "SRR38958136": {
-          "SRR38958117": 0.4186,
-          "SRR38958118": 0.328,
-          "SRR38958119": 0.4449,
-          "SRR38958126": 0.4184,
-          "SRR38958127": 0.7306,
-          "SRR38958128": 0.8974,
-          "SRR38958135": 0.3611,
-          "SRR38958136": 0.0,
-          "SRR38958147": 0.8837,
-          "SRR38958151": 0.5223,
-          "SRR38958158": 0.4646
-        },
-        "SRR38958147": {
-          "SRR38958117": 0.8049,
-          "SRR38958118": 0.8438,
-          "SRR38958119": 0.8152,
-          "SRR38958126": 0.8125,
-          "SRR38958127": 0.7947,
-          "SRR38958128": 0.837,
-          "SRR38958135": 0.9372,
-          "SRR38958136": 0.8837,
-          "SRR38958147": 0.0,
-          "SRR38958151": 0.7714,
-          "SRR38958158": 0.8003
-        },
-        "SRR38958151": {
-          "SRR38958117": 0.2088,
-          "SRR38958118": 0.3358,
-          "SRR38958119": 0.2749,
-          "SRR38958126": 0.2826,
-          "SRR38958127": 0.8359,
-          "SRR38958128": 0.8919,
-          "SRR38958135": 0.7542,
-          "SRR38958136": 0.5223,
-          "SRR38958147": 0.7714,
-          "SRR38958151": 0.0,
-          "SRR38958158": 0.2883
-        },
-        "SRR38958158": {
-          "SRR38958117": 0.1746,
-          "SRR38958118": 0.3275,
-          "SRR38958119": 0.1867,
-          "SRR38958126": 0.1435,
-          "SRR38958127": 0.8256,
-          "SRR38958128": 0.9029,
-          "SRR38958135": 0.7378,
-          "SRR38958136": 0.4646,
-          "SRR38958147": 0.8003,
-          "SRR38958151": 0.2883,
-          "SRR38958158": 0.0
+        "PC2": {
+          "SRR38958117": -1.1346,
+          "SRR38958118": 10.1278,
+          "SRR38958119": -6.2065,
+          "SRR38958126": -7.1973,
+          "SRR38958127": 0.9332,
+          "SRR38958128": -1.1713,
+          "SRR38958135": 11.2703,
+          "SRR38958136": 4.5488,
+          "SRR38958147": -3.5349,
+          "SRR38958151": 3.4418,
+          "SRR38958158": -11.0772
         }
       }
     },
-    "c8": {
-      "label": "pca_ordination",
-      "code": "# Compute PCA ordination on relative abundance data (rows=samples)\n# Add small pseudocount to avoid zeros\nrel_counts = counts.div(counts.sum(axis=1), axis=0) + 1e-6\nrel_counts = rel_counts.div(rel_counts.sum(axis=1), axis=0)\n\npca = PCA(n_components=2)\npca_result = pca.fit_transform(rel_counts.values)\n\nsample_names = list(counts.index)\nresult = {sample_names[i]: [float(pca_result[i,0]), float(pca_result[i,1])] for i in range(len(sample_names))}\nresult[\"explained_variance\"] = {\n    \"PC1\": float(pca.explained_variance_ratio_[0]),\n    \"PC2\": float(pca.explained_variance_ratio_[1])\n}",
+    "c28": {
+      "label": "total_reads_per_sample_fixed",
+      "code": "# Total reads per sample (sum across ASVs for each sample)\ntotal_reads = counts.sum(axis=1)\nresult = total_reads",
       "result": {
-        "SRR38958117": [
-          0.0192,
-          -0.1233
-        ],
-        "SRR38958118": [
-          -0.048,
-          -0.0922
-        ],
-        "SRR38958119": [
-          0.0103,
-          -0.1245
-        ],
-        "SRR38958126": [
-          0.0073,
-          -0.104
-        ],
-        "SRR38958127": [
-          -0.1263,
-          0.313
-        ],
-        "SRR38958128": [
-          -0.0683,
-          0.3947
-        ],
-        "SRR38958135": [
-          -0.2972,
-          -0.0129
-        ],
-        "SRR38958136": [
-          -0.1596,
-          -0.0809
-        ],
-        "SRR38958147": [
-          0.5667,
-          0.1123
-        ],
-        "SRR38958151": [
-          0.0649,
-          -0.1527
-        ],
-        "SRR38958158": [
-          0.031,
-          -0.1296
-        ],
-        "explained_variance": {
-          "PC1": 0.4311,
-          "PC2": 0.3378
-        }
+        "SRR38958117": 5482.0,
+        "SRR38958118": 7026.0,
+        "SRR38958119": 2848.0,
+        "SRR38958126": 4150.0,
+        "SRR38958127": 2735.0,
+        "SRR38958128": 1218.0,
+        "SRR38958135": 4537.0,
+        "SRR38958136": 3478.0,
+        "SRR38958147": 4460.0,
+        "SRR38958151": 6927.0,
+        "SRR38958158": 3821.0
+      }
+    },
+    "c29": {
+      "label": "bray_curtis_mean",
+      "code": "# Mean pairwise Bray-Curtis dissimilarity between samples\nbc_dist = pdist(counts, metric='braycurtis')\nresult = float(np.mean(bc_dist))",
+      "result": 0.6348
+    },
+    "c30": {
+      "label": "pca_variance",
+      "code": "# Variance explained by PC1 and PC2\ncounts_log = np.log1p(counts)\npca = PCA(n_components=2)\npca.fit(counts_log)\nresult = {'PC1': float(pca.explained_variance_ratio_[0]), 'PC2': float(pca.explained_variance_ratio_[1])}",
+      "result": {
+        "PC1": 0.3676,
+        "PC2": 0.1573
       }
     }
   }

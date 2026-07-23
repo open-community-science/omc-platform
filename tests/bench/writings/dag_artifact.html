@@ -1,0 +1,178 @@
+<title>Claim Provenance — Results Autoresearch</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#f4f7f6; --panel:#ffffff; --panel2:#eef2f1; --border:#d8e0df;
+  --text:#13211f; --muted:#5a6a68; --accent:#0f8a80;
+  --verified:#1f7a3d; --refuted:#c0392b; --unverifiable:#b07d15;
+  --computation:#2266b8; --data:#5a6f6c;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0d1413; --panel:#131c1b; --panel2:#0f1716; --border:#243130;
+  --text:#d7e1df; --muted:#8598956e; --muted:#899997; --accent:#34d3c3;
+  --verified:#49c96e; --refuted:#f0685c; --unverifiable:#e2b53f;
+  --computation:#5aa2ee; --data:#9fb0ad;
+}}
+:root[data-theme="light"]{
+  --bg:#f4f7f6; --panel:#ffffff; --panel2:#eef2f1; --border:#d8e0df;
+  --text:#13211f; --muted:#5a6a68; --accent:#0f8a80;
+  --verified:#1f7a3d; --refuted:#c0392b; --unverifiable:#b07d15; --computation:#2266b8; --data:#5a6f6c;
+}
+:root[data-theme="dark"]{
+  --bg:#0d1413; --panel:#131c1b; --panel2:#0f1716; --border:#243130;
+  --text:#d7e1df; --muted:#899997; --accent:#34d3c3;
+  --verified:#49c96e; --refuted:#f0685c; --unverifiable:#e2b53f; --computation:#5aa2ee; --data:#9fb0ad;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+  line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1100px;margin:0 auto;padding:28px 20px 60px}
+header{border-bottom:1px solid var(--border);padding-bottom:18px;margin-bottom:22px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 8px}
+h1{font-size:clamp(22px,3.4vw,30px);margin:0 0 6px;letter-spacing:-.02em;text-wrap:balance;font-weight:650}
+.sub{color:var(--muted);font-size:14px;margin:0}
+.stats{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.stat{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+  padding:10px 14px;min-width:96px}
+.stat .n{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums;font-weight:600}
+.stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.stat.ok .n{color:var(--verified)} .stat.no .n{color:var(--refuted)}
+.lede{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);
+  border-radius:10px;padding:13px 16px;margin:20px 0 6px;font-size:14px;color:var(--text)}
+.lede b{color:var(--accent)}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:18px;margin-top:20px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.col-h{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 10px}
+ul.claims{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px;
+  max-height:64vh;overflow:auto}
+button.claim{width:100%;text-align:left;background:var(--panel);border:1px solid var(--border);
+  border-radius:9px;padding:10px 12px;cursor:pointer;color:var(--text);font:inherit;
+  display:flex;gap:10px;align-items:flex-start;transition:border-color .12s,background .12s}
+button.claim:hover{border-color:var(--accent)}
+button.claim[aria-selected="true"]{border-color:var(--accent);background:var(--panel2);
+  box-shadow:inset 3px 0 0 var(--accent)}
+button.claim:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.dot{width:9px;height:9px;border-radius:50%;margin-top:6px;flex:0 0 auto}
+.dot.verified{background:var(--verified)} .dot.refuted{background:var(--refuted)}
+.dot.unverifiable{background:var(--unverifiable)}
+.claim .txt{font-size:13.5px;min-width:0}
+.claim .cid{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.kind{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.04em;
+  padding:1px 6px;border-radius:5px;border:1px solid var(--border);color:var(--muted);margin-left:6px}
+.kind.caveat{color:var(--unverifiable);border-color:var(--unverifiable)}
+.detail{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px;
+  position:sticky;top:16px;max-height:78vh;overflow:auto}
+.badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
+  letter-spacing:.05em;text-transform:uppercase;padding:3px 9px;border-radius:20px;font-weight:600}
+.badge.verified{background:color-mix(in srgb,var(--verified) 16%,transparent);color:var(--verified)}
+.badge.refuted{background:color-mix(in srgb,var(--refuted) 16%,transparent);color:var(--refuted)}
+.badge.unverifiable{background:color-mix(in srgb,var(--unverifiable) 16%,transparent);color:var(--unverifiable)}
+.detail h2{font-size:17px;margin:12px 0 8px;line-height:1.35;text-wrap:balance;font-weight:600}
+.kv{font-family:var(--mono);font-size:13px;background:var(--panel2);border:1px solid var(--border);
+  border-radius:7px;padding:8px 11px;margin:8px 0;display:flex;gap:8px}
+.kv .k{color:var(--muted)} .kv .v{font-variant-numeric:tabular-nums;word-break:break-word}
+.prov-h{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+  margin:20px 0 8px;border-top:1px solid var(--border);padding-top:14px}
+.ant{border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin:8px 0;background:var(--panel2)}
+.ant .type{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+  padding:1px 6px;border-radius:5px;color:#fff}
+.ant .type.computation{background:var(--computation)} .ant .type.data{background:var(--data)}
+.ant .lab{font-family:var(--mono);font-size:12.5px;margin-left:8px;color:var(--text)}
+pre{margin:9px 0 0;background:var(--bg);border:1px solid var(--border);border-radius:7px;
+  padding:10px 12px;overflow-x:auto;font-family:var(--mono);font-size:12px;line-height:1.45;color:var(--text)}
+.ant .val{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:6px;
+  word-break:break-word;font-variant-numeric:tabular-nums}
+.reverify{font-size:12px;color:var(--muted);margin-top:6px}
+.reverify b{color:var(--verified)}
+.foot{margin-top:34px;padding-top:16px;border-top:1px solid var(--border);color:var(--muted);font-size:12.5px}
+.foot code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px}
+.empty{color:var(--muted);font-size:13px;padding:20px 4px}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Autoresearch · claim ledger</p>
+    <h1>Every number traces to data or the code that produced it</h1>
+    <p class="sub" id="study"></p>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <div class="lede">
+    Claims are the currency. Each was recorded by an agent exploring the pipeline data, and
+    each carries a machine-checkable provenance — a <b>data path</b> or a re-runnable
+    <b>computation</b>. An independent pass re-derived every one; only <b>verified</b> claims
+    reach the manuscript. Select a claim to see what backs it.
+  </div>
+
+  <div class="grid">
+    <section>
+      <p class="col-h">Claims</p>
+      <ul class="claims" id="list"></ul>
+    </section>
+    <aside>
+      <p class="col-h">Provenance</p>
+      <div class="detail" id="detail"><p class="empty">Select a claim to inspect its provenance.</p></div>
+    </aside>
+  </div>
+
+  <p class="foot">Data path claims re-read the pipeline output; computation claims re-execute
+  the stored code. The ledger is self-contained — any model or reviewer can re-run
+  <code>verify()</code> and check every claim for themselves.</p>
+</div>
+
+<script>
+const DATA = {"claims": [{"id": "k1", "statement": "Initial dataset comprised 84 samples with 1,398,204 raw reads.", "value": "84", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "overview.filtering.n_samples", "type": "data", "label": "overview.filtering.n_samples", "value": "84", "found": true}, {"id": "provenance.total.raw", "type": "data", "label": "provenance.total.raw", "value": "1398204", "found": true}]}, {"id": "k2", "statement": "After primer removal, 860,222 reads remained.", "value": "860222", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "provenance.total.primer", "type": "data", "label": "provenance.total.primer", "value": "860222", "found": true}]}, {"id": "k3", "statement": "After quality filtering, 519,769 reads were retained (37.2% of raw reads).", "value": "519769", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "overview.filtering.reads_retained", "type": "data", "label": "overview.filtering.reads_retained", "value": "519769", "found": true}, {"id": "overview.filtering.retention_pct", "type": "data", "label": "overview.filtering.retention_pct", "value": "37.2", "found": true}]}, {"id": "k4", "statement": "84 samples were reduced to 11 samples after denoising and renormalization.", "value": "11", "verdict": "verified", "kind": "quality_caveat", "antecedents": [{"id": "overview.asv_summary.n_samples", "type": "data", "label": "overview.asv_summary.n_samples", "value": "11", "found": true}, {"id": "samples.n", "type": "data", "label": "samples.n", "value": "11", "found": true}]}, {"id": "k5", "statement": "161 prokaryotic ASVs were retained across 11 samples with 46,656 total reads.", "value": "161", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "renorm_stats.prokaryote.n_asvs", "type": "data", "label": "renorm_stats.prokaryote.n_asvs", "value": "161", "found": true}, {"id": "renorm_stats.prokaryote.n_reads", "type": "data", "label": "renorm_stats.prokaryote.n_reads", "value": "46656", "found": true}]}, {"id": "k6", "statement": "162 ASVs were classified against the SILVA database.", "value": "162", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "taxonomy_summary.total_asvs_classified", "type": "data", "label": "taxonomy_summary.total_asvs_classified", "value": "162", "found": true}, {"id": "taxonomy_summary.database", "type": "data", "label": "taxonomy_summary.database", "value": "\"silva\"", "found": true}]}, {"id": "k7", "statement": "Taxonomic classification at phylum level: Pseudomonadota (116 ASVs), Bacteroidota (22), Campylobacterota (13), Verrucomicrobiota (4), Actinomycetota (3).", "value": "Pseudomonadota:116, Bacteroidota:22, Campylobacterota:13, Verrucomicrobiota:4, Actinomycetota:3", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "taxonomy_summary.top_phyla", "type": "data", "label": "taxonomy_summary.top_phyla", "value": "{\"Pseudomonadota\": 116, \"Bacteroidota\": 22, \"Campylobacterota\": 13, \"Verrucomicrobiota\": 4, \"Actinomycetota\": 3}", "found": true}]}, {"id": "k8", "statement": "Shannon diversity (bits) per sample ranged from 2.01 to 4.71, with mean 3.82.", "value": "3.8162", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "c23", "type": "computation", "label": "shannon_per_sample_fixed", "code": "# counts is 11 samples (rows) x 162 ASVs (columns)\n# Shannon diversity per sample (row-wise)\nshannon = {}\nfor sample in counts.index:\n    s = counts.loc[sample]  # This is a Series of 162 ASV counts for this sample\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nresult = pd.Series(shannon, name='Shannon_diversity')", "result": "{\"SRR38958117\": 4.3108, \"SRR38958118\": 4.7138, \"SRR38958119\": 4.1507, \"SRR38958126\": 4.5425, \"SRR38958127\": 3.8542, \"SRR38958128\": 3.1414, \"SRR38958135\": 3.2116, \"SRR38958136\": 3.7292, \"SRR38958147\": 2.0139, \"SRR38958151\": 4.0217, \"SRR38958158\": 4.2885}"}, {"id": "c25", "type": "computation", "label": "mean_shannon_fixed", "code": "# Mean Shannon diversity across samples\nshannon = {}\nfor sample in counts.index:\n    s = counts.loc[sample]\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nshannon_series = pd.Series(shannon)\nresult = float(shannon_series.mean())", "result": "3.8162"}]}, {"id": "k9", "statement": "Observed richness (ASVs per sample) ranged from 19 to 98, with mean 58.73.", "value": "58.7273", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "c24", "type": "computation", "label": "richness_per_sample_fixed", "code": "# Observed richness per sample (row-wise)\nrichness = {}\nfor sample in counts.index:\n    richness[sample] = int((counts.loc[sample] > 0).sum())\n\nresult = pd.Series(richness, name='Observed_richness')", "result": "{\"SRR38958117\": 79, \"SRR38958118\": 98, \"SRR38958119\": 53, \"SRR38958126\": 73, \"SRR38958127\": 39, \"SRR38958128\": 19, \"SRR38958135\": 59, \"SRR38958136\": 50, \"SRR38958147\": 32, \"SRR38958151\": 82, \"SRR38958158\": 62}"}, {"id": "c26", "type": "computation", "label": "mean_richness_fixed", "code": "# Mean observed richness across samples\nrichness = {}\nfor sample in counts.index:\n    richness[sample] = int((counts.loc[sample] > 0).sum())\n\nrichness_series = pd.Series(richness)\nresult = float(richness_series.mean())", "result": "58.7273"}]}, {"id": "k10", "statement": "Total reads per sample ranged from 1,218 (SRR38958128) to 7,026 (SRR38958118).", "value": "1218-7026", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "c28", "type": "computation", "label": "total_reads_per_sample_fixed", "code": "# Total reads per sample (sum across ASVs for each sample)\ntotal_reads = counts.sum(axis=1)\nresult = total_reads", "result": "{\"SRR38958117\": 5482.0, \"SRR38958118\": 7026.0, \"SRR38958119\": 2848.0, \"SRR38958126\": 4150.0, \"SRR38958127\": 2735.0, \"SRR38958128\": 1218.0, \"SRR38958135\": 4537.0, \"SRR38958136\": 3478.0, \"SRR38958147\": 4460.0, \"SRR38958151\": 6927.0, \"SRR38958158\": 3821.0}"}]}, {"id": "k11", "statement": "Mean pairwise Bray-Curtis dissimilarity between samples was 0.635.", "value": "0.6348", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "c29", "type": "computation", "label": "bray_curtis_mean", "code": "# Mean pairwise Bray-Curtis dissimilarity between samples\nbc_dist = pdist(counts, metric='braycurtis')\nresult = float(np.mean(bc_dist))", "result": "0.6348"}]}, {"id": "k12", "statement": "PCA on log-transformed counts: PC1 explained 36.76% and PC2 explained 15.73% of variance.", "value": "PC1:0.3676, PC2:0.1573", "verdict": "refuted", "kind": "observation", "antecedents": [{"id": "c30", "type": "computation", "label": "pca_variance", "code": "# Variance explained by PC1 and PC2\ncounts_log = np.log1p(counts)\npca = PCA(n_components=2)\npca.fit(counts_log)\nresult = {'PC1': float(pca.explained_variance_ratio_[0]), 'PC2': float(pca.explained_variance_ratio_[1])}", "result": "{\"PC1\": 0.3676, \"PC2\": 0.1573}"}]}, {"id": "k13", "statement": "QUALITY CAVEAT: 73 of 84 samples (86.9%) were lost during denoising/renormalization, retaining only 11 samples. This represents substantial sample attrition that may bias downstream analyses.", "value": "73", "verdict": "refuted", "kind": "quality_caveat", "antecedents": [{"id": "overview.filtering.n_samples", "type": "data", "label": "overview.filtering.n_samples", "value": "84", "found": true}, {"id": "overview.asv_summary.n_samples", "type": "data", "label": "overview.asv_summary.n_samples", "value": "11", "found": true}]}, {"id": "k14", "statement": "QUALITY CAVEAT: 1 chloroplast ASV was detected in 3 samples with 26 total reads, indicating potential mitochondrial/chloroplast contamination.", "value": "1", "verdict": "verified", "kind": "quality_caveat", "antecedents": [{"id": "renorm_stats.chloroplast.n_asvs", "type": "data", "label": "renorm_stats.chloroplast.n_asvs", "value": "1", "found": true}, {"id": "renorm_stats.chloroplast.n_samples", "type": "data", "label": "renorm_stats.chloroplast.n_samples", "value": "3", "found": true}]}, {"id": "k15", "statement": "QUALITY CAVEAT: Only 37.2% of raw reads were retained after filtering, indicating aggressive quality filtering that may have removed valid biological signal.", "value": "37.2", "verdict": "verified", "kind": "quality_caveat", "antecedents": [{"id": "overview.filtering.retention_pct", "type": "data", "label": "overview.filtering.retention_pct", "value": "37.2", "found": true}]}, {"id": "k16", "statement": "Taxonomic classification completeness: 162/162 ASVs classified at domain and phylum level, 161/162 at class level, 161/162 at order level, 158/162 at family level, and 137/162 at genus level.", "value": "domain:162/162, phylum:162/162, class:162/162, order:161/162, family:158/162, genus:137/162", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "taxonomy_summary.classified_per_rank", "type": "data", "label": "taxonomy_summary.classified_per_rank", "value": "{\"domain\": 162, \"phylum\": 162, \"class\": 162, \"order\": 161, \"family\": 158, \"genus\": 137}", "found": true}]}, {"id": "k17", "statement": "SRR38958118 had the highest Shannon diversity (4.71 bits) and highest observed richness (98 ASVs) among the 11 retained samples.", "value": "4.7138", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "c23", "type": "computation", "label": "shannon_per_sample_fixed", "code": "# counts is 11 samples (rows) x 162 ASVs (columns)\n# Shannon diversity per sample (row-wise)\nshannon = {}\nfor sample in counts.index:\n    s = counts.loc[sample]  # This is a Series of 162 ASV counts for this sample\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nresult = pd.Series(shannon, name='Shannon_diversity')", "result": "{\"SRR38958117\": 4.3108, \"SRR38958118\": 4.7138, \"SRR38958119\": 4.1507, \"SRR38958126\": 4.5425, \"SRR38958127\": 3.8542, \"SRR38958128\": 3.1414, \"SRR38958135\": 3.2116, \"SRR38958136\": 3.7292, \"SRR38958147\": 2.0139, \"SRR38958151\": 4.0217, \"SRR38958158\": 4.2885}"}, {"id": "c24", "type": "computation", "label": "richness_per_sample_fixed", "code": "# Observed richness per sample (row-wise)\nrichness = {}\nfor sample in counts.index:\n    richness[sample] = int((counts.loc[sample] > 0).sum())\n\nresult = pd.Series(richness, name='Observed_richness')", "result": "{\"SRR38958117\": 79, \"SRR38958118\": 98, \"SRR38958119\": 53, \"SRR38958126\": 73, \"SRR38958127\": 39, \"SRR38958128\": 19, \"SRR38958135\": 59, \"SRR38958136\": 50, \"SRR38958147\": 32, \"SRR38958151\": 82, \"SRR38958158\": 62}"}]}, {"id": "k18", "statement": "SRR38958147 had the lowest Shannon diversity (2.01 bits) and lowest observed richness (32 ASVs) among the 11 retained samples.", "value": "2.0139", "verdict": "verified", "kind": "observation", "antecedents": [{"id": "c23", "type": "computation", "label": "shannon_per_sample_fixed", "code": "# counts is 11 samples (rows) x 162 ASVs (columns)\n# Shannon diversity per sample (row-wise)\nshannon = {}\nfor sample in counts.index:\n    s = counts.loc[sample]  # This is a Series of 162 ASV counts for this sample\n    s_nonzero = s[s > 0]\n    if len(s_nonzero) > 0:\n        p = s_nonzero / s_nonzero.sum()\n        shannon[sample] = float(entropy(p, base=2))\n    else:\n        shannon[sample] = 0.0\n\nresult = pd.Series(shannon, name='Shannon_diversity')", "result": "{\"SRR38958117\": 4.3108, \"SRR38958118\": 4.7138, \"SRR38958119\": 4.1507, \"SRR38958126\": 4.5425, \"SRR38958127\": 3.8542, \"SRR38958128\": 3.1414, \"SRR38958135\": 3.2116, \"SRR38958136\": 3.7292, \"SRR38958147\": 2.0139, \"SRR38958151\": 4.0217, \"SRR38958158\": 4.2885}"}, {"id": "c24", "type": "computation", "label": "richness_per_sample_fixed", "code": "# Observed richness per sample (row-wise)\nrichness = {}\nfor sample in counts.index:\n    richness[sample] = int((counts.loc[sample] > 0).sum())\n\nresult = pd.Series(richness, name='Observed_richness')", "result": "{\"SRR38958117\": 79, \"SRR38958118\": 98, \"SRR38958119\": 53, \"SRR38958126\": 73, \"SRR38958127\": 39, \"SRR38958128\": 19, \"SRR38958135\": 59, \"SRR38958136\": 50, \"SRR38958147\": 32, \"SRR38958151\": 82, \"SRR38958158\": 62}"}]}], "stats": {"claims": 18, "verified": 16, "refuted": 2, "computations": 30}, "study": "16S amplicon \u00b7 frost flower \u00b7 Ice Chamber Experiment (PRJNA1473294)"};
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+document.getElementById('study').textContent = DATA.study;
+
+const S = DATA.stats;
+document.getElementById('stats').innerHTML = [
+  ['claims', S.claims, ''], ['verified', S.verified, 'ok'],
+  ['refuted', S.refuted, 'no'], ['computations', S.computations, '']
+].map(([l,n,c]) => `<div class="stat ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+
+const list = document.getElementById('list');
+DATA.claims.forEach((c,i) => {
+  const b = document.createElement('button');
+  b.className = 'claim'; b.setAttribute('role','option'); b.dataset.i = i;
+  b.setAttribute('aria-selected','false');
+  b.innerHTML = `<span class="dot ${c.verdict}"></span><span class="txt">`
+    + `<span class="cid">${c.id}</span>`
+    + (c.kind==='quality_caveat' ? '<span class="kind caveat">caveat</span>' : '')
+    + `<br>${esc(c.statement)}</span>`;
+  b.onclick = () => select(i);
+  list.appendChild(b);
+});
+
+function select(i){
+  [...list.children].forEach((el,j)=>el.setAttribute('aria-selected', j===i));
+  const c = DATA.claims[i];
+  const ants = c.antecedents.map(a => {
+    if(a.type==='computation'){
+      return `<div class="ant"><span class="type computation">computation</span>`
+        + `<span class="lab">${a.id} · ${esc(a.label)}</span>`
+        + `<pre>${esc(a.code)}</pre>`
+        + `<div class="val">→ ${esc(a.result)}</div></div>`;
+    }
+    return `<div class="ant"><span class="type data">data</span>`
+      + `<span class="lab">${esc(a.label)}</span>`
+      + `<div class="val">= ${esc(a.value)}</div></div>`;
+  }).join('') || '<p class="empty">No antecedents recorded.</p>';
+  const reverify = c.verdict==='verified'
+    ? 'Re-derived from the antecedents below — <b>verified</b>.'
+    : (c.verdict==='refuted'
+        ? 'The cited antecedents did not reproduce this value — <b style="color:var(--refuted)">refuted</b>, excluded from the manuscript.'
+        : 'Could not be checked against the data — excluded from the manuscript.');
+  document.getElementById('detail').innerHTML =
+    `<span class="badge ${c.verdict}">${c.verdict}</span>`
+    + (c.kind==='quality_caveat' ? '<span class="kind caveat" style="margin-left:8px">quality caveat</span>' : '')
+    + `<h2>${esc(c.statement)}</h2>`
+    + `<div class="kv"><span class="k">value</span><span class="v">${esc(c.value)}</span></div>`
+    + `<div class="reverify">${reverify}</div>`
+    + `<p class="prov-h">Antecedents (${c.antecedents.length})</p>${ants}`;
+}
+select(0);
+</script>
