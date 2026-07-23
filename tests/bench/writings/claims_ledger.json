@@ -1,0 +1,82 @@
+[
+  {
+    "statement": "Of 84 initial samples, only 11 yielded prokaryotic ASVs after filtering and normalization",
+    "value": "11",
+    "source": "overview.renorm.prokaryote.n_samples",
+    "kind": "quality_caveat",
+    "actual": 11,
+    "verdict": "verified"
+  },
+  {
+    "statement": "Sequencing retention was 37.2%, with 519,769 reads retained from 1,398,204 input reads",
+    "value": "37.2",
+    "source": "overview.filtering.retention_pct",
+    "kind": "quality_caveat",
+    "actual": 37.2,
+    "verdict": "verified"
+  },
+  {
+    "statement": "A total of 161 prokaryotic ASVs were recovered across the 11 retained samples",
+    "value": "161",
+    "source": "overview.renorm.prokaryote.n_asvs",
+    "kind": "observation",
+    "actual": 161,
+    "verdict": "verified"
+  },
+  {
+    "statement": "The 11 retained samples contributed a total of 46,656 prokaryotic reads after normalization",
+    "value": "46656",
+    "source": "overview.renorm.prokaryote.n_reads",
+    "kind": "observation",
+    "actual": 46656,
+    "verdict": "verified"
+  },
+  {
+    "statement": "Pseudomonadota was the dominant phylum, accounting for 116 of 162 classified ASVs",
+    "value": "116",
+    "source": "overview.taxonomy_summary.phyla.Pseudomonadota",
+    "kind": "observation",
+    "actual": 116,
+    "verdict": "verified"
+  },
+  {
+    "statement": "Bacteroidota was the second most abundant phylum with 22 classified ASVs",
+    "value": "22",
+    "source": "overview.taxonomy_summary.phyla.Bacteroidota",
+    "kind": "observation",
+    "actual": 22,
+    "verdict": "verified"
+  },
+  {
+    "statement": "Taxonomic classification was performed against the SILVA database",
+    "value": "silva",
+    "source": "overview.taxonomy_summary.database",
+    "kind": "observation",
+    "actual": "silva",
+    "verdict": "verified"
+  },
+  {
+    "statement": "137 of 162 total ASVs were classified to the genus rank",
+    "value": "137",
+    "source": "overview.taxonomy_summary.classified_per_rank.genus",
+    "kind": "quality_caveat",
+    "actual": 137,
+    "verdict": "verified"
+  },
+  {
+    "statement": "One chloroplast ASV was detected across 3 samples with 26 reads",
+    "value": "1",
+    "source": "overview.renorm.chloroplast.n_asvs",
+    "kind": "observation",
+    "actual": 1,
+    "verdict": "verified"
+  },
+  {
+    "statement": "Campylobacterota comprised 13 of the classified ASVs, ranking third among phyla",
+    "value": "13",
+    "source": "overview.taxonomy_summary.phyla.Campylobacterota",
+    "kind": "observation",
+    "actual": 13,
+    "verdict": "verified"
+  }
+]
