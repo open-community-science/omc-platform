@@ -290,9 +290,16 @@ async def get_status(
                 await db.commit()
                 s = "processing"
             elif phase == "transferred":
-                submission.status = SubmissionStatus.RESULTS_READY
+                # Do NOT set RESULTS_READY here. The finalization for a transferred
+                # run — empty-archive → FAILED guard, results_format, and microscape
+                # viz deployment — lives only in poll_all_running_jobs, which selects
+                # PROCESSING rows. If this fast page poll set RESULTS_READY first, the
+                # background poller would never select the row and that finalization
+                # (validation + deploy) would be skipped (issue #31). Advance only to
+                # PROCESSING and let the authoritative poller finalize.
+                submission.status = SubmissionStatus.PROCESSING
                 await db.commit()
-                s = "results_ready"
+                s = "processing"
             elif phase == "failed":
                 submission.status = SubmissionStatus.FAILED
                 submission.error_message = hpc_status.get("reason", f"Exit code {hpc_status.get('exit_code', '?')}")
