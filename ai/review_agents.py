@@ -5,8 +5,12 @@ with an uncertainty index (0-1) indicating confidence in each comment.
 """
 import asyncio
 import json
+import logging
+import re
 from functools import partial
 from .llm_client import get_client, chat
+
+log = logging.getLogger(__name__)
 
 
 async def _achat(client, system, user, model=None, max_tokens=2000, temperature=0.5):
@@ -25,6 +29,10 @@ For each issue you identify, explain WHY it matters so the author learns somethi
 For every comment, rate your confidence from 0.0 (very uncertain) to 1.0 (certain).
 Low confidence flags should still be raised — they highlight areas worth the author's attention
 even if you're not sure there's a problem.
+
+Keep each `detail` to 1-3 sentences and focus on the most important issues (aim for the
+~8 highest-value comments) so the full JSON response stays complete and well-formed.
+Return ONLY the JSON object — no preamble, no markdown fence, no text after it.
 
 Respond in JSON format:
 {
@@ -76,7 +84,7 @@ Check for:
 6. Missing analyses that would strengthen the paper
 
 Respond in the JSON format specified.""",
-        model=model, max_tokens=2000, temperature=0.5)
+        model=model, max_tokens=4000, temperature=0.5)
 
     return _parse_review(response, "statistical")
 
@@ -108,7 +116,7 @@ Check for:
 6. Whether the approach matches current best practices
 
 Respond in the JSON format specified.""",
-        model=model, max_tokens=2000, temperature=0.5)
+        model=model, max_tokens=4000, temperature=0.5)
 
     return _parse_review(response, "methodological")
 
@@ -151,7 +159,7 @@ Check for:
 6. Missing context that would help the reader
 
 Respond in the JSON format specified.""",
-        model=model, max_tokens=2000, temperature=0.5)
+        model=model, max_tokens=4000, temperature=0.5)
 
     return _parse_review(response, "clarity")
 
@@ -193,7 +201,7 @@ Check for:
 This review is about MISSING content, not quality. Flag anything that should be there but isn't.
 
 Respond in the JSON format specified.""",
-        model=model, max_tokens=2000, temperature=0.5)
+        model=model, max_tokens=4000, temperature=0.5)
 
     return _parse_review(response, "completeness")
 
@@ -247,7 +255,7 @@ You are an expert microbial ecologist. Check for:
 Be specific about which taxa or claims concern you, and explain what the expected biology would be.
 
 Respond in the JSON format specified.""",
-        model=model, max_tokens=2500, temperature=0.5)
+        model=model, max_tokens=4000, temperature=0.5)
 
     return _parse_review(response, "biological_plausibility")
 
@@ -285,7 +293,7 @@ For example: "The claim about SAR11 dominance should cite Giovannoni (2017) Scie
 Morris et al. (2002) Nature."
 
 Respond in the JSON format specified.""",
-        model=model, max_tokens=2500, temperature=0.5)
+        model=model, max_tokens=4000, temperature=0.5)
 
     return _parse_review(response, "citation")
 
@@ -312,25 +320,70 @@ async def run_all_reviews(
     return reviews
 
 
-def _parse_review(response_text: str, review_type: str) -> dict:
-    """Parse a review response, handling both JSON and plain text."""
-    try:
-        # Try to extract JSON from response
-        text = response_text.strip()
-        # Handle markdown code blocks
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
+def _salvage_review_json(text: str) -> dict | None:
+    """Recover a review dict from truncated/dirty JSON (issue #27).
 
-        if text.startswith("{"):
+    Verbose models overrun max_tokens and get cut off mid-JSON, which makes a
+    strict json.loads fail and throws away an otherwise-good review. This walks
+    the `comments` array with a streaming decoder and keeps every COMPLETE
+    comment object, dropping only a trailing truncated one. Returns None if
+    nothing usable is found.
+    """
+    start = text.find("{")
+    if start < 0:
+        return None
+    body = text[start:]
+    m = re.search(r'"comments"\s*:\s*\[', body)
+    if not m:
+        return None
+    dec = json.JSONDecoder()
+    idx = m.end()
+    comments = []
+    while idx < len(body):
+        while idx < len(body) and body[idx] in " \t\r\n,":
+            idx += 1
+        if idx >= len(body) or body[idx] == "]":
+            break
+        try:
+            obj, idx = dec.raw_decode(body, idx)
+        except json.JSONDecodeError:
+            break  # last object was truncated — stop, keep the complete ones
+        if isinstance(obj, dict):
+            comments.append(obj)
+    if not comments:
+        return None
+    sm = re.search(r'"summary"\s*:\s*"((?:[^"\\]|\\.)*)"', body)
+    return {"comments": comments, "summary": sm.group(1) if sm else ""}
+
+
+def _parse_review(response_text: str, review_type: str) -> dict:
+    """Parse a review response, handling JSON, truncated JSON, and plain text."""
+    text = response_text.strip()
+    # Strip a markdown code fence if present
+    if "```json" in text:
+        text = text.split("```json")[1].split("```")[0].strip()
+    elif "```" in text:
+        text = text.split("```")[1].split("```")[0].strip()
+
+    # 1) strict parse
+    if text.startswith("{"):
+        try:
             parsed = json.loads(text)
             parsed["review_type"] = review_type
             return parsed
-    except (ValueError, json.JSONDecodeError):
-        pass
+        except (ValueError, json.JSONDecodeError):
+            pass
 
-    # Fallback: wrap plain text as a single comment
+    # 2) salvage complete comments from truncated/dirty JSON
+    salvaged = _salvage_review_json(text) or _salvage_review_json(response_text)
+    if salvaged:
+        log.warning("Review %s: recovered %d comment(s) from unparseable JSON "
+                    "(likely truncated at max_tokens)", review_type, len(salvaged["comments"]))
+        salvaged["review_type"] = review_type
+        salvaged["recovered"] = True
+        return salvaged
+
+    # 3) fallback: wrap plain text as a single comment
     return {
         "review_type": review_type,
         "comments": [{

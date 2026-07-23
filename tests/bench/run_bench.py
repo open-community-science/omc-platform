@@ -58,14 +58,22 @@ FAKE_CITE_RE = re.compile(
     r"(?:\s+(?:et al\.?|and|&|,)\s*[A-Z][A-Za-zÀ-ſ\-']+)*),?\s+"
     r"(?:19|20)\d{2}[a-z]?\)"
 )
-# Study systems NOT supported by a bare accession + ASV counts. If these show up
-# under MINIMAL metadata, the model invented a subject (the failure the
-# _format_study comment describes).
+# Subject specifics NOT derivable from a bare accession + ASV counts + taxa.
+# If these appear under MINIMAL metadata, the model invented the study system
+# (the failure the _format_study comment describes). "frost flower / sea ice /
+# ice chamber / brine" are the true subject here — inferring them from ASV data
+# alone is fabrication. Generic wrong-domain guesses (thanatomicrobiome, gut...)
+# are included too. "marine" is deliberately NOT listed: it is a defensible
+# inference from the marine taxa actually present in the data.
 INVENTED_SUBJECTS = re.compile(
-    r"\b(thanatomicrobiome|forensic|post-?mortem|cadaver|human gut|wastewater|"
-    r"activated sludge|clinical|patient|rhizosphere|permafrost thaw|"
-    r"hydrothermal vent|hospital)\b", re.I
+    r"\b(frost flower|sea[- ]ice|ice chamber|brine|"
+    r"thanatomicrobiome|forensic|post-?mortem|cadaver|human gut|gut microbiome|"
+    r"wastewater|activated sludge|clinical|patient|rhizosphere|soil|"
+    r"permafrost|hydrothermal vent|hospital)\b", re.I
 )
+
+# Unfilled template placeholders a polished draft/message must not contain.
+LEFTOVER_PLACEHOLDER = re.compile(r"\[(?:author'?s? name|your name|name|insert[^\]]*|x)\]", re.I)
 
 
 def count_fake_cites(text):
@@ -171,11 +179,16 @@ _OUTLINE_STYLES = {"twopart", "twopart_honest"}
 
 
 def _results_task(study_meta, style):
+    # The research_question must not leak subject specifics into the MINIMAL
+    # condition, or the anti-fabrication test is meaningless. Grounded gets the
+    # real question; minimal/none get a neutral one.
+    rq = ("How do frost flowers concentrate marine bacterial communities?"
+          if study_meta is STUDY_GROUNDED else "Not specified")
+
     @_timed
     async def run(client, model):
         study_ctx = _format_study(study_meta)
-        prompt = build_results_prompt(study_ctx, load_fixture(),
-                                      {"research_question": "How do frost flowers concentrate marine bacterial communities?"})
+        prompt = build_results_prompt(study_ctx, load_fixture(), {"research_question": rq})
         prompt += STYLES[style]
         raw, clean = await asyncio.get_event_loop().run_in_executor(
             None, _raw_chat, client, model, SYSTEM_PROMPT, prompt, 4000)
@@ -266,6 +279,7 @@ async def interview_open(client, model):
     specific = bool(re.search(r"frost flower|sea[- ]ice|ice chamber|MiSeq|11 |amplicon|16S|grenoble", msg, re.I))
     asks = "?" in msg
     concise = words <= 200
+    placeholders = LEFTOVER_PLACEHOLDER.findall(msg)
     flags = []
     if not specific:
         flags.append("not-specific")
@@ -273,8 +287,11 @@ async def interview_open(client, model):
         flags.append("no-question")
     if not concise:
         flags.append(f"too-long({words}w)")
-    return {"passed": specific and asks and concise, "words": words,
-            "specific": specific, "asks_question": asks, "flags": flags, "preview": preview(msg)}
+    if placeholders:
+        flags.append(f"unfilled-placeholder({placeholders[0]})")
+    return {"passed": specific and asks and concise and not placeholders, "words": words,
+            "specific": specific, "asks_question": asks, "unfilled": bool(placeholders),
+            "flags": flags, "preview": preview(msg)}
 
 
 def build_tasks():
@@ -302,26 +319,35 @@ def write_report(results, path):
     lines.append(f"Fixture: c5af6277 (sea-ice frost-flower 16S, {BIOPROJECT})  ")
     lines.append(f"Endpoint: {BASE_URL}  ")
     lines.append("")
-    tasks = list(next(iter(results.values())).keys()) if results else []
+    # Task columns are every key except the _load marker.
+    tasks = [k for k in (next(iter(results.values())).keys() if results else []) if k != "_load"]
     lines.append("## Pass matrix")
     lines.append("")
-    lines.append("| model | " + " | ".join(tasks) + " | notes |")
-    lines.append("|" + "---|" * (len(tasks) + 2))
+    lines.append("| model | load | " + " | ".join(tasks) + " | notes |")
+    lines.append("|" + "---|" * (len(tasks) + 3))
     for model, tr in results.items():
+        load = tr.get("_load", {})
+        load_cell = "SKIP" if load.get("error") else f"{load.get('latency_s','?')}s"
         cells = []
         for t in tasks:
             m = tr.get(t, {})
             if m.get("error"):
-                cells.append("ERR")
+                cells.append(f"⏱{m['error']}" if "timeout" in str(m.get("error")) else "ERR")
+            elif not m:
+                cells.append("—")
             else:
                 mark = "✅" if m.get("passed") else "❌"
                 cells.append(f"{mark} {m.get('latency_s','?')}s")
-        lines.append(f"| {model} | " + " | ".join(cells) + f" | {NOTES.get(model,'')} |")
+        lines.append(f"| {model} | {load_cell} | " + " | ".join(cells) + f" | {NOTES.get(model,'')} |")
     lines.append("")
     lines.append("## Flags & previews")
     for model, tr in results.items():
         lines.append(f"\n### {model}")
+        if tr.get("_load", {}).get("error"):
+            lines.append(f"- **load**: SKIPPED — {tr['_load']['error']}")
         for t, m in tr.items():
+            if t == "_load":
+                continue
             if m.get("error"):
                 lines.append(f"- **{t}**: ERROR — {m['error']}")
                 continue
@@ -337,12 +363,25 @@ def write_report(results, path):
     path.write_text("\n".join(lines) + "\n")
 
 
+def _warm(client, model):
+    """One tiny generation to force the model to load. Returns load seconds."""
+    t0 = time.time()
+    llm_client._call_with_retry(
+        client.chat.completions.create,
+        model=model, messages=[{"role": "user", "content": "Reply with: ok"}],
+        max_tokens=5, temperature=0,
+    )
+    return round(time.time() - t0, 1)
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", nargs="+", default=None)
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--tasks", nargs="+", default=None)
     ap.add_argument("--out", default=str(HERE / "results.md"))
+    ap.add_argument("--timeout", type=float, default=150.0, help="per-task seconds")
+    ap.add_argument("--load-timeout", type=float, default=240.0, help="model warm-up seconds")
     args = ap.parse_args()
 
     models = ([m for m, _, _ in ALL_MODELS] if args.all
@@ -351,13 +390,27 @@ async def main():
     tasks = {k: all_tasks[k] for k in (args.tasks or DEFAULT_TASKS)}
 
     client = get_client(base_url=BASE_URL)
+    loop = asyncio.get_event_loop()
     results = {}
     for model in models:
         print(f"\n=== {model} ===", flush=True)
-        tr = {}
+        # Warm up (load) the model first so per-task latency is inference, not load.
+        try:
+            load_s = await asyncio.wait_for(
+                loop.run_in_executor(None, _warm, client, model), timeout=args.load_timeout)
+            print(f"  [loaded in {load_s}s]", flush=True)
+        except (asyncio.TimeoutError, Exception) as e:
+            reason = "load-timeout" if isinstance(e, asyncio.TimeoutError) else f"load-error: {e}"
+            print(f"  SKIP — {reason}", flush=True)
+            results[model] = {"_load": {"error": reason, "passed": False}}
+            continue
+        tr = {"_load": {"latency_s": load_s, "passed": True}}
         for name, fn in tasks.items():
             print(f"  {name} ...", end="", flush=True)
-            m = await fn(client, model)
+            try:
+                m = await asyncio.wait_for(fn(client, model), timeout=args.timeout)
+            except asyncio.TimeoutError:
+                m = {"error": f"timeout>{args.timeout}s", "passed": False, "latency_s": args.timeout}
             tr[name] = m
             status = "ERR" if m.get("error") else ("PASS" if m.get("passed") else "FAIL")
             print(f" {status} {m.get('latency_s')}s "
