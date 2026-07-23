@@ -48,7 +48,8 @@ stats = {
 }
 slug = W.name.replace("real_", "")
 study = f"microscape amplicon submission {slug} · agenda-driven autoresearch"
-DATA = json.dumps({"claims": view, "stats": stats, "study": study})
+run = ledger.get("run", {})
+DATA = json.dumps({"claims": view, "stats": stats, "study": study, "run": run})
 
 HTML = r'''<title>Claim Provenance — Results Autoresearch</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -188,6 +189,15 @@ pre{margin:9px 0 0;background:var(--bg);border:1px solid var(--border);border-ra
 const DATA = __DATA__;
 const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 document.getElementById('study').textContent = DATA.study;
+if (DATA.run && DATA.run.completed === false) {
+  const b = document.createElement('div');
+  b.className = 'lede';
+  b.style.borderLeftColor = 'var(--unverifiable)';
+  b.innerHTML = `<b style="color:var(--unverifiable)">⚠️ Preliminary</b> — exploration stopped `
+    + `with ${DATA.run.investigations_done}/${DATA.run.investigations_total} investigations done; `
+    + `these claims are partial.`;
+  document.querySelector('header').after(b);
+}
 
 const S = DATA.stats;
 document.getElementById('stats').innerHTML = [

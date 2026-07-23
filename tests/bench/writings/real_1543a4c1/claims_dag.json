@@ -1,0 +1,224 @@
+{
+  "nodes": [
+    {
+      "id": "c1",
+      "type": "computation",
+      "label": "a1_dataset_composition"
+    },
+    {
+      "id": "c2",
+      "type": "computation",
+      "label": "a1_data_structure_check"
+    },
+    {
+      "id": "c3",
+      "type": "computation",
+      "label": "a1_data_structure_check2"
+    },
+    {
+      "id": "c4",
+      "type": "computation",
+      "label": "a1_data_structure_check3"
+    },
+    {
+      "id": "c5",
+      "type": "computation",
+      "label": "a1_data_structure_check4"
+    },
+    {
+      "id": "c6",
+      "type": "computation",
+      "label": "a2_alpha_diversity_computation"
+    },
+    {
+      "id": "c7",
+      "type": "computation",
+      "label": "a2_alpha_diversity_summary2"
+    },
+    {
+      "id": "c8",
+      "type": "computation",
+      "label": "a3_beta_diversity_computation"
+    },
+    {
+      "id": "c9",
+      "type": "computation",
+      "label": "a3_driver_taxa_identification"
+    },
+    {
+      "id": "c10",
+      "type": "computation",
+      "label": "a3_bacteria_only_structure2"
+    },
+    {
+      "id": "c11",
+      "type": "computation",
+      "label": "a3_collection_date_check"
+    },
+    {
+      "id": "c12",
+      "type": "computation",
+      "label": "a4_indicator_taxa"
+    },
+    {
+      "id": "c13",
+      "type": "computation",
+      "label": "a5_core_transient_taxa3"
+    },
+    {
+      "id": "c14",
+      "type": "computation",
+      "label": "a6_contamination_screen"
+    },
+    {
+      "id": "c15",
+      "type": "computation",
+      "label": "a7_cooccurrence_analysis"
+    },
+    {
+      "id": "k1",
+      "type": "claim",
+      "label": "Dataset composition: 63 samples, 735 ASVs. Sequencing depth ",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k2",
+      "type": "claim",
+      "label": "Richness strongly correlates with sequencing depth (Spearman",
+      "verdict": "verified",
+      "kind": "pattern"
+    },
+    {
+      "id": "k3",
+      "type": "claim",
+      "label": "Bacteria-dominated samples (n=44) have mean richness 67.98 a",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    },
+    {
+      "id": "k4",
+      "type": "claim",
+      "label": "Kruskal-Wallis test by library_name for richness is not sign",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    },
+    {
+      "id": "k5",
+      "type": "claim",
+      "label": "Bray-Curtis PCoA shows strong structure: PC1 explains 63.18%",
+      "verdict": "verified",
+      "kind": "pattern"
+    },
+    {
+      "id": "k6",
+      "type": "claim",
+      "label": "Beta diversity separation (Bray-Curtis PC1) is driven almost",
+      "verdict": "verified",
+      "kind": "pattern"
+    },
+    {
+      "id": "k7",
+      "type": "claim",
+      "label": "Within Bacteria-only samples (n=44), Bray-Curtis PC1 explain",
+      "verdict": "refuted",
+      "kind": "pattern"
+    },
+    {
+      "id": "k8",
+      "type": "claim",
+      "label": "collection_date has only 2 unique values (2026-06-04: 44 sam",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    },
+    {
+      "id": "k9",
+      "type": "claim",
+      "label": "Indicator taxa analysis confirms the Domain split: Bacteria-",
+      "verdict": "verified",
+      "kind": "pattern"
+    },
+    {
+      "id": "k10",
+      "type": "claim",
+      "label": "Core microbiome (ASVs in \u226550% of samples): only 14 ASVs, ALL",
+      "verdict": "verified",
+      "kind": "pattern"
+    },
+    {
+      "id": "k11",
+      "type": "claim",
+      "label": "Contamination screen: Most genera in the contaminant list (P",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    },
+    {
+      "id": "k12",
+      "type": "claim",
+      "label": "Co-occurrence analysis (Bacteria-only, ASVs present in \u226510% ",
+      "verdict": "verified",
+      "kind": "pattern"
+    },
+    {
+      "id": "k13",
+      "type": "claim",
+      "label": "Notably, zero negative correlations were found in the co-occ",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    }
+  ],
+  "edges": [
+    {
+      "from": "c5",
+      "to": "k1"
+    },
+    {
+      "from": "c7",
+      "to": "k2"
+    },
+    {
+      "from": "c7",
+      "to": "k3"
+    },
+    {
+      "from": "c7",
+      "to": "k4"
+    },
+    {
+      "from": "c8",
+      "to": "k5"
+    },
+    {
+      "from": "c9",
+      "to": "k6"
+    },
+    {
+      "from": "c10",
+      "to": "k7"
+    },
+    {
+      "from": "c11",
+      "to": "k8"
+    },
+    {
+      "from": "c12",
+      "to": "k9"
+    },
+    {
+      "from": "c13",
+      "to": "k10"
+    },
+    {
+      "from": "c14",
+      "to": "k11"
+    },
+    {
+      "from": "c15",
+      "to": "k12"
+    },
+    {
+      "from": "c15",
+      "to": "k13"
+    }
+  ]
+}
