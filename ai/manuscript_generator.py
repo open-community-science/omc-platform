@@ -344,6 +344,26 @@ def _format_interview(interview_data: dict) -> str:
     return "\n".join(formatted)
 
 
+def _make_searcher(search_fn, candidates_per_query: int):
+    """Wrap a search callable so it always returns a list, awaiting coroutines.
+
+    Passes the candidate count only when the callable accepts it, so both the
+    real ``search_pubmed(query, max_results)`` and 1-arg test mocks work.
+    """
+    try:
+        accepts_count = len(inspect.signature(search_fn).parameters) >= 2
+    except (TypeError, ValueError):
+        accepts_count = False
+
+    async def run(query):
+        result = search_fn(query, candidates_per_query) if accepts_count else search_fn(query)
+        if inspect.isawaitable(result):
+            result = await result
+        return result or []
+
+    return run
+
+
 async def resolve_citations(
     sections: dict,
     pipeline_type: str = "",
@@ -351,16 +371,27 @@ async def resolve_citations(
     base_url: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
+    max_query_rounds: int = 2,
+    candidates_per_query: int = 5,
 ) -> tuple[dict, str]:
     """Resolve [CITE] placeholders in manuscript sections.
 
-    For each [CITE], generates a PubMed search query, searches PubMed,
-    and replaces the placeholder with an inline citation. Returns the
-    updated sections and a BibTeX bibliography string.
+    For each [CITE] slot this runs a small grounded loop (adapted from
+    AI-Scientist's citation harness): search PubMed, and if nothing comes back
+    reformulate the query and try again up to ``max_query_rounds``, stopping as
+    soon as candidates are found. When several candidates return, the model
+    selects the best fit (or declines, leaving a placeholder rather than citing
+    the wrong paper). All chosen articles flow through a
+    :class:`CitationLibrary` that deduplicates by DOI/PMID/title, so the same
+    paper is never added twice and only real search results enter the
+    bibliography. Returns the updated sections and a BibTeX bibliography string.
 
-    search_fn: optional callable(query) -> list[dict] for testing/mocking.
-               Each dict should have title, authors, journal, year, doi, pmid.
+    search_fn: optional callable(query[, max_results]) -> list[dict] for
+               testing/mocking. Each dict should have title, authors, journal,
+               year, doi, pmid.
     """
+    from .citation_resolver import CitationLibrary, refine_query, select_citation, _fallback_query
+
     # Combine all sections into one text for context extraction
     full_text = "\n\n".join(
         f"## {name}\n{content}" for name, content in sections.items()
@@ -370,7 +401,7 @@ async def resolve_citations(
     if not contexts:
         return sections, ""
 
-    # Generate search queries from contexts
+    # Generate an initial search query per placeholder
     queries = await generate_search_queries(
         contexts,
         pipeline_type=pipeline_type,
@@ -379,43 +410,48 @@ async def resolve_citations(
         model=model,
     )
 
-    # Search PubMed for each query and collect results
-    bibtex_entries = []
+    search = _make_searcher(search_fn, candidates_per_query) if search_fn else None
+    library = CitationLibrary()
     replacements = []  # (original_text, replacement_text)
 
-    for i, (ctx, query) in enumerate(zip(contexts, queries)):
-        article = None
-        if search_fn:
-            try:
-                result = search_fn(query)
-                if inspect.isawaitable(result):
-                    result = await result
-                results = result
-                if results:
-                    article = results[0]
-            except Exception as e:
-                log.warning(f"Search failed for query '{query}': {e}")
-            # Rate limit between searches
-            await asyncio.sleep(0.5)
+    for i, ctx in enumerate(contexts):
+        # queries only covers the first batch of contexts; fall back for the rest
+        query = queries[i] if i < len(queries) and queries[i] else _fallback_query(ctx)
 
-        if article:
-            # Generate citation key: firstauthor2023keyword
-            authors = article.get("authors", [])
-            from .citation_resolver import _surname
-            first_author = _surname(authors[0]).lower() if authors else "unknown"
-            year = article.get("year", "")
-            title_word = article.get("title", "").split()[0].lower() if article.get("title") else "ref"
-            cite_key = f"{first_author}{year}{title_word}"
+        candidates = []
+        if search:
+            for round_idx in range(max_query_rounds):
+                try:
+                    candidates = await search(query)
+                except Exception as e:
+                    log.warning(f"Search failed for query '{query}': {e}")
+                    candidates = []
+                await asyncio.sleep(0.5)  # NCBI rate limit
+                if candidates:
+                    break  # early stop for this slot — we found matches
+                if round_idx < max_query_rounds - 1:
+                    new_query = await refine_query(
+                        ctx, query, base_url=base_url, api_key=api_key, model=model
+                    )
+                    if not new_query:
+                        break  # model declined to broaden — give up on this slot
+                    query = new_query
 
-            inline = format_inline_citation(article, cite_key)
-            bibtex = format_bibtex_entry(article, cite_key)
-            bibtex_entries.append(bibtex)
-        else:
-            # No search result — leave a numbered placeholder
-            cite_key = f"ref{i+1}"
+        inline = None
+        if candidates:
+            chosen = await select_citation(
+                ctx, candidates, already_cited=library.titles(),
+                base_url=base_url, api_key=api_key, model=model,
+            )
+            if chosen:
+                cite_key = library.add(chosen)
+                inline = format_inline_citation(library.article_for(cite_key), cite_key)
+
+        if inline is None:
+            # No result, or the model declined to cite — leave a readable placeholder
             hint = ctx.get("hint", "")
-            inline = f"[{hint or cite_key}]"
-            log.info(f"No PubMed result for citation {i+1}: '{query}'")
+            inline = f"[{hint or f'ref{i+1}'}]"
+            log.info(f"No citation resolved for placeholder {i+1}: '{query}'")
 
         original = full_text[ctx["span"][0]:ctx["span"][1]]
         replacements.append((original, inline))
@@ -437,5 +473,4 @@ async def resolve_citations(
         else:
             updated_sections[name] = sections[name]
 
-    bibliography = "\n\n".join(bibtex_entries)
-    return updated_sections, bibliography
+    return updated_sections, library.bibtex()
