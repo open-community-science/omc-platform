@@ -119,13 +119,20 @@ def _navigate(path):
     return True, cur
 
 
-# ── Analysis execution in a resource-limited subprocess ───────────────────────
-# Model-written code runs in a SEPARATE python process with CPU + memory rlimits,
-# a wall-clock timeout, and network disabled — so a bad or hostile cell can't hang
-# the run, exhaust memory, or reach the network/model. It is NOT a full container:
-# the filesystem is not confined, so this is for TRUSTED local benchmarking over
-# vetted pipeline outputs, not untrusted input. (A container/seccomp jail would be
-# the next step to run this on arbitrary third-party code.)
+# ── Analysis execution: isolation ─────────────────────────────────────────────
+# In PRODUCTION the agent's analysis cells run as Marimo notebooks INSIDE the
+# omc-session container, which is the real jail: the omc-sessions bridge DROPs all
+# outbound except the portal LLM proxy (session/setup-network.sh, enable_icc=false),
+# /data is a READ-ONLY squashfuse mount, and the container is capped at 2g/1cpu and
+# is ephemeral (portal/app/sessions.py). That already provides network isolation,
+# read-only data, and resource limits.
+#
+# THIS harness, however, runs standalone on the dev host — no container — so it
+# approximates that boundary with a separate python process: CPU + memory rlimits,
+# a wall-clock timeout, and network disabled (trusted imports load first, then the
+# socket is cut before the cell runs). The dev-host filesystem is NOT confined here,
+# so the harness is for trusted local benchmarking over vetted pipeline outputs; the
+# container is what confines untrusted execution in production.
 _CHILD_RUNNER = r'''
 import os, sys, json, gzip, resource
 resource.setrlimit(resource.RLIMIT_CPU, (25, 25))          # ~25s CPU
