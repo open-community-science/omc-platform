@@ -51,23 +51,31 @@ STUDY_NONE = None
 
 
 def _read_json(path: Path):
-    opener = gzip.open if path.suffix == ".gz" else open
-    with opener(path, "rt") as f:
-        return json.load(f)
+    """Read a viz JSON, or None if absent (submissions vary in which files they emit)."""
+    for p in (path, path.with_suffix(path.suffix + ".gz")):
+        if p.exists():
+            opener = gzip.open if p.suffix == ".gz" else open
+            with opener(p, "rt") as f:
+                return json.load(f)
+    return None
 
 
 def build_pipeline_outputs(data_dir: Path = DATA_DIR) -> dict:
-    """Compute a parse_microscape-shaped summary from the viz JSONs."""
-    data_dir = Path(data_dir)
-    renorm = _read_json(data_dir / "renorm_stats.json")
-    samples = _read_json(data_dir / "samples.json")
-    taxonomy = _read_json(data_dir / "taxonomy.json")
-    provenance = _read_json(data_dir / "provenance.json")
+    """Compute a parse_microscape-shaped summary from whatever viz JSONs exist.
 
-    # Primary taxonomy DB (silva here)
-    db_name, tax = next(iter(taxonomy.items()))
-    levels = tax["levels"]
-    assignments = tax["assignments"]
+    Degrades gracefully like parse_microscape: any missing file just drops the
+    fields it would have supplied, so submissions without provenance (retention)
+    or without taxonomy still yield a usable summary."""
+    data_dir = Path(data_dir)
+    renorm = _read_json(data_dir / "renorm_stats.json") or {}
+    samples = _read_json(data_dir / "samples.json") or []
+    taxonomy = _read_json(data_dir / "taxonomy.json") or {}
+    provenance = _read_json(data_dir / "provenance.json") or {}
+
+    # Primary taxonomy DB (silva here); tolerate an absent/empty taxonomy file.
+    db_name, tax = next(iter(taxonomy.items()), ("none", {}))
+    levels = tax.get("levels", [])
+    assignments = tax.get("assignments", {})
 
     unassigned = {"", "na", "unclassified", "unassigned", "incertae sedis", "none"}
 

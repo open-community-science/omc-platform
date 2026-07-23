@@ -1,0 +1,270 @@
+{
+  "nodes": [
+    {
+      "id": "c1",
+      "type": "computation",
+      "label": "richness_per_sample"
+    },
+    {
+      "id": "c2",
+      "type": "computation",
+      "label": "shannon_diversity"
+    },
+    {
+      "id": "c3",
+      "type": "computation",
+      "label": "bray_curtis"
+    },
+    {
+      "id": "c4",
+      "type": "computation",
+      "label": "total_reads_per_sample"
+    },
+    {
+      "id": "c5",
+      "type": "computation",
+      "label": "mean_shannon"
+    },
+    {
+      "id": "c6",
+      "type": "computation",
+      "label": "mean_richness"
+    },
+    {
+      "id": "c7",
+      "type": "computation",
+      "label": "min_max_richness"
+    },
+    {
+      "id": "c8",
+      "type": "computation",
+      "label": "min_max_shannon"
+    },
+    {
+      "id": "c9",
+      "type": "computation",
+      "label": "min_max_library_size"
+    },
+    {
+      "id": "k1",
+      "type": "claim",
+      "label": "Initial sequencing yielded 84 samples with 1,398,204 raw rea",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "provenance.n_samples",
+      "type": "data",
+      "label": "provenance.n_samples"
+    },
+    {
+      "id": "provenance.raw",
+      "type": "data",
+      "label": "provenance.raw"
+    },
+    {
+      "id": "k2",
+      "type": "claim",
+      "label": "After quality filtering, primer removal, denoising, and chim",
+      "verdict": "refuted",
+      "kind": "observation"
+    },
+    {
+      "id": "provenance.final",
+      "type": "data",
+      "label": "provenance.final"
+    },
+    {
+      "id": "k3",
+      "type": "claim",
+      "label": "Read retention rate after filtering was 67.9% of raw reads.",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "overview.filtering.retention_pct",
+      "type": "data",
+      "label": "overview.filtering.retention_pct"
+    },
+    {
+      "id": "k4",
+      "type": "claim",
+      "label": "After denoising and chimera removal, 44 samples remained for",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "renorm_stats.prokaryote.n_samples",
+      "type": "data",
+      "label": "renorm_stats.prokaryote.n_samples"
+    },
+    {
+      "id": "renorm_stats.prokaryote.n_reads",
+      "type": "data",
+      "label": "renorm_stats.prokaryote.n_reads"
+    },
+    {
+      "id": "renorm_stats.prokaryote.n_asvs",
+      "type": "data",
+      "label": "renorm_stats.prokaryote.n_asvs"
+    },
+    {
+      "id": "k5",
+      "type": "claim",
+      "label": "Quality caveat: 40 samples were lost during the pipeline (84",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    },
+    {
+      "id": "k6",
+      "type": "claim",
+      "label": "A total of 735 ASVs were classified against the SILVA databa",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "taxonomy_summary.total_asvs_classified",
+      "type": "data",
+      "label": "taxonomy_summary.total_asvs_classified"
+    },
+    {
+      "id": "taxonomy_summary.database",
+      "type": "data",
+      "label": "taxonomy_summary.database"
+    },
+    {
+      "id": "k7",
+      "type": "claim",
+      "label": "Top phyla by ASV count: Pseudomonadota (320 ASVs), SAR (176)",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "taxonomy_summary.top_phyla",
+      "type": "data",
+      "label": "taxonomy_summary.top_phyla"
+    },
+    {
+      "id": "k8",
+      "type": "claim",
+      "label": "Taxonomic classification completeness: domain (735/735), phy",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "taxonomy_summary.classified_per_rank",
+      "type": "data",
+      "label": "taxonomy_summary.classified_per_rank"
+    },
+    {
+      "id": "k9",
+      "type": "claim",
+      "label": "Mean Shannon diversity across 44 prokaryote samples was 3.99",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k10",
+      "type": "claim",
+      "label": "Mean observed richness across 44 prokaryote samples was 71.4",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k11",
+      "type": "claim",
+      "label": "Library sizes (total reads per sample) ranged from 1,110 to ",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k12",
+      "type": "claim",
+      "label": "Bray-Curtis dissimilarity matrix was computed for all 44 pro",
+      "verdict": "refuted",
+      "kind": "observation"
+    }
+  ],
+  "edges": [
+    {
+      "from": "provenance.n_samples",
+      "to": "k1"
+    },
+    {
+      "from": "provenance.raw",
+      "to": "k1"
+    },
+    {
+      "from": "provenance.final",
+      "to": "k2"
+    },
+    {
+      "from": "provenance.n_samples",
+      "to": "k2"
+    },
+    {
+      "from": "overview.filtering.retention_pct",
+      "to": "k3"
+    },
+    {
+      "from": "renorm_stats.prokaryote.n_samples",
+      "to": "k4"
+    },
+    {
+      "from": "renorm_stats.prokaryote.n_reads",
+      "to": "k4"
+    },
+    {
+      "from": "renorm_stats.prokaryote.n_asvs",
+      "to": "k4"
+    },
+    {
+      "from": "provenance.n_samples",
+      "to": "k5"
+    },
+    {
+      "from": "renorm_stats.prokaryote.n_samples",
+      "to": "k5"
+    },
+    {
+      "from": "taxonomy_summary.total_asvs_classified",
+      "to": "k6"
+    },
+    {
+      "from": "taxonomy_summary.database",
+      "to": "k6"
+    },
+    {
+      "from": "taxonomy_summary.top_phyla",
+      "to": "k7"
+    },
+    {
+      "from": "taxonomy_summary.classified_per_rank",
+      "to": "k8"
+    },
+    {
+      "from": "c5",
+      "to": "k9"
+    },
+    {
+      "from": "c8",
+      "to": "k9"
+    },
+    {
+      "from": "c6",
+      "to": "k10"
+    },
+    {
+      "from": "c7",
+      "to": "k10"
+    },
+    {
+      "from": "c9",
+      "to": "k11"
+    },
+    {
+      "from": "c3",
+      "to": "k12"
+    }
+  ]
+}
