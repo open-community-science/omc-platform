@@ -83,7 +83,8 @@ class SiteConfig(Base):
 
 # SiteConfig keys
 SITE_OPENROUTER_KEY = "openrouter_admin_key"      # encrypted
-SITE_OPENROUTER_MODEL = "openrouter_admin_model"  # plaintext model id
+SITE_OPENROUTER_MODEL = "openrouter_admin_model"  # plaintext model id — recommended free-tier pick
+SITE_LOCAL_MODEL = "local_admin_model"            # plaintext model id — recommended local pick
 
 
 class Submission(Base):

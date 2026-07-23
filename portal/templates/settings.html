@@ -4,200 +4,122 @@
 
 {% block content %}
 <style>
-    .model-table-wrap {
-        max-height: 400px;
-        overflow-y: auto;
-        border: 1px solid var(--color-border);
-        border-radius: 0.375rem;
-        margin-top: 0.5rem;
-    }
-    .model-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.8125rem;
-    }
-    .model-table th {
-        position: sticky;
-        top: 0;
-        background: var(--color-bg);
-        font-size: 0.6875rem;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        color: var(--color-secondary);
-        padding: 0.5rem 0.75rem;
-        text-align: left;
-        border-bottom: 1px solid var(--color-border);
-        z-index: 1;
-    }
-    .model-table td {
-        padding: 0.4rem 0.75rem;
-        border-bottom: 1px solid var(--color-border);
-        cursor: pointer;
-    }
-    .model-table tr:hover td {
-        background: color-mix(in srgb, var(--color-primary) 6%, transparent);
-    }
-    .model-table tr.selected td {
-        background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-        font-weight: 500;
-    }
-    .model-table .free-badge {
-        font-size: 0.625rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        padding: 0.1rem 0.4rem;
-        border-radius: 9999px;
-        background: #dcfce7;
-        color: #166534;
-    }
-    .model-table .ctx {
-        font-family: var(--font-mono);
-        font-size: 0.75rem;
-        color: var(--color-text-muted);
-    }
-    .model-table .price {
-        font-family: var(--font-mono);
-        font-size: 0.75rem;
-        color: var(--color-text-muted);
-    }
-    .model-filter {
-        width: 100%;
-        padding: 0.5rem 0.75rem;
-        border: 1px solid var(--color-border);
-        border-radius: 0.375rem;
-        font-size: 0.875rem;
-        font-family: inherit;
-        margin-bottom: 0.5rem;
-    }
-    .model-filter:focus {
-        outline: none;
-        border-color: var(--color-primary);
-    }
+    .llm-sources { margin: 0.75rem 0 1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+    .llm-opt { display: flex; gap: 0.55rem; align-items: flex-start; padding: 0.5rem 0.6rem;
+        border: 1px solid var(--color-border); border-radius: 0.375rem; cursor: pointer; }
+    .llm-opt.active { border-color: var(--color-primary);
+        background: color-mix(in srgb, var(--color-primary) 6%, transparent); }
+    .llm-opt input[type=radio] { margin-top: 0.2rem; }
+    .llm-opt.disabled { opacity: 0.55; cursor: not-allowed; }
+    .llm-opt .muted { color: var(--color-text-muted); font-style: italic; }
+    .src-chip { font-size: 0.6875rem; font-weight: 600; padding: 0.08rem 0.4rem; border-radius: 9999px;
+        background: #dcfce7; color: #166534; white-space: nowrap; }
+    .or-account { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;
+        margin: 0.25rem 0 0.75rem 1.8rem; font-size: 0.875rem; }
+
+    .model-browser { margin-top: 0.25rem; }
+    .model-filter { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border);
+        border-radius: 0.375rem; font-size: 0.875rem; font-family: inherit; margin-bottom: 0.5rem; }
+    .model-filter:focus { outline: none; border-color: var(--color-primary); }
+    .model-table-wrap { max-height: 340px; overflow-y: auto; border: 1px solid var(--color-border);
+        border-radius: 0.375rem; }
+    .model-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+    .model-table th { position: sticky; top: 0; background: var(--color-bg); font-size: 0.6875rem;
+        text-transform: uppercase; letter-spacing: 0.03em; color: var(--color-secondary);
+        padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid var(--color-border); z-index: 1; }
+    .model-table td { padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--color-border); cursor: pointer; }
+    .model-table tr:hover td { background: color-mix(in srgb, var(--color-primary) 6%, transparent); }
+    .model-table tr.selected td { background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+        font-weight: 500; }
+    .model-table .free-badge { font-size: 0.625rem; font-weight: 600; text-transform: uppercase;
+        padding: 0.1rem 0.4rem; border-radius: 9999px; background: #dcfce7; color: #166534; }
+    .model-table .ctx, .model-table .price { font-family: var(--font-mono); font-size: 0.75rem;
+        color: var(--color-text-muted); }
 </style>
 
 <div class="dashboard">
     <h1>Settings</h1>
 
-    {# ── AI model choice ── #}
-    <div class="submission-meta" style="max-width: 800px; margin-bottom: 1.25rem;">
+    <div class="submission-meta" style="max-width: 820px;">
         <h3 style="margin-bottom: 0.5rem;">AI model</h3>
         <p style="color: var(--color-text-muted); font-size: 0.9em;">
             Chooses which model writes your manuscript, runs reviews, and powers author sessions.
             Currently using <strong>{{ active_label }}</strong>.
         </p>
 
-        <form action="/settings/llm" method="POST" style="margin-top: 1rem;">
-            {# 1. Local #}
-            <label class="llm-opt">
-                <input type="radio" name="backend" value="local" {% if llm_backend == 'local' %}checked{% endif %}
-                       {% if not local_available %}disabled{% endif %}>
-                <span><strong>Local model</strong> — runs on the platform's own hardware. Free, private, no account needed.
-                {% if not local_available %}<em class="muted">(offline right now)</em>{% endif %}</span>
-            </label>
-            {% if local_available %}
-            <select name="model_local" class="sub-select llm-model-select">
-                {% for m in local_models %}
-                <option value="{{ m }}" {% if (llm_backend == 'local' and llm_model == m) or (not llm_model and m == local_recommended) %}selected{% endif %}>
-                    {{ m }}{% if m == local_recommended %} — recommended{% endif %}
-                </option>
-                {% endfor %}
-            </select>
-            {% endif %}
+        <form action="/settings/llm" method="POST" id="llm-form" style="margin-top: 1rem;">
+            {# Source picker — one radio group. The model list below repopulates
+               from whichever source is selected (all fetched live). #}
+            <div class="llm-sources">
+                <label class="llm-opt {% if not local_available %}disabled{% endif %}" data-src="local">
+                    <input type="radio" name="backend" value="local"
+                           {% if llm_backend == 'local' %}checked{% endif %}
+                           {% if not local_available %}disabled{% endif %}>
+                    <span><strong>Local model</strong> — runs on the platform's own hardware. Free, private, no account needed.
+                    {% if not local_available %}<span class="muted">(offline right now)</span>{% endif %}</span>
+                </label>
 
-            {# 2. Shared/admin free tier #}
-            <label class="llm-opt">
-                <input type="radio" name="backend" value="admin" {% if llm_backend == 'admin' %}checked{% endif %}
-                       {% if not admin_key_available %}disabled{% endif %}>
-                <span><strong>Free hosted models</strong> — shared OpenRouter key provided by the site. No account needed; rate limits apply.
-                {% if not admin_key_available %}<em class="muted">(not configured by the admin yet)</em>{% endif %}</span>
-            </label>
-            {% if admin_key_available %}
-            <select name="model_admin" class="sub-select llm-model-select">
-                {% for m in free_models %}
-                <option value="{{ m }}" {% if (llm_backend == 'admin' and llm_model == m) or (not llm_model and m == free_recommended) %}selected{% endif %}>
-                    {{ m }}{% if m == free_recommended %} — recommended{% endif %}
-                </option>
-                {% endfor %}
-            </select>
-            {% endif %}
+                <label class="llm-opt {% if not admin_key_available %}disabled{% endif %}" data-src="admin">
+                    <input type="radio" name="backend" value="admin"
+                           {% if llm_backend == 'admin' %}checked{% endif %}
+                           {% if not admin_key_available %}disabled{% endif %}>
+                    <span><strong>Free hosted models</strong>
+                    {% if admin_key_available %}<span class="src-chip">✓ shared key active</span>{% endif %}
+                    — shared OpenRouter key provided by the site. No account needed; rate limits apply.
+                    {% if not admin_key_available %}<span class="muted">(not configured by the admin yet)</span>{% endif %}</span>
+                </label>
 
-            {# 3. Personal key #}
-            <label class="llm-opt">
-                <input type="radio" name="backend" value="personal" {% if llm_backend == 'personal' %}checked{% endif %}
-                       {% if not openrouter_connected %}disabled{% endif %}>
-                <span><strong>Your own OpenRouter account</strong> — frontier models (Claude, GPT, …) billed to your credits.
-                {% if not openrouter_connected %}<em class="muted">(connect below first)</em>{% endif %}</span>
-            </label>
-            {% if openrouter_connected %}
-            <input type="text" name="model_personal" class="sub-search llm-model-select"
-                   value="{{ llm_model if llm_backend == 'personal' else openrouter_model }}"
-                   placeholder="{{ personal_recommended }}">
-            {% endif %}
+                <label class="llm-opt {% if not openrouter_connected %}disabled{% endif %}" data-src="personal">
+                    <input type="radio" name="backend" value="personal"
+                           {% if llm_backend == 'personal' %}checked{% endif %}
+                           {% if not openrouter_connected %}disabled{% endif %}>
+                    <span><strong>Your own OpenRouter account</strong> — frontier models (Claude, GPT, …) billed to your credits.
+                    {% if not openrouter_connected %}<span class="muted">(connect below first)</span>{% endif %}</span>
+                </label>
+            </div>
+
+            {# OpenRouter account line — connect or disconnect. Kept out of the
+               nested-forbidden zone: the disconnect form lives after this one. #}
+            <div class="or-account">
+                {% if openrouter_connected %}
+                <span style="color: var(--color-success); font-weight: 600;">✓ OpenRouter connected</span>
+                <button type="submit" form="or-disconnect" class="btn btn-delete btn-sm"
+                        onclick="return confirm('Disconnect OpenRouter? Your own-account option will be disabled.')">
+                    Disconnect OpenRouter
+                </button>
+                {% else %}
+                <span class="muted">Bring your own frontier models:</span>
+                <a href="/settings/openrouter/connect" class="btn btn-secondary btn-sm">Connect OpenRouter</a>
+                {% endif %}
+            </div>
+
+            {# The single model browser. Repopulated by JS per selected source. #}
+            <div class="model-browser">
+                <input type="text" class="model-filter" id="model-filter" placeholder="Filter models…">
+                <div class="model-table-wrap">
+                    <table class="model-table" id="model-table">
+                        <thead><tr><th>Model</th><th>Context</th><th>Price</th></tr></thead>
+                        <tbody id="model-tbody">
+                            <tr><td colspan="3" style="text-align:center;color:var(--color-text-muted);padding:1.5rem;">Loading…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <small id="model-status" style="display:block;margin-top:0.25rem;color:var(--color-text-muted);"></small>
+            </div>
+
+            {# One hidden field per source so switching doesn't clobber the
+               model you'd picked for the others. Backend reads model_<backend>. #}
+            <input type="hidden" name="model_local"    id="model_local"    value="{% if llm_backend == 'local' %}{{ llm_model }}{% endif %}">
+            <input type="hidden" name="model_admin"    id="model_admin"    value="{% if llm_backend == 'admin' %}{{ llm_model }}{% endif %}">
+            <input type="hidden" name="model_personal" id="model_personal" value="{% if llm_backend == 'personal' %}{{ llm_model }}{% else %}{{ openrouter_model }}{% endif %}">
 
             <button type="submit" class="btn btn-primary" style="margin-top: 0.75rem;">Save choice</button>
         </form>
-    </div>
 
-    <div class="submission-meta" style="max-width: 800px;">
-        <h3 style="margin-bottom: 0.75rem;">LLM Provider</h3>
-        <p>Connect your <a href="https://openrouter.ai" target="_blank">OpenRouter</a> account
-        to use frontier models (Claude, GPT-4, etc.) during author sessions with your own credits.</p>
-        <p style="color: var(--color-text-muted); font-size: 0.9em; margin-top: 0.5rem;">Without OpenRouter, sessions use the platform's
-        local model.</p>
-
+        {# Standalone target for the Disconnect button up in the account line —
+           it can't be a nested form, so the button references it via form=. #}
         {% if openrouter_connected %}
-        <p style="color: var(--color-success); font-weight: 600; margin-top: 1rem;">Connected to OpenRouter</p>
-
-        <form action="/settings/openrouter/model" method="POST" style="margin-top: 1rem;">
-            <div class="form-group">
-                <label for="model">Model</label>
-                <div style="display: flex; gap: 8px; align-items: center;">
-                    <input type="text" id="model" name="model" value="{{ openrouter_model }}"
-                           list="model-suggestions" autocomplete="off"
-                           placeholder="e.g. anthropic/claude-sonnet-4"
-                           style="flex: 1; font-family: var(--font-mono); font-size: 0.875rem;">
-                    <button type="submit" class="btn btn-primary">Save</button>
-                </div>
-                <datalist id="model-suggestions">
-                    <option value="anthropic/claude-sonnet-4">
-                    <option value="google/gemini-2.5-flash">
-                    <option value="deepseek/deepseek-chat-v3-0324:free">
-                    <option value="meta-llama/llama-4-maverick:free">
-                    <option value="qwen/qwen3-235b-a22b:free">
-                </datalist>
-            </div>
-        </form>
-
-        <div class="form-group" style="margin-top: 0.5rem;">
-            <label>Available Models <span style="font-weight:400;font-size:0.8em;color:var(--color-text-muted);">(all support tool use) — <a href="https://openrouter.ai/rankings?category=science#categories" target="_blank" style="color:var(--color-primary);">rankings</a></span></label>
-            <input type="text" class="model-filter" id="model-filter" placeholder="Filter models...">
-            <div class="model-table-wrap">
-                <table class="model-table" id="model-table">
-                    <thead>
-                        <tr>
-                            <th>Model</th>
-                            <th>Context</th>
-                            <th>Price</th>
-                        </tr>
-                    </thead>
-                    <tbody id="model-tbody">
-                        <tr><td colspan="3" style="color: var(--color-text-muted); text-align: center; padding: 2rem;">Loading models from OpenRouter...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <small id="model-status" style="display: block; margin-top: 0.25rem;"></small>
-        </div>
-
-        <form action="/settings/openrouter/disconnect" method="POST" style="margin-top: 1.5rem;">
-            <button type="submit" class="btn btn-delete"
-                    onclick="return confirm('Disconnect OpenRouter? Sessions will fall back to the local model.')">
-                Disconnect OpenRouter
-            </button>
-        </form>
-        {% else %}
-        <a href="/settings/openrouter/connect" class="btn btn-primary" style="display: inline-block; margin-top: 1rem;">
-            Connect OpenRouter
-        </a>
+        <form id="or-disconnect" action="/settings/openrouter/disconnect" method="POST" hidden></form>
         {% endif %}
 
         {% if request.query_params.get('error') == 'rate_limited' %}
@@ -213,83 +135,130 @@
         {% if request.query_params.get('disconnected') %}
         <p class="text-muted" style="margin-top: 0.75rem;">OpenRouter disconnected.</p>
         {% endif %}
-        {% if request.query_params.get('model_saved') %}
-        <p style="color: var(--color-success); margin-top: 0.75rem;">Model updated. New sessions will use this model.</p>
+        {% if request.query_params.get('saved') %}
+        <p style="color: var(--color-success); margin-top: 0.75rem;">Saved. New work will use this model.</p>
         {% endif %}
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
-{% if openrouter_connected %}
 <script>
-(async function loadModels() {
-    const input = document.getElementById('model');
-    const tbody = document.getElementById('model-tbody');
-    const filter = document.getElementById('model-filter');
-    const status = document.getElementById('model-status');
-    const currentModel = '{{ openrouter_model }}';
-    let allModels = [];
+(function () {
+    const tbody   = document.getElementById('model-tbody');
+    const filter  = document.getElementById('model-filter');
+    const status  = document.getElementById('model-status');
+    const opts    = Array.from(document.querySelectorAll('.llm-opt'));
+    const hidden  = {
+        local:    document.getElementById('model_local'),
+        admin:    document.getElementById('model_admin'),
+        personal: document.getElementById('model_personal'),
+    };
+    const cache = {};                 // source -> {models, meta}
+    let current = null;               // active source key
 
     function fmtCtx(n) {
-        return n >= 1000000 ? (n / 1000000).toFixed(1) + 'M'
-             : Math.round(n / 1000) + 'K';
+        if (!n) return '—';
+        return n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : Math.round(n / 1000) + 'K';
     }
-
-    function fmtPrice(prompt, completion) {
-        const p = parseFloat(prompt), c = parseFloat(completion);
+    function fmtPrice(m) {
+        if (m.local) return '<span class="ctx">local</span>';
+        const p = parseFloat(m.prompt_price), c = parseFloat(m.completion_price);
+        if (isNaN(p) || isNaN(c)) return '<span class="ctx">—</span>';
         if (p === 0 && c === 0) return '<span class="free-badge">Free</span>';
-        // Price per million tokens
-        const pM = (p * 1000000).toFixed(2), cM = (c * 1000000).toFixed(2);
-        return `<span class="price">$${pM} / $${cM}</span>`;
+        return `<span class="price">$${(p * 1e6).toFixed(2)} / $${(c * 1e6).toFixed(2)}</span>`;
     }
 
-    function renderTable(models) {
+    function render(models) {
+        const sel = hidden[current] ? hidden[current].value : '';
+        const rec = cache[current] ? cache[current].meta.recommended : '';
         if (!models.length) {
-            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--color-text-muted);padding:1rem;">No matching models</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--color-text-muted);padding:1.25rem;">No models available</td></tr>';
             return;
         }
-        tbody.innerHTML = models.map(m => {
-            const sel = m.id === input.value ? ' class="selected"' : '';
-            return `<tr${sel} data-id="${m.id}">
-                <td><strong>${m.name}</strong><br><span style="font-family:var(--font-mono);font-size:0.75rem;color:var(--color-text-muted);">${m.id}</span></td>
+        tbody.innerHTML = models.map(m =>
+            `<tr${m.id === sel ? ' class="selected"' : ''} data-id="${m.id}">
+                <td><span style="font-family:var(--font-mono);font-size:0.8125rem;">${m.id}</span>${m.id === rec ? ' <span class="src-chip">recommended</span>' : ''}${m.name && m.name !== m.id ? `<br><span style="color:var(--color-text-muted);font-size:0.75rem;">${m.name}</span>` : ''}</td>
                 <td><span class="ctx">${fmtCtx(m.context_length)}</span></td>
-                <td>${fmtPrice(m.prompt_price, m.completion_price)}</td>
-            </tr>`;
-        }).join('');
+                <td>${fmtPrice(m)}</td>
+            </tr>`).join('');
     }
 
-    // Click to select
+    function applyFilter() {
+        const c = cache[current];
+        if (!c) return;
+        const q = filter.value.toLowerCase();
+        render(c.models.filter(m => m.id.toLowerCase().includes(q) || (m.name || '').toLowerCase().includes(q)));
+    }
+
+    async function loadSource(src) {
+        current = src;
+        filter.value = '';
+        if (cache[src]) { setStatusAndRender(src); return; }
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--color-text-muted);padding:1.25rem;">Loading…</td></tr>';
+        // The radio's backend value is "admin" for the free tier, but the models
+        // endpoint keys that source as "free".
+        const param = src === 'admin' ? 'free' : src;
+        try {
+            const r = await fetch('/settings/models?source=' + param, { credentials: 'same-origin' });
+            const data = await r.json();
+            cache[src] = { models: data.models || [], meta: data };
+        } catch (e) {
+            cache[src] = { models: [], meta: { error: 'fetch failed' } };
+        }
+        const rec = cache[src].meta.recommended;
+        // Seed the hidden field from the recommended model if we don't have one yet.
+        if (hidden[src] && !hidden[src].value && rec) hidden[src].value = rec;
+        // Bump the recommended model to the top of the list.
+        const models = cache[src].models;
+        const i = models.findIndex(m => m.id === rec);
+        if (i > 0) models.unshift(models.splice(i, 1)[0]);
+        setStatusAndRender(src);
+    }
+
+    function setStatusAndRender(src) {
+        const meta = cache[src].meta, n = cache[src].models.length;
+        if (meta.connected === false) status.textContent = 'Connect your OpenRouter account to list models.';
+        else if (meta.available === false) status.textContent = 'This source is not available.';
+        else if (meta.error) status.textContent = 'Could not load models — you can still type an ID.';
+        else status.textContent = `${n} model${n === 1 ? '' : 's'}. Click to select.`;
+        applyFilter();
+    }
+
+    // Row click → set the active source's hidden model.
     tbody.addEventListener('click', (e) => {
         const row = e.target.closest('tr[data-id]');
-        if (!row) return;
-        input.value = row.dataset.id;
+        if (!row || !hidden[current]) return;
+        hidden[current].value = row.dataset.id;
         tbody.querySelectorAll('tr').forEach(r => r.classList.remove('selected'));
         row.classList.add('selected');
     });
 
-    // Filter
-    filter.addEventListener('input', () => {
-        const q = filter.value.toLowerCase();
-        const filtered = allModels.filter(m =>
-            m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)
-        );
-        renderTable(filtered);
+    filter.addEventListener('input', applyFilter);
+
+    // Radio change → switch source + highlight the active option row.
+    opts.forEach(opt => {
+        const radio = opt.querySelector('input[type=radio]');
+        radio.addEventListener('change', () => {
+            if (radio.disabled) return;
+            opts.forEach(o => o.classList.remove('active'));
+            opt.classList.add('active');
+            loadSource(opt.dataset.src);
+        });
     });
 
-    try {
-        const resp = await fetch('/settings/openrouter/models', { credentials: 'same-origin' });
-        if (!resp.ok) throw new Error('Failed to fetch');
-        const data = await resp.json();
-        allModels = data.models;
-        renderTable(allModels);
-        const freeCount = allModels.filter(m => m.free).length;
-        status.textContent = `${allModels.length} models (${freeCount} free). Click to select, or type any OpenRouter model ID above.`;
-    } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--color-text-muted);padding:1rem;">Could not load models. Type a model ID manually above.</td></tr>';
-        status.textContent = '';
+    // Initialise from the currently-checked (enabled) radio.
+    const checked = document.querySelector('.llm-opt input[type=radio]:checked:not(:disabled)');
+    const initOpt = checked ? checked.closest('.llm-opt')
+                            : document.querySelector('.llm-opt:not(.disabled)');
+    if (initOpt) {
+        const r = initOpt.querySelector('input[type=radio]');
+        r.checked = true;
+        initOpt.classList.add('active');
+        loadSource(initOpt.dataset.src);
+    } else {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--color-text-muted);padding:1.25rem;">No model source is available right now.</td></tr>';
     }
 })();
 </script>
-{% endif %}
 {% endblock %}

@@ -28,8 +28,11 @@ from .templating import templates  # shared instance (globals + filters)
 OPENROUTER_AUTH_URL = "https://openrouter.ai/auth"
 OPENROUTER_KEY_EXCHANGE_URL = "https://openrouter.ai/api/v1/auth/keys"
 
-# Default model when using OpenRouter (user can change later)
-OPENROUTER_DEFAULT_MODEL = "anthropic/claude-sonnet-4"
+# Recommended default for a user's own OpenRouter key (they can change later).
+# The `~`-prefixed alias is OpenRouter's floating pointer to the newest Sonnet;
+# it's a valid model id but doesn't appear in the category-filtered browse list,
+# so the personal source injects it as a row (see list_models_for_source).
+OPENROUTER_DEFAULT_MODEL = "~anthropic/claude-sonnet-latest"
 
 
 def _make_callback_url(request: Request) -> str:
@@ -60,7 +63,7 @@ async def settings_page(
     """User settings page — LLM backend choice + OpenRouter connection."""
     from .llm_backends import (
         list_local_models, recommended_local_model, get_admin_openrouter,
-        resolve_llm, FREE_OPENROUTER_MODELS,
+        resolve_llm,
     )
     local_models = await list_local_models()
     admin_cfg = await get_admin_openrouter()
@@ -72,14 +75,13 @@ async def settings_page(
             "user": user,
             "openrouter_connected": bool(user.openrouter_key),
             "openrouter_model": user.openrouter_model or OPENROUTER_DEFAULT_MODEL,
-            # Backend picker
+            # Backend picker. The model lists themselves are fetched live per
+            # source by /settings/models — only availability + current choice
+            # are rendered server-side here.
             "llm_backend": user.llm_backend or active["backend"],
             "llm_model": user.llm_model or "",
-            "local_models": local_models,
             "local_available": bool(local_models),
-            "local_recommended": recommended_local_model(local_models),
-            "free_models": FREE_OPENROUTER_MODELS,
-            "free_recommended": FREE_OPENROUTER_MODELS[0],
+            "local_recommended": await recommended_local_model(local_models),
             "admin_key_available": bool(admin_cfg),
             "personal_recommended": OPENROUTER_DEFAULT_MODEL,
             "active_label": active["label"],
@@ -206,126 +208,69 @@ async def openrouter_disconnect(
     return RedirectResponse("/settings?disconnected=1", status_code=303)
 
 
-@router.post("/settings/openrouter/model")
-async def openrouter_set_model(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    """Update the user's preferred OpenRouter model."""
-    form = await request.form()
-    model = str(form.get("model", "")).strip()
-    if not model:
-        return RedirectResponse("/settings?error=no_model", status_code=303)
-
-    # Test the model with a tiny request before saving
-    if not user.openrouter_key:
-        return RedirectResponse("/settings?error=not_connected", status_code=303)
-
-    api_key = decrypt_value(user.openrouter_key)
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "HTTP-Referer": "https://microbial.opencommunity.science",
-                },
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": "Say OK"}],
-                    "max_tokens": 5,
-                },
-            )
-        if resp.status_code == 429:
-            logger.warning(f"Model {model} rate-limited: {resp.text[:200]}")
-            return RedirectResponse(f"/settings?error=rate_limited&model={model}", status_code=303)
-        if resp.status_code != 200:
-            logger.warning(f"Model {model} test failed: {resp.status_code} {resp.text[:200]}")
-            return RedirectResponse(f"/settings?error=model_failed&model={model}", status_code=303)
-    except Exception as e:
-        logger.warning(f"Model {model} test error: {e}")
-        return RedirectResponse(f"/settings?error=model_failed&model={model}", status_code=303)
-
-    user.openrouter_model = model
-    attributes.flag_modified(user, "openrouter_model")
-    await db.commit()
-
-    # Invalidate LLM proxy cache
-    from .llm_proxy import _openrouter_cache
-    _openrouter_cache.pop(user.id, None)
-
-    logger.info(f"User {user.github_login} set OpenRouter model to {model}")
-    return RedirectResponse("/settings?model_saved=1", status_code=303)
-
-
-@router.get("/settings/openrouter/models")
-async def openrouter_list_models(
+@router.get("/settings/models")
+async def list_models_for_source(
+    source: str,
     request: Request,
     user: User = Depends(require_user),
 ):
-    """Fetch available models from OpenRouter, filtered by relevant categories."""
-    if not user.openrouter_key:
-        raise HTTPException(400, "OpenRouter not connected")
+    """Unified model list for the settings picker, keyed by source.
 
-    api_key = decrypt_value(user.openrouter_key)
-    headers = {"Authorization": f"Bearer {api_key}"}
+    One endpoint feeds the single model browser: `local` lists the LM Studio
+    server's models, `free` lists the shared-key OpenRouter free tier, and
+    `personal` lists the user's own OpenRouter catalogue. Every source returns
+    the same row shape so the client renders them all in one table. The
+    `recommended` id is always drawn from the live list — never a hardcoded
+    model that can go stale.
+    """
+    from .llm_backends import (
+        list_local_models, recommended_local_model, get_admin_openrouter,
+        fetch_openrouter_models,
+    )
 
-    # Fetch models from relevant categories, then filter for tool support
-    CATEGORIES = ["science", "academia", "programming"]
+    if source == "local":
+        ids = await list_local_models()
+        rows = [{
+            "id": m, "name": m, "context_length": 0,
+            "free": True, "prompt_price": "0", "completion_price": "0",
+            "local": True,
+        } for m in ids]
+        return {"models": rows, "available": bool(ids),
+                "recommended": await recommended_local_model(ids) if ids else ""}
 
-    try:
-        seen_ids = set()
-        all_models = []
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for category in CATEGORIES:
-                resp = await client.get(
-                    "https://openrouter.ai/api/v1/models",
-                    headers=headers,
-                    params={"category": category},
-                )
-                if resp.status_code == 200:
-                    for m in resp.json().get("data", []):
-                        mid = m.get("id", "")
-                        if mid not in seen_ids:
-                            seen_ids.add(mid)
-                            all_models.append(m)
-    except httpx.HTTPError as e:
-        raise HTTPException(502, f"OpenRouter API error: {e}")
+    if source == "free":
+        cfg = await get_admin_openrouter()
+        if not cfg:
+            return {"models": [], "available": False}
+        try:
+            models = await fetch_openrouter_models(cfg["key"], free_only=True)
+        except httpx.HTTPError as e:
+            return {"models": [], "available": True, "error": str(e)}
+        # Recommend the admin's set default only if it's actually still live;
+        # otherwise the first live free model. Never a dead id.
+        live_ids = {m["id"] for m in models}
+        rec = cfg["model"] if cfg["model"] in live_ids else (models[0]["id"] if models else "")
+        return {"models": models, "available": True, "recommended": rec}
 
-    models = []
-    for m in all_models:
-        model_id = m.get("id", "")
-        name = m.get("name", model_id)
-        ctx = m.get("context_length", 0)
-        pricing = m.get("pricing", {})
-        prompt_price = pricing.get("prompt", "0")
-        completion_price = pricing.get("completion", "0")
+    if source == "personal":
+        if not user.openrouter_key:
+            return {"models": [], "connected": False}
+        try:
+            models = await fetch_openrouter_models(decrypt_value(user.openrouter_key))
+        except httpx.HTTPError as e:
+            return {"models": [], "connected": True, "error": str(e)}
+        live_ids = {m["id"] for m in models}
+        # Recommend the user's own saved model if it's still live, otherwise our
+        # default (the newest-Sonnet floating alias). Never a stale saved id.
+        rec = user.openrouter_model if user.openrouter_model in live_ids else OPENROUTER_DEFAULT_MODEL
+        # The default alias isn't in the category-filtered list, so surface it as
+        # a row (unknown price/context) so it shows the chip and is selectable.
+        if rec and rec not in live_ids:
+            models.insert(0, {"id": rec, "name": rec, "context_length": 0,
+                              "free": False, "prompt_price": None, "completion_price": None})
+        return {"models": models, "connected": True, "recommended": rec}
 
-        if ctx < 8000:
-            continue
-
-        # Require tool/function calling support
-        supported = m.get("supported_parameters", [])
-        if not isinstance(supported, list) or "tools" not in supported:
-            continue
-
-        is_free = (str(prompt_price) in ("0", "0.0", "0.00")
-                   and str(completion_price) in ("0", "0.0", "0.00"))
-
-        models.append({
-            "id": model_id,
-            "name": name,
-            "context_length": ctx,
-            "free": is_free,
-            "prompt_price": prompt_price,
-            "completion_price": completion_price,
-        })
-
-    # Sort: free first, then by name
-    models.sort(key=lambda m: (not m["free"], m["name"].lower()))
-
-    return {"models": models}
+    raise HTTPException(400, "Unknown source")
 
 
 # ── Admin: site-wide (shared) OpenRouter key ─────────────────────────────────
@@ -425,7 +370,7 @@ async def admin_openrouter_model(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
-    """Set the default model used with the shared key."""
+    """Set the recommended model for the shared/free tier."""
     from .auth import is_admin
     if not is_admin(user):
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -434,4 +379,22 @@ async def admin_openrouter_model(
     from .database import SITE_OPENROUTER_MODEL
     from .llm_backends import set_site_config
     await set_site_config(SITE_OPENROUTER_MODEL, model or None)
+    return RedirectResponse("/admin", status_code=303)
+
+
+@router.post("/admin/local/model")
+async def admin_local_model(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Set the recommended local model shown to users in Settings."""
+    from .auth import is_admin
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    form = await request.form()
+    model = (form.get("model") or "").strip()
+    from .database import SITE_LOCAL_MODEL
+    from .llm_backends import set_site_config
+    await set_site_config(SITE_LOCAL_MODEL, model or None)
     return RedirectResponse("/admin", status_code=303)

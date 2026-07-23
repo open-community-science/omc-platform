@@ -18,13 +18,13 @@
             <div class="nav-links">
                 {% if user %}
                 {% block header_actions %}{% endblock %}
-                <a href="/dashboard">Dashboard</a>
-                <a href="/ena">Submit to ENA</a>
-                {% if is_admin(user) %}<a href="/admin">Admin</a>{% endif %}
-                <a href="/settings">Settings</a>
+                <a href="/dashboard">My Submissions</a>
+                <a href="/ena">Submit Sequences</a>
                 <form action="/submissions/create" method="POST" style="display:inline;">
-                    <button type="submit" class="nav-new-btn">New Submission</button>
+                    <button type="submit" class="nav-new-btn">Analyze Sequences</button>
                 </form>
+                <a href="/settings">Settings</a>
+                {% if is_admin(user) %}<a href="/admin">Admin</a>{% endif %}
                 <div class="user-menu">
                     <img src="{{ user.github_avatar_url }}" alt="{{ user.github_login }}" class="avatar">
                     <span>{{ user.github_login }}</span>

@@ -391,13 +391,17 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
     llm_local = await _check_local_llm()
 
     # Shared (site-wide) OpenRouter key — provisioned by an admin via OAuth.
-    from .llm_backends import get_admin_openrouter, FREE_OPENROUTER_MODELS
+    from .llm_backends import get_admin_openrouter, get_site_config
+    from .database import SITE_LOCAL_MODEL
     _admin_cfg = await get_admin_openrouter()
+    admin_local_model = await get_site_config(SITE_LOCAL_MODEL) or ""
     admin_or = {"connected": bool(_admin_cfg), "masked": "", "status": None, "model": ""}
     if _admin_cfg:
         k = _admin_cfg["key"]
         admin_or["masked"] = (k[:10] + "…" + k[-4:]) if k else ""
-        admin_or["model"] = _admin_cfg["model"]
+        # May be None when no explicit default is set — the admin.html dropdown
+        # then defaults to the first live free model it fetches.
+        admin_or["model"] = _admin_cfg["model"] or ""
         admin_or["status"] = await _check_openrouter_key(k)
     or_rows = []
     for u in users:
@@ -432,9 +436,9 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
             "llm_local": llm_local,
             "llm_base_url": settings.llm_base_url,
             "llm_model": settings.llm_model,
+            "admin_local_model": admin_local_model,
             "or_rows": or_rows,
             "admin_or": admin_or,
-            "free_models": FREE_OPENROUTER_MODELS,
         },
     )
 

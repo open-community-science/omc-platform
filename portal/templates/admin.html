@@ -100,8 +100,42 @@
                 local LLM {% if llm_local.ok %}up{% else %}down{% endif %}
             </span>
             <code>{{ llm_base_url }}</code>
-            <span class="muted">· model {{ llm_model }} · {{ llm_local.detail }}</span>
+            <span class="muted">· {{ llm_local.detail }}</span>
+            {% if llm_local.ok %}
+            <form action="/admin/local/model" method="POST" class="primer-form" style="display:inline; margin-left:.5rem">
+                <select name="model" id="admin-local-model" class="sub-select" style="width:auto"
+                        data-current="{{ admin_local_model }}">
+                    <option value="{{ admin_local_model }}" selected>{{ admin_local_model or 'loading…' }}</option>
+                </select>
+                <button type="submit" class="btn btn-secondary btn-sm">Set recommended</button>
+            </form>
+            {% endif %}
         </div>
+        <p class="section-hint">Users pick their own local model in Settings; this sets the <em>recommended</em> default. Falls back to the config model (<code>{{ llm_model }}</code>) if unset.</p>
+        {% if llm_local.ok %}
+        <script>
+        // Populate the recommended-local dropdown from the live local model list,
+        // so it always reflects what the server actually serves.
+        (async function loadAdminLocalModels() {
+            const sel = document.getElementById('admin-local-model');
+            if (!sel) return;
+            const current = sel.dataset.current || '';
+            try {
+                const r = await fetch('/settings/models?source=local', { credentials: 'same-origin' });
+                const data = await r.json();
+                const models = (data.models || []);
+                if (!models.length) return;
+                sel.innerHTML = models.map(m =>
+                    `<option value="${m.id}"${m.id === current ? ' selected' : ''}>${m.id}</option>`
+                ).join('');
+                if (current && !models.some(m => m.id === current)) {
+                    sel.insertAdjacentHTML('afterbegin',
+                        `<option value="${current}" selected>${current} (not served now)</option>`);
+                }
+            } catch (e) { /* keep the fallback option */ }
+        })();
+        </script>
+        {% endif %}
         <h3 class="issue-h">Shared OpenRouter key (site-wide)</h3>
         <p class="section-hint">
             Provisioned via OAuth — no key handling. Users who pick
@@ -120,15 +154,35 @@
                 {% endif %}
             {% endif %}
             <form action="/admin/openrouter/model" method="POST" class="primer-form" style="display:inline; margin-left:.5rem">
-                <select name="model" class="sub-select" style="width:auto">
-                    {% for m in free_models %}
-                    <option value="{{ m }}" {% if m == admin_or.model %}selected{% endif %}>
-                        {{ m }}{% if loop.first %} — recommended{% endif %}
-                    </option>
-                    {% endfor %}
+                <select name="model" id="admin-free-model" class="sub-select" style="width:auto"
+                        data-current="{{ admin_or.model }}">
+                    <option value="{{ admin_or.model }}" selected>{{ admin_or.model or 'loading…' }}</option>
                 </select>
-                <button type="submit" class="btn btn-secondary btn-sm">Set default</button>
+                <button type="submit" class="btn btn-secondary btn-sm">Set recommended</button>
             </form>
+            <script>
+            // Populate the shared-key default from the live free-tier list, so
+            // it never depends on a hardcoded model list that drifts stale.
+            (async function loadAdminFreeModels() {
+                const sel = document.getElementById('admin-free-model');
+                if (!sel) return;
+                const current = sel.dataset.current || '';
+                try {
+                    const r = await fetch('/settings/models?source=free', { credentials: 'same-origin' });
+                    const data = await r.json();
+                    const models = (data.models || []);
+                    if (!models.length) return;  // keep the current-value fallback option
+                    sel.innerHTML = models.map((m, i) =>
+                        `<option value="${m.id}"${m.id === current ? ' selected' : ''}>` +
+                        `${m.id}${i === 0 ? ' — recommended' : ''}</option>`
+                    ).join('');
+                    if (current && !models.some(m => m.id === current)) {
+                        sel.insertAdjacentHTML('afterbegin',
+                            `<option value="${current}" selected>${current} (current)</option>`);
+                    }
+                } catch (e) { /* leave the fallback option in place */ }
+            })();
+            </script>
             <form action="/admin/openrouter/disconnect" method="POST" style="display:inline"
                   onsubmit="return confirm('Disconnect the shared OpenRouter key? Users on the free tier will fall back to the local model.');">
                 <button type="submit" class="btn btn-secondary btn-sm">Disconnect</button>

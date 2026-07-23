@@ -273,6 +273,7 @@ OMC_DENOISE_MEM=$(( ${{OMC_MEM_GB:-16}} * 3 / 4 ))
     --denoise_cpus "${{OMC_CPUS}}" \\
     --denoise_memory "${{OMC_DENOISE_MEM}} GB" \\
     --min_prevalence 3 \\
+    --min_samples 1 \\
     -work-dir "${{WORK_DIR}}" \\
     --outdir "${{OUTPUT_DIR}}"
 # Read accounting from the raw FASTQ onward. Every stats file the pipeline emits
