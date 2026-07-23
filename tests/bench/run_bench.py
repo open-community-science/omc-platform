@@ -406,19 +406,37 @@ def _unload_all():
         print(f"  [lms unload failed: {e}]", flush=True)
 
 
-def _lms_load(model, context, timeout):
-    """Explicitly load a model at a chosen context length. Returns (seconds, ok, msg).
+def _lms_load_once(model, context, timeout):
+    """Load a model once at a given context. Returns (seconds, ok, msg).
 
-    Loading with `lms load -c` (rather than JIT via an API call) lets us set a
-    context window big enough that review prompts + 8k output + any reasoning
-    never overflow (the qwen3.6 'Context size has been exceeded' failure)."""
+    --parallel 1: the harness issues one request at a time, and KV-cache VRAM
+    scales with parallel slots — so 1 slot lets a big context fit on this ~20GB
+    card (4 slots × 64k crashed qwen3-coder-30b with SIGSEGV)."""
     t0 = time.time()
     try:
-        r = subprocess.run(["lms", "load", model, "-c", str(context), "-y"],
+        r = subprocess.run(["lms", "load", model, "-c", str(context), "--parallel", "1", "-y"],
                            capture_output=True, text=True, timeout=timeout)
         return round(time.time() - t0, 1), r.returncode == 0, (r.stderr or r.stdout or "").strip()[-300:]
     except subprocess.TimeoutExpired:
         return round(time.time() - t0, 1), False, f"lms load timed out >{timeout}s"
+
+
+def _lms_load(model, context, timeout):
+    """Load at `context`, falling back to smaller windows if VRAM won't fit.
+
+    Returns (seconds, ok, msg, actual_context). Honors the requested context but
+    degrades (64k -> 32k -> 16k) rather than dropping a model to a VRAM crash."""
+    ladder = sorted({c for c in (context, 49152, 32768, 16384) if c <= context}, reverse=True)
+    total = 0.0
+    last = ""
+    for ctx in ladder:
+        secs, ok, msg = _lms_load_once(model, ctx, timeout)
+        total += secs
+        last = msg
+        if ok:
+            return round(total, 1), True, msg, ctx
+        _unload_all()  # clean up a partial/crashed load before retrying smaller
+    return round(total, 1), False, last, None
 
 
 async def main():
@@ -444,14 +462,15 @@ async def main():
         print(f"\n=== {model} ===", flush=True)
         # Unload the previous model, then explicitly load this one at --context.
         _unload_all()
-        load_s, ok, msg = await loop.run_in_executor(
+        load_s, ok, msg, actual_ctx = await loop.run_in_executor(
             None, _lms_load, model, args.context, args.load_timeout)
         if not ok:
             print(f"  SKIP — load failed: {msg}", flush=True)
             results[model] = {"_load": {"error": f"load failed: {msg}", "passed": False}}
             continue
-        print(f"  [loaded @ {args.context} ctx in {load_s}s]", flush=True)
-        tr = {"_load": {"latency_s": load_s, "passed": True}}
+        note = f"{actual_ctx} ctx" + (f" (fell back from {args.context})" if actual_ctx < args.context else "")
+        print(f"  [loaded @ {note} in {load_s}s]", flush=True)
+        tr = {"_load": {"latency_s": load_s, "context": actual_ctx, "passed": True}}
         for name, fn in tasks.items():
             print(f"  {name} ...", end="", flush=True)
             try:
