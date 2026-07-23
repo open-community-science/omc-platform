@@ -697,11 +697,31 @@ def reverify_saved(client=None):
     COMPUTATIONS.clear(); COMPUTATIONS.update(saved["computations"])
     AGENDA[:] = saved.get("agenda", [])
     verify(client)
+    done = sum(a["status"] == "done" for a in AGENDA)
+    completed = bool(AGENDA) and all(a["status"] == "done" for a in AGENDA)
     (OUT / "claims_ledger.json").write_text(json.dumps(
-        {"claims": LEDGER, "computations": COMPUTATIONS, "agenda": AGENDA}, indent=2, default=str) + "\n")
+        {"claims": LEDGER, "computations": COMPUTATIONS, "agenda": AGENDA,
+         "run": {"completed": completed, "investigations_done": done,
+                 "investigations_total": len(AGENDA)}}, indent=2, default=str) + "\n")
     dag = build_dag()
     (OUT / "claims_dag.json").write_text(json.dumps(dag, indent=2, default=str) + "\n")
-    verified = sum(c["verdict"] == "verified" for c in LEDGER)
+    verified_claims = [c for c in LEDGER if c["verdict"] == "verified"]
+    verified = len(verified_claims)
+    status = "complete" if completed else f"INCOMPLETE ({done}/{len(AGENDA)} investigations)"
+    (OUT / "claims_dag.md").write_text(
+        f"# Claim provenance DAG ({MODEL}) — {status}\n\n{verified}/{len(LEDGER)} claims verified · "
+        f"{len(COMPUTATIONS)} computations\n\nLegend: 🟩 verified · 🟥 refuted · 🟨 unverifiable · "
+        f"🟦 computation · ⬛ data\n\n{dag_mermaid(dag)}\n")
+    # With a client, regenerate the Results prose so the snapshot is coherent.
+    if client is not None and verified_claims:
+        banner = "" if completed else (
+            f"> ⚠️ PRELIMINARY — {len(AGENDA) - done} of {len(AGENDA)} investigations outstanding; "
+            f"these Results are partial.\n\n")
+        text = write_results(client, verified_claims)
+        (OUT / "results_from_claims.md").write_text(
+            f"# Results from claims ({MODEL}) — {status}\n\n{banner}"
+            f"_{verified}/{len(LEDGER)} verified · {len(COMPUTATIONS)} computations · "
+            f"{done}/{len(AGENDA)} investigations_\n\n{text}\n")
     print(f"re-verified {verified}/{len(LEDGER)} claims (offline)")
     for c in LEDGER:
         if c["verdict"] != "verified":
