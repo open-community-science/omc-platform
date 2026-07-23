@@ -3,3 +3,6 @@ results.json
 results.md
 run-*.md
 run-*.json
+style-sweep.*
+prod-outline.*
+verify*.*

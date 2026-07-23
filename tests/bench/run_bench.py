@@ -36,7 +36,7 @@ sys.path.insert(0, str(HERE))
 from ai import llm_client
 from ai.llm_client import get_client, chat
 from ai.manuscript_generator import (
-    SYSTEM_PROMPT, _format_study, build_results_prompt,
+    SYSTEM_PROMPT, _format_study, build_results_prompt, _draft_section,
 )
 from ai.review_agents import statistical_review
 from ai.manuscript_checks import check_numbers_supported
@@ -232,6 +232,36 @@ FLAWED_MS = {
 
 
 @_timed
+async def results_prod_outline(client, model):
+    """Exercise the REAL production two-phase _draft_section(outline_first=True)."""
+    study_ctx = _format_study(STUDY_GROUNDED)
+    prompt = build_results_prompt(study_ctx, load_fixture(),
+                                  {"research_question": "How do frost flowers concentrate marine bacterial communities?"})
+    clean = await _draft_section(client, SYSTEM_PROMPT, prompt, model=model,
+                                 max_tokens=4000, outline_first=True)
+    fake = count_fake_cites(clean)
+    unsupported = check_numbers_supported({"results": clean}, results_data=load_fixture())
+    n_unsupported = sum(len(i["detail"].split("may be unsupported:")[1].split(","))
+                        for i in unsupported) if unsupported else 0
+    honest = mentions_dropout(clean)
+    # the outline must NOT leak into the final draft
+    leaked_outline = bool(re.search(r"^\s*[-*•]\s", clean, re.M)) and "## outline" in clean.lower()
+    flags = []
+    if fake:
+        flags.append(f"{fake} fabricated-cite")
+    if n_unsupported:
+        flags.append(f"{n_unsupported} unsupported-num")
+    if not honest:
+        flags.append("no-dropout-mention")
+    if leaked_outline:
+        flags.append("outline-leaked")
+    passed = fake == 0 and honest and not leaked_outline
+    return {"passed": passed, "chars": len(clean), "fake_cites": fake,
+            "unsupported_numbers": n_unsupported, "data_honest": honest,
+            "outline_leaked": leaked_outline, "flags": flags, "preview": preview(clean)}
+
+
+@_timed
 async def review_stat(client, model):
     review = await statistical_review(FLAWED_MS, load_fixture(), base_url=BASE_URL, model=model)
     comments = review.get("comments", [])
@@ -298,6 +328,8 @@ def build_tasks():
     tasks = {
         # anti-fabrication: minimal metadata, must NOT invent a subject
         "results_minimal": _results_task(STUDY_MINIMAL, "single"),
+        # real production two-phase drafting path
+        "results_prod_outline": results_prod_outline,
         # non-manuscript prompt surfaces
         "review_stat": review_stat,
         "citation_queries": citation_queries,

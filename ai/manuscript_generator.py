@@ -69,13 +69,56 @@ async def _achat(client, system, user, model=None, max_tokens=20000, on_token=No
     return _strip_think(result)
 
 
+# Outline-then-fill (two-phase drafting). Benchmarking showed that asking a model
+# to outline first, tying each bullet to a specific data value, then expand the
+# outline, substantially reduces fabricated numbers on smaller models (e.g.
+# gpt-oss-20b: 6 unsupported numbers single-pass -> 1-2 outline-first) without
+# hurting stronger models. Only the DRAFT is kept; the outline never reaches the
+# manuscript.
+_OUTLINE_INSTRUCTION = """
+
+First, produce ONLY a nested bullet-point outline of this section. Each bullet must be a
+specific point grounded in a value from the data/context above (name the number or fact).
+Do not write prose yet — just the outline."""
+
+
+def _draft_from_outline_instruction(outline: str) -> str:
+    return f"""
+
+Here is an approved outline for this section:
+
+{outline}
+
+Now write the finished section as flowing scientific prose that follows this outline.
+Output the prose ONLY — no bullet points, no outline, no headers like "Outline"/"Draft"."""
+
+
+async def _draft_section(client, system, prompt, model=None, max_tokens=20000,
+                         on_token=None, outline_first=False):
+    """Draft one section, optionally via an outline-then-fill two-phase pass.
+
+    outline_first=True runs two calls: (1) a cheap, non-streamed outline whose
+    bullets are tied to specific data values, then (2) the streamed prose draft
+    grounded in that outline. Only the draft is returned — the outline is scratch
+    scaffolding to reduce fabrication and is never shown or stored.
+    """
+    if not outline_first:
+        return await _achat(client, system, prompt, model=model,
+                            max_tokens=max_tokens, on_token=on_token)
+    outline = await _achat(client, system, prompt + _OUTLINE_INSTRUCTION,
+                           model=model, max_tokens=2000, on_token=None)
+    return await _achat(client, system, prompt + _draft_from_outline_instruction(outline),
+                        model=model, max_tokens=max_tokens, on_token=on_token)
+
+
 SYSTEM_PROMPT = """You are a scientific writing assistant for microbial ecology research.
 You help generate clear, accurate manuscript drafts based on bioinformatics pipeline outputs
 and author-provided context. Write in a professional academic style suitable for publication.
 
 Key principles:
 - Be precise and accurate about the data
-- Acknowledge limitations
+- Acknowledge limitations; be candid about incomplete or low-quality data rather
+  than presenting it as complete and solid (honest caveats help the author)
 - Use appropriate hedging language for interpretations
 - Follow standard scientific paper structure
 - Include placeholders [CITE] where citations would be needed
@@ -253,6 +296,7 @@ async def generate_manuscript_draft(
     api_key: str | None = None,
     model: str | None = None,
     cite_model: str | None = None,
+    outline_first: bool = False,
     on_progress=None,
 ) -> dict:
     """
@@ -288,45 +332,45 @@ async def generate_manuscript_draft(
     # Introduction
     await emit("start", "Generating Introduction...")
     log.info(f"Generating introduction for {bioproject_accession}...")
-    sections["introduction"] = await _achat(client, SYSTEM_PROMPT,
+    sections["introduction"] = await _draft_section(client, SYSTEM_PROMPT,
         build_introduction_prompt(interview_context, study_context, bioproject_accession, pipeline_type),
-        model=model, max_tokens=20000, on_token=stream_tokens)
+        model=model, max_tokens=20000, on_token=stream_tokens, outline_first=outline_first)
 
     await emit("done", f"Introduction complete ({len(sections['introduction'])} chars)")
 
     # Methods
     await emit("start", "Generating Methods...")
     log.info("Generating methods...")
-    sections["methods"] = await _achat(client, SYSTEM_PROMPT,
+    sections["methods"] = await _draft_section(client, SYSTEM_PROMPT,
         build_methods_prompt(pipeline_type, study_context, bioproject_accession, interview_data, results_summary),
-        model=model, max_tokens=20000, on_token=stream_tokens)
+        model=model, max_tokens=20000, on_token=stream_tokens, outline_first=outline_first)
 
     await emit("done", f"Methods complete ({len(sections['methods'])} chars)")
 
     # Results
     await emit("start", "Generating Results...")
     log.info("Generating results...")
-    sections["results"] = await _achat(client, SYSTEM_PROMPT,
+    sections["results"] = await _draft_section(client, SYSTEM_PROMPT,
         build_results_prompt(study_context, pipeline_outputs, interview_data),
-        model=model, max_tokens=30000, on_token=stream_tokens)
+        model=model, max_tokens=30000, on_token=stream_tokens, outline_first=outline_first)
 
     await emit("done", f"Results complete ({len(sections['results'])} chars)")
 
     # Discussion
     await emit("start", "Generating Discussion...")
     log.info("Generating discussion...")
-    sections["discussion"] = await _achat(client, SYSTEM_PROMPT,
+    sections["discussion"] = await _draft_section(client, SYSTEM_PROMPT,
         build_discussion_prompt(study_context, sections['results'], interview_data),
-        model=model, max_tokens=30000, on_token=stream_tokens)
+        model=model, max_tokens=30000, on_token=stream_tokens, outline_first=outline_first)
 
     await emit("done", f"Discussion complete ({len(sections['discussion'])} chars)")
 
     # Abstract (written last, based on all sections)
     await emit("start", "Generating Abstract...")
     log.info("Generating abstract...")
-    sections["abstract"] = await _achat(client, SYSTEM_PROMPT,
+    sections["abstract"] = await _draft_section(client, SYSTEM_PROMPT,
         build_abstract_prompt(study_context, sections),
-        model=model, max_tokens=5000, on_token=stream_tokens)
+        model=model, max_tokens=5000, on_token=stream_tokens, outline_first=outline_first)
     await emit("done", f"Abstract complete ({len(sections['abstract'])} chars)")
     log.info("All sections generated.")
 
