@@ -120,7 +120,11 @@ def _microscape_metadata_prelude(submission: Submission) -> tuple[str, str]:
         ("center_name", "center_name"),
         ("read_count", "read_count"),
         ("base_count", "base_count"),
-        ("collection_date", "first_created"),
+        # collection_date must be the biological SAMPLING date, not ENA's record
+        # creation time (first_created) — else temporal/ecological grouping is wrong
+        # (issue #33). Keep first_created in its own column for provenance.
+        ("collection_date", "collection_date"),
+        ("first_created", "first_created"),
     ]
 
     def _clean(v) -> str:

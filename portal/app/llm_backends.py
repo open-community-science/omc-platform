@@ -139,9 +139,14 @@ async def resolve_llm(user: User | None) -> dict:
         }
 
     async def _local() -> dict:
+        # Honour any model the local server actually serves — provider validity is
+        # NOT inferable from a "/" in the id (e.g. 'codeqwen3-14b', 'gpt-oss-20b'
+        # are valid local ids). Fall back only when empty, a hosted ':free' id, or
+        # the saved id is no longer served (issue #32).
         model = chosen_model
-        if not model or "/" not in model or model.endswith(":free"):
-            model = recommended_local_model(await list_local_models())
+        available = await list_local_models()
+        if not model or model.endswith(":free") or (available and model not in available):
+            model = recommended_local_model(available)
         return {
             "backend": BACKEND_LOCAL, "base_url": settings.llm_base_url,
             "api_key": settings.llm_api_key, "model": model,
