@@ -63,9 +63,8 @@ R.OUT.mkdir(parents=True, exist_ok=True)
 if "--reverify" in flags:
     client = None
     if "--reconcile" in flags:
-        R._unload_all(); R._lms_load(R.MODEL, 65536, 300)
-        from openai import OpenAI
-        client = OpenAI(base_url=R.BASE_URL, api_key="lm-studio")
+        R._ensure_model_loaded()
+        client = R._client()
     R.reverify_saved(client)
 else:
     sys.argv = [sys.argv[0]]  # fresh run: don't let R.main() see our flags

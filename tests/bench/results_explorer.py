@@ -37,10 +37,26 @@ from ai.manuscript_checks import check_numbers_supported
 from fixtures import load_fixture, STUDY_GROUNDED, DATA_DIR
 from run_bench import _unload_all, _lms_load
 
-BASE_URL = "http://localhost:1234/v1"
-MODEL = "qwen/qwen3.6-35b-a3b"
+# Endpoint/model are env-configurable so the same loop can run on a LOCAL LM Studio
+# model or a REMOTE OpenAI-compatible API (e.g. OpenRouter → anthropic/claude-sonnet-5).
+BASE_URL = os.environ.get("EXPLORER_BASE_URL", "http://localhost:1234/v1")
+MODEL = os.environ.get("EXPLORER_MODEL", "qwen/qwen3.6-35b-a3b")
+API_KEY = os.environ.get("EXPLORER_API_KEY", "lm-studio")
+REMOTE = not any(h in BASE_URL for h in ("localhost", "127.0.0.1"))  # skip lms for remote
 OUT = HERE / "writings"
 OUT.mkdir(exist_ok=True)
+
+
+def _client():
+    return OpenAI(base_url=BASE_URL, api_key=API_KEY)
+
+
+def _ensure_model_loaded():
+    """Load the model locally (LM Studio); no-op for a remote endpoint."""
+    if REMOTE:
+        return True
+    _unload_all()
+    return _lms_load(MODEL, 65536, 300)[1]
 
 
 # ── Datasets (source of truth for reads + verification) ───────────────────────
@@ -375,7 +391,7 @@ def _exec_tool(name, args):
         return {"ok": True, "computation_id": cid, "result": res}
     if name == "record_claim":
         claim = {"id": f"k{len(LEDGER) + 1}", "statement": args.get("statement", ""),
-                 "value": str(args.get("value", "")), "antecedents": args.get("antecedents", []),
+                 "value": str(args.get("value", "")), "antecedents": _norm_antecedents(args.get("antecedents")),
                  "kind": args.get("kind", "observation"), "investigation": _current_investigation()}
         LEDGER.append(claim)
         return {"recorded": True, "claim_id": claim["id"], "n_claims": len(LEDGER)}
@@ -457,6 +473,19 @@ def explore(client, max_steps=48):
 
 
 # ── Verification: re-derive every claim ───────────────────────────────────────
+def _norm_antecedents(x):
+    """Antecedents as a clean list of tokens. Some models (e.g. Sonnet) return the
+    array arg as a delimited STRING ('c2, c3; path') instead of a JSON list — split
+    it rather than iterating it character-by-character."""
+    if isinstance(x, list):
+        items = x
+    elif isinstance(x, str):
+        items = re.split(r"[;,]", x)
+    else:
+        items = []
+    return [t.strip() for t in items if t and t.strip()]
+
+
 def _nums(s):
     """Every genuine quantity in a string. The lookbehind blocks numbers embedded in
     an alphanumeric token — not just glued to a letter ('PC1') but mid-token digit
@@ -547,6 +576,7 @@ def verify(client=None):
     a skeptical model reconciliation against the same re-executed evidence — robust
     on the hard cases, and labeled so it's clear which claims leaned on judgment."""
     for c in LEDGER:
+        c["antecedents"] = _norm_antecedents(c["antecedents"])  # tolerate string-form ledgers
         claim_nums = _nums(c["value"])
         candidates, strvals, checked = [], [], []
         for ant in c["antecedents"]:
@@ -684,13 +714,14 @@ def main():
     if "--reverify" in sys.argv:
         client = None
         if "--reconcile" in sys.argv:   # escalate deterministic misses to the model
-            _unload_all(); _lms_load(MODEL, 65536, 300)
-            client = OpenAI(base_url=BASE_URL, api_key="lm-studio")
+            if not _ensure_model_loaded():
+                print("load failed"); return
+            client = _client()
         reverify_saved(client); return
-    _unload_all()
-    if not _lms_load(MODEL, 65536, 300)[1]:
+    if not _ensure_model_loaded():
         print("load failed"); return
-    client = OpenAI(base_url=BASE_URL, api_key="lm-studio")
+    client = _client()
+    print(f"model: {MODEL} @ {BASE_URL}")
 
     print("=== EXPLORE (agenda-driven, recursive) ===")
     t0 = time.time()
