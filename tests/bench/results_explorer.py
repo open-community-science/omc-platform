@@ -84,6 +84,28 @@ def _count_matrix() -> pd.DataFrame:
 COUNTS = _count_matrix()
 
 
+def _tax_df() -> pd.DataFrame:
+    """ASV → taxonomic rank table (Domain..Genus), aligned to COUNTS columns.
+    Lets the agent group abundances by taxon, split prokaryote vs eukaryote, and
+    screen for named contaminants."""
+    tax = _rj("taxonomy") or {}
+    _db, body = next(iter(tax.items()), ("none", {}))
+    levels, assign = body.get("levels", []), body.get("assignments", {})
+    df = pd.DataFrame.from_dict({a: dict(zip(levels, lin)) for a, lin in assign.items()}, orient="index")
+    return df.reindex(columns=levels)
+
+
+def _samples_df() -> pd.DataFrame:
+    """Per-sample metadata (library_name, collection_date, precomputed x/y, etc.)."""
+    sm = _rj("samples") or []
+    df = pd.DataFrame(sm)
+    return df.set_index("id") if "id" in df.columns else df
+
+
+TAX_DF = _tax_df()
+SAMPLES_META = _samples_df()
+
+
 def _navigate(path):
     cur = DATASETS
     for part in path.split("."):
@@ -104,11 +126,15 @@ _SAFE_BUILTINS = {k: __builtins__[k] if isinstance(__builtins__, dict) else geta
 
 def _analysis_namespace():
     from scipy.spatial.distance import pdist, squareform, braycurtis
-    from scipy.stats import entropy
+    from scipy.stats import entropy, pearsonr, spearmanr, kruskal, mannwhitneyu
     from sklearn.decomposition import PCA
-    return {"__builtins__": _SAFE_BUILTINS, "np": np, "pd": pd, "counts": COUNTS.copy(),
+    return {"__builtins__": _SAFE_BUILTINS, "np": np, "pd": pd,
+            "counts": COUNTS.copy(),          # samples x ASV read counts
+            "tax": TAX_DF.copy(),             # ASV x rank (Domain..Genus)
+            "meta": SAMPLES_META.copy(),      # sample x metadata
             "pdist": pdist, "squareform": squareform, "braycurtis": braycurtis,
-            "entropy": entropy, "PCA": PCA}
+            "entropy": entropy, "pearsonr": pearsonr, "spearmanr": spearmanr,
+            "kruskal": kruskal, "mannwhitneyu": mannwhitneyu, "PCA": PCA}
 
 
 def _run_code(code: str):
@@ -157,46 +183,108 @@ def _flatten_numbers(v, acc):
 # ── DAG state ─────────────────────────────────────────────────────────────────
 COMPUTATIONS = {}  # id -> {label, code, result}
 LEDGER = []        # claim dicts
+AGENDA = []        # investigation worklist: {id, question, rationale, status, parent}
+
+
+def _current_investigation():
+    """The investigation being worked (first in-progress, else first pending)."""
+    for st in ("in_progress", "pending"):
+        for a in AGENDA:
+            if a["status"] == st:
+                return a["id"]
+    return None
 
 
 TOOLS = [
     {"type": "function", "function": {
-        "name": "list_datasets",
-        "description": "List available summary datasets you can inspect.",
+        "name": "propose_agenda",
+        "description": ("FIRST STEP. Propose the analyses / hypothesis tests worth running on this "
+                        "amplicon dataset — the things a curious microbial ecologist would actually "
+                        "test. Be comprehensive and go beyond the obvious summary stats."),
+        "parameters": {"type": "object", "properties": {
+            "items": {"type": "array", "items": {"type": "object", "properties": {
+                "question": {"type": "string", "description": "the analysis/hypothesis, e.g. 'Do samples cluster in ordination, and which taxa drive the separation?'"},
+                "rationale": {"type": "string", "description": "why it matters ecologically"}},
+                "required": ["question"]}}},
+            "required": ["items"]}}},
+    {"type": "function", "function": {
+        "name": "get_agenda",
+        "description": "See the current agenda and each item's status (pending/in_progress/done).",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "add_followup",
+        "description": ("Recurse: when a result is surprising or opens a deeper question, add a "
+                        "follow-up investigation (e.g. ordination shows structure → which taxa drive "
+                        "it → are they contaminants or real signal?). This is how you go deeper."),
+        "parameters": {"type": "object", "properties": {
+            "question": {"type": "string"}, "rationale": {"type": "string"}},
+            "required": ["question"]}}},
+    {"type": "function", "function": {
+        "name": "mark_done",
+        "description": "Mark the current investigation finished; move to the next agenda item.",
         "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
         "name": "get_dataset",
-        "description": "Load a named summary dataset's contents.",
+        "description": "Load a named summary dataset's contents (list_datasets to see names).",
         "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}},
     {"type": "function", "function": {
+        "name": "list_datasets",
+        "description": "List available summary datasets.",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
         "name": "run_analysis",
-        "description": ("Run Python to compute a statistic the summaries don't provide (diversity, "
-                        "richness, Bray-Curtis, ordination). Available in scope: `counts` (pandas "
-                        "DataFrame, 11 samples x 162 ASVs of read counts), np, pd, pdist, squareform, "
-                        "braycurtis, entropy, PCA. Your code MUST assign the answer to `result`. "
-                        "Returns result. Use this before claiming any computed number."),
+        "description": ("Run Python to compute anything the summaries lack. In scope: `counts` "
+                        "(samples×ASV read-count DataFrame), `tax` (ASV×rank Domain..Genus — join to "
+                        "counts to work at taxon level or split Bacteria/Archaea vs Eukaryota), `meta` "
+                        "(per-sample metadata incl. library_name, collection_date, x/y). Helpers: np, "
+                        "pd, pdist, squareform, braycurtis, entropy, pearsonr, spearmanr, kruskal, "
+                        "mannwhitneyu, PCA. Code MUST assign to `result`. Compute before you claim."),
         "parameters": {"type": "object", "properties": {
-            "label": {"type": "string", "description": "short name, e.g. 'shannon_diversity'"},
-            "code": {"type": "string", "description": "Python that sets `result`"}},
+            "label": {"type": "string"}, "code": {"type": "string", "description": "Python that sets `result`"}},
             "required": ["label", "code"]}}},
     {"type": "function", "function": {
         "name": "record_claim",
-        "description": ("Record ONE verifiable claim. Cite antecedents so it can be re-checked: "
-                        "data paths (e.g. 'renorm_stats.prokaryote.n_asvs') and/or computation ids "
-                        "returned by run_analysis (e.g. 'c1')."),
+        "description": ("Record ONE verifiable claim from the current investigation. Cite antecedents "
+                        "(data paths and/or computation ids) so it can be re-checked. Prefer insight "
+                        "(patterns, relationships, anomalies) over restating summary numbers."),
         "parameters": {"type": "object", "properties": {
             "statement": {"type": "string"},
             "value": {"type": "string", "description": "the exact supporting value"},
-            "antecedents": {"type": "array", "items": {"type": "string"},
-                            "description": "data paths and/or computation ids this claim depends on"},
-            "kind": {"type": "string", "enum": ["observation", "quality_caveat"]}},
+            "antecedents": {"type": "array", "items": {"type": "string"}},
+            "kind": {"type": "string", "enum": ["observation", "pattern", "anomaly", "quality_caveat"]}},
             "required": ["statement", "value", "antecedents"]}}},
 ]
 
 
 def _exec_tool(name, args):
+    if name == "propose_agenda":
+        for it in args.get("items", [])[:20]:
+            AGENDA.append({"id": f"a{len(AGENDA) + 1}", "question": it.get("question", ""),
+                           "rationale": it.get("rationale", ""), "status": "pending", "parent": None})
+        if AGENDA:
+            AGENDA[0]["status"] = "in_progress"
+        return {"agenda": [{"id": a["id"], "question": a["question"], "status": a["status"]} for a in AGENDA]}
+    if name == "get_agenda":
+        return {"agenda": [{"id": a["id"], "question": a["question"], "status": a["status"],
+                            "parent": a["parent"]} for a in AGENDA]}
+    if name == "add_followup":
+        parent = _current_investigation()
+        AGENDA.append({"id": f"a{len(AGENDA) + 1}", "question": args.get("question", ""),
+                       "rationale": args.get("rationale", ""), "status": "pending", "parent": parent})
+        return {"added": AGENDA[-1]["id"], "parent": parent, "pending": sum(a["status"] == "pending" for a in AGENDA)}
+    if name == "mark_done":
+        cur = _current_investigation()
+        for a in AGENDA:
+            if a["id"] == cur:
+                a["status"] = "done"
+        nxt = _current_investigation()
+        for a in AGENDA:
+            if a["id"] == nxt and a["status"] == "pending":
+                a["status"] = "in_progress"
+        pend = sum(a["status"] in ("pending", "in_progress") for a in AGENDA)
+        return {"done": cur, "now": nxt, "remaining": pend}
     if name == "list_datasets":
-        return {"datasets": list(DATASETS), "note": "use run_analysis + `counts` for diversity/ordination"}
+        return {"datasets": list(DATASETS), "note": "use run_analysis with `counts`/`tax`/`meta` for real tests"}
     if name == "get_dataset":
         d = DATASETS.get(args.get("name"))
         return d if d is not None else {"error": "unknown", "available": list(DATASETS)}
@@ -210,40 +298,53 @@ def _exec_tool(name, args):
     if name == "record_claim":
         claim = {"id": f"k{len(LEDGER) + 1}", "statement": args.get("statement", ""),
                  "value": str(args.get("value", "")), "antecedents": args.get("antecedents", []),
-                 "kind": args.get("kind", "observation")}
+                 "kind": args.get("kind", "observation"), "investigation": _current_investigation()}
         LEDGER.append(claim)
         return {"recorded": True, "claim_id": claim["id"], "n_claims": len(LEDGER)}
     return {"error": f"unknown tool {name}"}
 
 
-EXPLORE_SYSTEM = """You are a microbial-ecology data analyst establishing the factual basis
-for a Results section from a 16S amplicon pipeline. Work by EXPLORATION:
+EXPLORE_SYSTEM = """You are a curious microbial ecologist investigating a 16S/18S amplicon
+dataset. Your job is not to restate summary statistics — it is to TEST HYPOTHESES and find
+PATTERNS, RELATIONSHIPS, and ANOMALIES a scientist would care about, then ground each in a
+re-runnable computation.
 
-1. list_datasets / get_dataset to read reported numbers.
-2. For statistics the summaries DON'T contain (alpha diversity, richness per sample,
-   Bray-Curtis dissimilarity, ordination), WRITE AND RUN code with run_analysis over the
-   `counts` matrix. Never claim a computed number you did not actually compute.
-3. record_claim for every finding, citing antecedents (data paths and/or computation ids)
-   so another analyst can re-verify it. Be honest about data quality (record quality_caveat
-   for lost samples, thin coverage, etc.). Do NOT invent statistics.
+Work systematically and recursively:
+1. FIRST call propose_agenda with the analyses/hypothesis tests worth running here — the
+   standard microbial-ecology toolkit AND less obvious ideas. Think across: alpha diversity
+   (richness, Shannon, Simpson, Pielou evenness) and its dependence on sequencing depth;
+   dominance and the rare biosphere; beta-diversity structure (Bray-Curtis/Jaccard,
+   ordination) and WHICH taxa drive it; differential abundance / indicator taxa between
+   sample groups; co-occurrence; the prokaryote-vs-eukaryote split (use `tax` Domain);
+   core vs transient taxa (prevalence); and a contamination screen for known kit/reagent
+   genera (e.g. Ralstonia, Bradyrhizobium, Cutibacterium, Pelomonas, Delftia).
+2. Work the agenda item by item. For each: run_analysis over `counts`/`tax`/`meta` to test
+   it, then record_claim(s) with the exact value(s) and antecedents. mark_done and move on.
+3. RECURSE: whenever a result is surprising or opens a question, add_followup — that is how
+   you go deeper (a cluster in ordination → its driver taxa → are they contamination?).
+4. Prefer claims of kind "pattern" or "anomaly" (an insight) over "observation" (a restated
+   number). Be honest: record quality_caveat for depth bias, low evenness, contamination,
+   or anything that undermines a result. Never claim a number you did not compute.
 
-Cover: retention & how many samples survived, ASV counts, taxonomic composition, AND at
-least one computed diversity/ordination result. Aim for ~8-12 sourced claims. Reply DONE
-when finished."""
+Keep going until the agenda (including follow-ups) is worked through, then reply DONE."""
 
 
-def explore(client, max_steps=20):
+def explore(client, max_steps=48):
     messages = [{"role": "system", "content": EXPLORE_SYSTEM},
-                {"role": "user", "content": "Explore, compute, and record verifiable claims for the Results section."}]
+                {"role": "user", "content": "Propose your agenda of microbial-ecology tests, then work through it, recursing where it gets interesting."}]
     for step in range(max_steps):
         r = client.chat.completions.create(model=MODEL, messages=messages, tools=TOOLS,
-                                           tool_choice="auto", temperature=0.2, max_tokens=2500)
+                                           tool_choice="auto", temperature=0.25, max_tokens=2500)
         msg = r.choices[0].message
         if not msg.tool_calls:
             content, _ = _visible_and_finish(r)
-            if "DONE" in (content or "").upper() or len(LEDGER) >= 8:
+            active = [a for a in AGENDA if a["status"] in ("pending", "in_progress")]
+            if "DONE" in (content or "").upper() and not active:
                 break
-            messages.append({"role": "user", "content": "Continue: run_analysis / record_claim, or DONE."})
+            if "DONE" in (content or "").upper() and active:
+                messages.append({"role": "user", "content": f"{len(active)} agenda items remain — work the next one (get_agenda)."})
+                continue
+            messages.append({"role": "user", "content": "Continue with the current investigation, or mark_done and take the next."})
             continue
         messages.append({"role": "assistant", "content": msg.content or "",
                          "tool_calls": [tc.model_dump() for tc in msg.tool_calls]})
@@ -253,10 +354,14 @@ def explore(client, max_steps=20):
             except json.JSONDecodeError:
                 args = {}
             result = _exec_tool(tc.function.name, args)
-            label = args.get("label") or args.get("name") or (args.get("statement") or "")[:40]
-            print(f"  step {step}: {tc.function.name}({label}) -> {str(result)[:80]}")
+            label = args.get("label") or args.get("name") or args.get("question") or (args.get("statement") or "")[:40]
+            print(f"  [{step}] {tc.function.name}({str(label)[:46]}) -> {str(result)[:70]}", flush=True)
             messages.append({"role": "tool", "tool_call_id": tc.id,
                              "content": json.dumps(result, default=str)[:3500]})
+    # safety: mark any dangling investigation done
+    for a in AGENDA:
+        if a["status"] == "in_progress":
+            a["status"] = "done"
 
 
 # ── Verification: re-derive every claim ───────────────────────────────────────
@@ -438,17 +543,21 @@ def main():
         print("load failed"); return
     client = OpenAI(base_url=BASE_URL, api_key="lm-studio")
 
-    print("=== EXPLORE (read + compute) ===")
+    print("=== EXPLORE (agenda-driven, recursive) ===")
     t0 = time.time()
     explore(client)
     verify()
-    print(f"  {len(LEDGER)} claims, {len(COMPUTATIONS)} computations in {time.time()-t0:.0f}s")
+    print(f"\n  agenda ({len(AGENDA)} investigations):")
+    for a in AGENDA:
+        tag = "  └─" if a["parent"] else "•"
+        print(f"    {tag} [{a['status']}] {a['id']}: {a['question'][:72]}")
+    print(f"\n  {len(LEDGER)} claims, {len(COMPUTATIONS)} computations in {time.time()-t0:.0f}s")
     for c in LEDGER:
-        print(f"    [{c.get('verdict'):12}] {c['statement'][:64]}  (={c['value']}; {','.join(c['checked'])})")
+        print(f"    [{c.get('verdict'):12}|{c.get('kind','?')[:7]:7}] {c['statement'][:60]}  (={c['value']})")
 
     verified = [c for c in LEDGER if c["verdict"] == "verified"]
     (OUT / "claims_ledger.json").write_text(json.dumps(
-        {"claims": LEDGER, "computations": COMPUTATIONS}, indent=2, default=str) + "\n")
+        {"claims": LEDGER, "computations": COMPUTATIONS, "agenda": AGENDA}, indent=2, default=str) + "\n")
     dag = build_dag()
     (OUT / "claims_dag.json").write_text(json.dumps(dag, indent=2, default=str) + "\n")
     (OUT / "claims_dag.md").write_text(

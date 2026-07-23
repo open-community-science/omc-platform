@@ -13,9 +13,11 @@ sys.path.insert(0, str(HERE.parent.parent))
 sys.path.insert(0, str(HERE))
 from results_explorer import _navigate  # noqa: E402  (resolves data paths)
 
-W = HERE / "writings"
+# Optional: point at a specific run dir (e.g. writings/real_1543a4c1); default writings/.
+W = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "writings"
 ledger = json.loads((W / "claims_ledger.json").read_text())
 claims, comps = ledger["claims"], ledger["computations"]
+agenda = ledger.get("agenda", [])
 
 # Resolve each antecedent to a displayable node for the viewer.
 def resolve(ant):
@@ -39,10 +41,12 @@ for c in claims:
 stats = {
     "claims": len(claims),
     "verified": sum(c.get("verdict") == "verified" for c in claims),
-    "refuted": sum(c.get("verdict") == "refuted" for c in claims),
+    "insights": sum(c.get("kind") in ("pattern", "anomaly") for c in claims),
     "computations": len(comps),
+    "investigations": len(agenda),
 }
-study = "16S amplicon · frost flower · Ice Chamber Experiment (PRJNA1473294)"
+slug = W.name.replace("real_", "")
+study = f"microscape amplicon submission {slug} · agenda-driven autoresearch"
 DATA = json.dumps({"claims": view, "stats": stats, "study": study})
 
 HTML = r'''<title>Claim Provenance — Results Autoresearch</title>
@@ -110,6 +114,8 @@ button.claim:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .kind{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.04em;
   padding:1px 6px;border-radius:5px;border:1px solid var(--border);color:var(--muted);margin-left:6px}
 .kind.caveat{color:var(--unverifiable);border-color:var(--unverifiable)}
+.kind.anomaly{color:var(--refuted);border-color:var(--refuted)}
+.kind.pattern{color:var(--accent);border-color:var(--accent)}
 .detail{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px;
   position:sticky;top:16px;max-height:78vh;overflow:auto}
 .badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
@@ -182,8 +188,10 @@ document.getElementById('study').textContent = DATA.study;
 const S = DATA.stats;
 document.getElementById('stats').innerHTML = [
   ['claims', S.claims, ''], ['verified', S.verified, 'ok'],
-  ['refuted', S.refuted, 'no'], ['computations', S.computations, '']
+  ['insights', S.insights ?? 0, ''], ['investigations', S.investigations ?? 0, ''],
+  ['computations', S.computations, '']
 ].map(([l,n,c]) => `<div class="stat ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+const KIND = {quality_caveat:['caveat','caveat'], anomaly:['anomaly','anomaly'], pattern:['pattern','pattern']};
 
 const list = document.getElementById('list');
 DATA.claims.forEach((c,i) => {
@@ -194,9 +202,10 @@ DATA.claims.forEach((c,i) => {
   const chipMap = {'x100':'frac→%','/100':'%→frac','derived':'derived'};
   const chip = (c.verdict==='verified' && nd.length)
     ? `<span class="chip">${nd.map(x=>chipMap[x]||x).join(' · ')}</span>` : '';
+  const k = KIND[c.kind];
+  const kindChip = k ? `<span class="kind ${k[1]}">${k[0]}</span>` : '';
   b.innerHTML = `<span class="dot ${c.verdict}"></span><span class="txt">`
-    + `<span class="cid">${c.id}</span>` + chip
-    + (c.kind==='quality_caveat' ? '<span class="kind caveat">caveat</span>' : '')
+    + `<span class="cid">${c.id}</span>` + kindChip + chip
     + `<br>${esc(c.statement)}</span>`;
   b.onclick = () => select(i);
   list.appendChild(b);
@@ -232,9 +241,10 @@ function select(i){
     : (c.verdict==='refuted'
         ? 'The cited antecedents contradicted this value — <b style="color:var(--refuted)">refuted</b>, excluded from the manuscript.'
         : 'No checkable antecedent — <b style="color:var(--unverifiable)">unverifiable</b>, excluded from the manuscript.');
+  const dk = KIND[c.kind];
   document.getElementById('detail').innerHTML =
     `<span class="badge ${c.verdict}">${c.verdict}</span>` + methodBadge
-    + (c.kind==='quality_caveat' ? '<span class="kind caveat" style="margin-left:8px">quality caveat</span>' : '')
+    + (dk ? `<span class="kind ${dk[1]}" style="margin-left:8px">${dk[0]}</span>` : '')
     + `<h2>${esc(c.statement)}</h2>`
     + `<div class="kv"><span class="k">value</span><span class="v">${esc(c.value)}</span></div>`
     + `<div class="reverify">${reverify}</div>`

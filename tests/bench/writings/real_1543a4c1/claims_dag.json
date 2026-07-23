@@ -3,243 +3,192 @@
     {
       "id": "c1",
       "type": "computation",
-      "label": "richness_per_sample"
+      "label": "alpha_diversity_and_depth"
     },
     {
       "id": "c2",
       "type": "computation",
-      "label": "shannon_diversity"
+      "label": "beta_diversity_pcoa"
     },
     {
       "id": "c3",
       "type": "computation",
-      "label": "bray_curtis"
+      "label": "indicator_taxa_temporal"
     },
     {
       "id": "c4",
       "type": "computation",
-      "label": "total_reads_per_sample"
+      "label": "indicator_taxa_details"
     },
     {
       "id": "c5",
       "type": "computation",
-      "label": "mean_shannon"
+      "label": "phylum_domain_summary"
     },
     {
       "id": "c6",
       "type": "computation",
-      "label": "mean_richness"
+      "label": "meta_structure"
     },
     {
       "id": "c7",
       "type": "computation",
-      "label": "min_max_richness"
+      "label": "library_strategy_check"
     },
     {
       "id": "c8",
       "type": "computation",
-      "label": "min_max_shannon"
+      "label": "core_transient_bacteria"
     },
     {
       "id": "c9",
       "type": "computation",
-      "label": "min_max_library_size"
+      "label": "core_transient_eukaryotes"
     },
     {
       "id": "k1",
       "type": "claim",
-      "label": "Initial sequencing yielded 84 samples with 1,398,204 raw rea",
+      "label": "Richness correlates strongly with sequencing depth (Spearman",
       "verdict": "verified",
-      "kind": "observation"
-    },
-    {
-      "id": "provenance.n_samples",
-      "type": "data",
-      "label": "provenance.n_samples"
-    },
-    {
-      "id": "provenance.raw",
-      "type": "data",
-      "label": "provenance.raw"
+      "kind": "pattern"
     },
     {
       "id": "k2",
       "type": "claim",
-      "label": "After quality filtering, primer removal, denoising, and chim",
-      "verdict": "refuted",
-      "kind": "observation"
-    },
-    {
-      "id": "provenance.final",
-      "type": "data",
-      "label": "provenance.final"
+      "label": "Pielou evenness negatively correlates with depth (r=-0.4508,",
+      "verdict": "verified",
+      "kind": "pattern"
     },
     {
       "id": "k3",
       "type": "claim",
-      "label": "Read retention rate after filtering was 67.9% of raw reads.",
-      "verdict": "verified",
+      "label": "Sequencing depth varies widely (576 to 20,267 reads, median=",
+      "verdict": "refuted",
       "kind": "observation"
-    },
-    {
-      "id": "overview.filtering.retention_pct",
-      "type": "data",
-      "label": "overview.filtering.retention_pct"
     },
     {
       "id": "k4",
       "type": "claim",
-      "label": "After denoising and chimera removal, 44 samples remained for",
+      "label": "PCoA of Bray-Curtis distances shows a dramatic split between",
       "verdict": "verified",
-      "kind": "observation"
-    },
-    {
-      "id": "renorm_stats.prokaryote.n_samples",
-      "type": "data",
-      "label": "renorm_stats.prokaryote.n_samples"
-    },
-    {
-      "id": "renorm_stats.prokaryote.n_reads",
-      "type": "data",
-      "label": "renorm_stats.prokaryote.n_reads"
-    },
-    {
-      "id": "renorm_stats.prokaryote.n_asvs",
-      "type": "data",
-      "label": "renorm_stats.prokaryote.n_asvs"
+      "kind": "pattern"
     },
     {
       "id": "k5",
       "type": "claim",
-      "label": "Quality caveat: 40 samples were lost during the pipeline (84",
+      "label": "Collection date explains 92% of variance in PC1 \u2014 samples fr",
       "verdict": "verified",
-      "kind": "quality_caveat"
+      "kind": "pattern"
     },
     {
       "id": "k6",
       "type": "claim",
-      "label": "A total of 735 ASVs were classified against the SILVA databa",
+      "label": "Library name explains 35% of PC1 variance, but collection_da",
       "verdict": "verified",
-      "kind": "observation"
-    },
-    {
-      "id": "taxonomy_summary.total_asvs_classified",
-      "type": "data",
-      "label": "taxonomy_summary.total_asvs_classified"
-    },
-    {
-      "id": "taxonomy_summary.database",
-      "type": "data",
-      "label": "taxonomy_summary.database"
+      "kind": "pattern"
     },
     {
       "id": "k7",
       "type": "claim",
-      "label": "Top phyla by ASV count: Pseudomonadota (320 ASVs), SAR (176)",
+      "label": "Nearly all ASVs show complete separation between the two tem",
       "verdict": "verified",
-      "kind": "observation"
-    },
-    {
-      "id": "taxonomy_summary.top_phyla",
-      "type": "data",
-      "label": "taxonomy_summary.top_phyla"
+      "kind": "pattern"
     },
     {
       "id": "k8",
       "type": "claim",
-      "label": "Taxonomic classification completeness: domain (735/735), phy",
+      "label": "The two temporal groups are almost completely disjoint in ta",
       "verdict": "verified",
-      "kind": "observation"
-    },
-    {
-      "id": "taxonomy_summary.classified_per_rank",
-      "type": "data",
-      "label": "taxonomy_summary.classified_per_rank"
+      "kind": "pattern"
     },
     {
       "id": "k9",
       "type": "claim",
-      "label": "Mean Shannon diversity across 44 prokaryote samples was 3.99",
+      "label": "CRITICAL FINDING: The two temporal groups are completely sep",
       "verdict": "verified",
-      "kind": "observation"
+      "kind": "anomaly"
     },
     {
       "id": "k10",
       "type": "claim",
-      "label": "Mean observed richness across 44 prokaryote samples was 71.4",
+      "label": "Zero ASVs are shared between the two temporal groups. All 41",
       "verdict": "verified",
-      "kind": "observation"
+      "kind": "anomaly"
     },
     {
       "id": "k11",
       "type": "claim",
-      "label": "Library sizes (total reads per sample) ranged from 1,110 to ",
+      "label": "CRITICAL QUALITY CAVEAT: The two temporal groups (2026-06-04",
       "verdict": "verified",
-      "kind": "observation"
+      "kind": "quality_caveat"
     },
     {
       "id": "k12",
       "type": "claim",
-      "label": "Bray-Curtis dissimilarity matrix was computed for all 44 pro",
+      "label": "Both temporal groups are labeled as '16S amplicon sequencing",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    },
+    {
+      "id": "k13",
+      "type": "claim",
+      "label": "Core microbiome (bacterial group, 44 samples): 25 ASVs prese",
+      "verdict": "verified",
+      "kind": "pattern"
+    },
+    {
+      "id": "k14",
+      "type": "claim",
+      "label": "The rare biosphere dominates: 395 of 418 bacterial ASVs (94.",
       "verdict": "refuted",
-      "kind": "observation"
+      "kind": "pattern"
+    },
+    {
+      "id": "k15",
+      "type": "claim",
+      "label": "Eukaryotic core microbiome (19 samples): 57 ASVs present in ",
+      "verdict": "verified",
+      "kind": "pattern"
+    },
+    {
+      "id": "k16",
+      "type": "claim",
+      "label": "Eukaryotic group has 0 transient taxa (all 317 ASVs present ",
+      "verdict": "verified",
+      "kind": "pattern"
     }
   ],
   "edges": [
     {
-      "from": "provenance.n_samples",
+      "from": "c1",
       "to": "k1"
     },
     {
-      "from": "provenance.raw",
-      "to": "k1"
-    },
-    {
-      "from": "provenance.final",
+      "from": "c1",
       "to": "k2"
     },
     {
-      "from": "provenance.n_samples",
-      "to": "k2"
-    },
-    {
-      "from": "overview.filtering.retention_pct",
+      "from": "c1",
       "to": "k3"
     },
     {
-      "from": "renorm_stats.prokaryote.n_samples",
+      "from": "c2",
       "to": "k4"
     },
     {
-      "from": "renorm_stats.prokaryote.n_reads",
-      "to": "k4"
-    },
-    {
-      "from": "renorm_stats.prokaryote.n_asvs",
-      "to": "k4"
-    },
-    {
-      "from": "provenance.n_samples",
+      "from": "c2",
       "to": "k5"
     },
     {
-      "from": "renorm_stats.prokaryote.n_samples",
-      "to": "k5"
-    },
-    {
-      "from": "taxonomy_summary.total_asvs_classified",
+      "from": "c2",
       "to": "k6"
     },
     {
-      "from": "taxonomy_summary.database",
-      "to": "k6"
-    },
-    {
-      "from": "taxonomy_summary.top_phyla",
+      "from": "c3",
       "to": "k7"
     },
     {
-      "from": "taxonomy_summary.classified_per_rank",
+      "from": "c4",
       "to": "k8"
     },
     {
@@ -247,24 +196,44 @@
       "to": "k9"
     },
     {
-      "from": "c8",
-      "to": "k9"
-    },
-    {
-      "from": "c6",
+      "from": "c5",
       "to": "k10"
     },
     {
-      "from": "c7",
-      "to": "k10"
-    },
-    {
-      "from": "c9",
+      "from": "c5",
       "to": "k11"
     },
     {
-      "from": "c3",
+      "from": "c6",
       "to": "k12"
+    },
+    {
+      "from": "c7",
+      "to": "k12"
+    },
+    {
+      "from": "c5",
+      "to": "k12"
+    },
+    {
+      "from": "c8",
+      "to": "k13"
+    },
+    {
+      "from": "c8",
+      "to": "k14"
+    },
+    {
+      "from": "c9",
+      "to": "k15"
+    },
+    {
+      "from": "c8",
+      "to": "k16"
+    },
+    {
+      "from": "c9",
+      "to": "k16"
     }
   ]
 }

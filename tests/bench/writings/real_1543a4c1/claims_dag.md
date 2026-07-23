@@ -1,93 +1,78 @@
 # Claim provenance DAG (qwen/qwen3.6-35b-a3b)
 
-10/12 claims verified · 9 computations
+14/16 claims verified · 9 computations
 
 Legend: 🟩 verified · 🟥 refuted · 🟨 unverifiable · 🟦 computation · ⬛ data
 
 ```mermaid
 graph LR
-  c1[["richness_per_sample"]]
+  c1[["alpha_diversity_and_depth"]]
   style c1 fill:#1565c0,color:#fff
-  c2[["shannon_diversity"]]
+  c2[["beta_diversity_pcoa"]]
   style c2 fill:#1565c0,color:#fff
-  c3[["bray_curtis"]]
+  c3[["indicator_taxa_temporal"]]
   style c3 fill:#1565c0,color:#fff
-  c4[["total_reads_per_sample"]]
+  c4[["indicator_taxa_details"]]
   style c4 fill:#1565c0,color:#fff
-  c5[["mean_shannon"]]
+  c5[["phylum_domain_summary"]]
   style c5 fill:#1565c0,color:#fff
-  c6[["mean_richness"]]
+  c6[["meta_structure"]]
   style c6 fill:#1565c0,color:#fff
-  c7[["min_max_richness"]]
+  c7[["library_strategy_check"]]
   style c7 fill:#1565c0,color:#fff
-  c8[["min_max_shannon"]]
+  c8[["core_transient_bacteria"]]
   style c8 fill:#1565c0,color:#fff
-  c9[["min_max_library_size"]]
+  c9[["core_transient_eukaryotes"]]
   style c9 fill:#1565c0,color:#fff
-  k1["Initial sequencing yielded 84 samples with 1,398,204 raw rea"]
+  k1["Richness correlates strongly with sequencing depth (Spearman"]
   style k1 fill:#2e7d32,color:#fff
-  provenance.n_samples("provenance.n_samples")
-  style provenance.n_samples fill:#455a64,color:#fff
-  provenance.raw("provenance.raw")
-  style provenance.raw fill:#455a64,color:#fff
-  k2["After quality filtering, primer removal, denoising, and chim"]
-  style k2 fill:#c62828,color:#fff
-  provenance.final("provenance.final")
-  style provenance.final fill:#455a64,color:#fff
-  k3["Read retention rate after filtering was 67.9% of raw reads."]
-  style k3 fill:#2e7d32,color:#fff
-  overview.filtering.retention_pct("overview.filtering.retention_pct")
-  style overview.filtering.retention_pct fill:#455a64,color:#fff
-  k4["After denoising and chimera removal, 44 samples remained for"]
+  k2["Pielou evenness negatively correlates with depth (r=-0.4508,"]
+  style k2 fill:#2e7d32,color:#fff
+  k3["Sequencing depth varies widely (576 to 20,267 reads, median="]
+  style k3 fill:#c62828,color:#fff
+  k4["PCoA of Bray-Curtis distances shows a dramatic split between"]
   style k4 fill:#2e7d32,color:#fff
-  renorm_stats.prokaryote.n_samples("renorm_stats.prokaryote.n_samples")
-  style renorm_stats.prokaryote.n_samples fill:#455a64,color:#fff
-  renorm_stats.prokaryote.n_reads("renorm_stats.prokaryote.n_reads")
-  style renorm_stats.prokaryote.n_reads fill:#455a64,color:#fff
-  renorm_stats.prokaryote.n_asvs("renorm_stats.prokaryote.n_asvs")
-  style renorm_stats.prokaryote.n_asvs fill:#455a64,color:#fff
-  k5["Quality caveat: 40 samples were lost during the pipeline (84"]
+  k5["Collection date explains 92% of variance in PC1 — samples fr"]
   style k5 fill:#2e7d32,color:#fff
-  k6["A total of 735 ASVs were classified against the SILVA databa"]
+  k6["Library name explains 35% of PC1 variance, but collection_da"]
   style k6 fill:#2e7d32,color:#fff
-  taxonomy_summary.total_asvs_classified("taxonomy_summary.total_asvs_classified")
-  style taxonomy_summary.total_asvs_classified fill:#455a64,color:#fff
-  taxonomy_summary.database("taxonomy_summary.database")
-  style taxonomy_summary.database fill:#455a64,color:#fff
-  k7["Top phyla by ASV count: Pseudomonadota (320 ASVs), SAR (176)"]
+  k7["Nearly all ASVs show complete separation between the two tem"]
   style k7 fill:#2e7d32,color:#fff
-  taxonomy_summary.top_phyla("taxonomy_summary.top_phyla")
-  style taxonomy_summary.top_phyla fill:#455a64,color:#fff
-  k8["Taxonomic classification completeness: domain (735/735), phy"]
+  k8["The two temporal groups are almost completely disjoint in ta"]
   style k8 fill:#2e7d32,color:#fff
-  taxonomy_summary.classified_per_rank("taxonomy_summary.classified_per_rank")
-  style taxonomy_summary.classified_per_rank fill:#455a64,color:#fff
-  k9["Mean Shannon diversity across 44 prokaryote samples was 3.99"]
+  k9["CRITICAL FINDING: The two temporal groups are completely sep"]
   style k9 fill:#2e7d32,color:#fff
-  k10["Mean observed richness across 44 prokaryote samples was 71.4"]
+  k10["Zero ASVs are shared between the two temporal groups. All 41"]
   style k10 fill:#2e7d32,color:#fff
-  k11["Library sizes (total reads per sample) ranged from 1,110 to "]
+  k11["CRITICAL QUALITY CAVEAT: The two temporal groups (2026-06-04"]
   style k11 fill:#2e7d32,color:#fff
-  k12["Bray-Curtis dissimilarity matrix was computed for all 44 pro"]
-  style k12 fill:#c62828,color:#fff
-  provenance.n_samples --> k1
-  provenance.raw --> k1
-  provenance.final --> k2
-  provenance.n_samples --> k2
-  overview.filtering.retention_pct --> k3
-  renorm_stats.prokaryote.n_samples --> k4
-  renorm_stats.prokaryote.n_reads --> k4
-  renorm_stats.prokaryote.n_asvs --> k4
-  provenance.n_samples --> k5
-  renorm_stats.prokaryote.n_samples --> k5
-  taxonomy_summary.total_asvs_classified --> k6
-  taxonomy_summary.database --> k6
-  taxonomy_summary.top_phyla --> k7
-  taxonomy_summary.classified_per_rank --> k8
+  k12["Both temporal groups are labeled as '16S amplicon sequencing"]
+  style k12 fill:#2e7d32,color:#fff
+  k13["Core microbiome (bacterial group, 44 samples): 25 ASVs prese"]
+  style k13 fill:#2e7d32,color:#fff
+  k14["The rare biosphere dominates: 395 of 418 bacterial ASVs (94."]
+  style k14 fill:#c62828,color:#fff
+  k15["Eukaryotic core microbiome (19 samples): 57 ASVs present in "]
+  style k15 fill:#2e7d32,color:#fff
+  k16["Eukaryotic group has 0 transient taxa (all 317 ASVs present "]
+  style k16 fill:#2e7d32,color:#fff
+  c1 --> k1
+  c1 --> k2
+  c1 --> k3
+  c2 --> k4
+  c2 --> k5
+  c2 --> k6
+  c3 --> k7
+  c4 --> k8
   c5 --> k9
-  c8 --> k9
-  c6 --> k10
-  c7 --> k10
-  c9 --> k11
-  c3 --> k12
+  c5 --> k10
+  c5 --> k11
+  c6 --> k12
+  c7 --> k12
+  c5 --> k12
+  c8 --> k13
+  c8 --> k14
+  c9 --> k15
+  c8 --> k16
+  c9 --> k16
 ```
