@@ -13,8 +13,8 @@ Reproduce: `python tests/bench/run_bench.py --all`.
 | mistralai/devstral-small-2-2512 | ✅ | ✅ | ✅ | slow (3–64s) | Solid, slower. Good fallback. |
 | mistralai/ministral-3-14b-reasoning | ✅ | ✅ | ✅ | med (2–49s) | Passes, but reasoning burns `<think>` tokens and it fabricated more precise numbers (3–10 unsupported). |
 | nvidia/nemotron-3-nano | ✅ | ✅ (after #27 fix) | ✅ (after placeholder fix) | slow (6–82s) | Verbose; was silently degrading review JSON before the salvage fix. |
-| google/gemma-4-26b-a4b-qat | ✅ | ✅ (after #27 fix) | ❌ not specific | med (5–31s) | Good drafts; weak interview opener (doesn't cite metadata specifics). |
-| **qwen/qwen3.6-27b** | ❌ timeouts | ❌ context overflow | ❌ | ~407s/call | **Avoid as currently loaded** — inference far too slow, review prompt overflowed its context window. Likely a bad LM Studio load config; revisit context/offload settings before use. |
+| google/gemma-4-26b-a4b-qat | ✅ | ✅ (after #27 fix) | ✅ (after #28 fix) | med (13–59s) | **Fully capable across all tasks.** Both original failures were client bugs, not model weaknesses: review truncation (#27) and empty interview output from the reasoning-budget bug (#28). Hidden-reasoning model — give it room. |
+| **qwen/qwen3.6-27b** | ❌ timeouts | ❌ context overflow | (needs #28) | ~7 tok/s | **Avoid on this GPU.** Hidden-reasoning model AND 27B *dense* → ~7 tok/s (vs MoE peers). Drafting blew the 150s cap; review overran the loaded context. Even with #28, throughput makes it impractical here. Load with big context + budgeted/disabled thinking if you must. |
 
 ## Cross-cutting findings
 
@@ -40,11 +40,19 @@ Reproduce: `python tests/bench/run_bench.py --all`.
    Name]`) on nemotron and ministral. Fixed by asserting editor identity in the
    interview prompt.
 
+6. **Hidden-reasoning models return empty output at small token budgets** (#28).
+   gemma-4 and qwen3.x emit reasoning on a separate `reasoning_content` channel
+   that still counts against `max_tokens`; at 300 tokens (interview opener) the
+   reasoning ate the whole budget → empty content. `_is_reasoning_model` didn't
+   know these models. This alone explained gemma-4's interview "weakness" — it's
+   actually a strong model. `gemma-4 max output = 32,768 tokens` (128K context on
+   most deployments), so our 4000-token review budget is well within its ceiling.
+
 ## Open issues filed
 
-- **#26** — session AI tools (`get_results_summary` enum + chat prompts) are
-  MAG-centric and break for amplicon/microscape submissions.
-- **#27** — review agents silently degrade on truncated JSON. *(fixed on this branch)*
+- **#26** — session AI tools MAG-centric, break amplicon submissions. *(fixed on branch)*
+- **#27** — review agents silently degrade on truncated JSON. *(fixed on branch)*
+- **#28** — hidden-reasoning models return empty output at small budgets. *(fixed on branch)*
 
 ## Caveats
 
