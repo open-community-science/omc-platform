@@ -25,6 +25,7 @@ from .auth import router as auth_router, get_current_user, is_admin, require_adm
 from .submissions import router as submissions_router
 from .interviews import router as interviews_router
 from .reviews import router as reviews_router
+from .autoresearch import router as autoresearch_router
 from .metadata import router as metadata_router
 from .staging import router as staging_router
 from .sessions import router as sessions_router
@@ -90,6 +91,7 @@ app.include_router(auth_router)
 app.include_router(submissions_router)
 app.include_router(interviews_router)
 app.include_router(reviews_router)
+app.include_router(autoresearch_router)
 app.include_router(metadata_router)
 app.include_router(staging_router)
 app.include_router(sessions_router)
@@ -551,7 +553,10 @@ async def submission_detail(
     return templates.TemplateResponse(
         "submission_detail.html",
         {"request": request, "user": user, "submission": submission,
-         "pipeline_versions": pipeline_versions, "known_primers": known_primers},
+         "pipeline_versions": pipeline_versions, "known_primers": known_primers,
+         # settings is needed by the autoresearch trigger partial (Step 3) to gate
+         # itself on settings.autoresearch_enabled.
+         "settings": settings},
     )
 
 

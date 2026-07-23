@@ -1,0 +1,156 @@
+{#
+  Autoresearch trigger + progress partial.
+
+  Include this inside Step 3 of submission_detail.html (within a `wf-step`),
+  where these variables are already in scope:
+    submission            — the Submission (for .slug and .interview_data)
+    has_pipeline_results   — bool gate (results present)
+    settings               — app Settings (for .autoresearch_enabled)
+  and where the parent scripts block has already defined the globals
+    subId, showStatus(msg), showPersistentStatus(msg)
+  (runAutoresearch below reuses them when present, and degrades gracefully if not).
+
+  Integrator: add `{% include "_autoresearch_trigger.html" %}` beside the
+  "Generate Manuscript" button. No new template context is required beyond the
+  variables listed above. Requires `settings` in the template context and
+  `settings.autoresearch_enabled` in config.py (Task E).
+
+  Backend contract (Task C):
+    POST /autoresearch/{slug}/run-stream   — SSE: session/agenda/run_analysis/
+                                             record_claim/verify/reconcile/complete/error
+    GET  /autoresearch/{slug}/provenance   — the claim-provenance viewer
+#}
+{% if settings and settings.autoresearch_enabled %}
+{% set has_autoresearch = submission.interview_data and submission.interview_data.get('_autoresearch') %}
+<div class="wf-step-actions" style="margin-top: 0.5rem;">
+    <button class="btn btn-secondary" onclick="runAutoresearch()"
+        {% if not has_pipeline_results %}title="Available once pipeline results are ready" disabled{% endif %}>
+        {% if has_autoresearch %}Re-run Autoresearch{% else %}Run Autoresearch{% endif %}
+    </button>
+    {% if has_autoresearch %}
+    <a href="/autoresearch/{{ submission.slug }}/provenance" class="btn btn-secondary">View Provenance</a>
+    {% endif %}
+</div>
+
+{# ── Autoresearch progress log ── #}
+<div id="ar-progress" style="display:none; margin-top: 1rem;">
+    <div id="ar-terminal" style="background: #0a0a0a; border-radius: 0.5rem; padding: 1rem 1.25rem; font-family: var(--font-mono); font-size: 0.8125rem; max-height: 500px; overflow-y: auto;">
+        <div id="ar-log" style="color: #4ade80; line-height: 1.7; white-space: pre-wrap;"></div>
+    </div>
+</div>
+
+<script>
+async function runAutoresearch() {
+    const progressDiv = document.getElementById('ar-progress');
+    const logDiv = document.getElementById('ar-log');
+    progressDiv.style.display = '';
+    logDiv.innerHTML = '';
+    if (typeof showPersistentStatus === 'function') showPersistentStatus('Running autoresearch...');
+
+    function scrollLog() {
+        const term = document.getElementById('ar-terminal');
+        term.scrollTop = term.scrollHeight;
+    }
+
+    function appendLog(text, color) {
+        const line = document.createElement('div');
+        line.style.color = color || '#4ade80';
+        line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+        logDiv.appendChild(line);
+        scrollLog();
+    }
+
+    // Compact one-line rendering of an event's detail payload.
+    function fmtDetail(detail) {
+        if (detail == null) return '';
+        if (typeof detail === 'string') return detail;
+        try {
+            if (detail.statement) return detail.statement + (detail.verdict ? ` [${detail.verdict}]` : '');
+            if (detail.question) return detail.question;
+            if (detail.label) return detail.label;
+            return JSON.stringify(detail);
+        } catch (e) {
+            return String(detail);
+        }
+    }
+
+    appendLog('Starting claim-grounded autoresearch...');
+
+    try {
+        const resp = await fetch(`/autoresearch/${subId}/run-stream`, {
+            method: 'POST', credentials: 'same-origin',
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            appendLog(`ERROR: ${err.detail || resp.statusText}`, '#ef4444');
+            if (typeof showStatus === 'function') showStatus(`Error: ${err.detail || resp.statusText}`);
+            return;
+        }
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                let msg;
+                try {
+                    msg = JSON.parse(line.slice(6));
+                } catch (e) {
+                    continue;
+                }
+                const d = fmtDetail(msg.detail);
+                switch (msg.event) {
+                    case 'session':
+                        appendLog(`session: ${d}`, '#38bdf8');
+                        if (typeof showPersistentStatus === 'function') showPersistentStatus('Session ready — exploring...');
+                        break;
+                    case 'agenda':
+                        appendLog(`agenda: ${d}`, '#c084fc');
+                        break;
+                    case 'run_analysis':
+                        appendLog(`analysis: ${d}`, '#facc15');
+                        break;
+                    case 'record_claim':
+                        appendLog(`claim: ${d}`, '#4ade80');
+                        break;
+                    case 'verify':
+                        appendLog(`verify: ${d}`, '#86efac');
+                        break;
+                    case 'reconcile':
+                        appendLog(`reconcile: ${d}`, '#5eead4');
+                        break;
+                    case 'error':
+                        appendLog(`ERROR: ${d}`, '#ef4444');
+                        if (typeof showStatus === 'function') showStatus(`Error: ${d}`);
+                        break;
+                    case 'complete':
+                        appendLog(d || 'Autoresearch complete.', '#22c55e');
+                        if (typeof showStatus === 'function') showStatus('Autoresearch complete! Opening provenance...');
+                        if (msg.ledger_url) {
+                            setTimeout(() => window.location.href = msg.ledger_url, 1500);
+                        } else {
+                            setTimeout(() => location.reload(), 2000);
+                        }
+                        break;
+                    default:
+                        if (d) appendLog(`${msg.event}: ${d}`);
+                }
+            }
+        }
+    } catch (e) {
+        appendLog(`ERROR: ${e.message}`, '#ef4444');
+        if (typeof showStatus === 'function') showStatus(`Error: ${e.message}`);
+    }
+}
+</script>
+{% endif %}

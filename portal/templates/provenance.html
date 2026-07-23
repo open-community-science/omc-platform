@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+
+{#
+  Claim-provenance viewer for claim-grounded autoresearch.
+
+  Adapted from the self-contained bench viewer tests/bench/build_dag_artifact.py.
+  Renders the server-persisted autoresearch snapshot (schema: portal/app design §4).
+  The template is PURE-RENDER: every antecedent arrives already resolved in the
+  snapshot's per-claim `resolved` list, so no data re-reads happen in the browser.
+
+  Context expected from the route (Task C):
+    data_json  — json.dumps(snapshot)   [REQUIRED]  the §4 snapshot dict:
+                   {claims, computations, agenda, dag, results_prose, run}
+    submission — optional; used only for the header study line + back link.
+
+  Self-contained: no external assets beyond what base.html already loads.
+#}
+
+{% block title %}Claim Provenance — {{ submission.title or submission.slug if submission else 'Autoresearch' }} - OMC{% endblock %}
+
+{% block head %}
+<style>
+:root{
+  --bg:#f4f7f6; --panel:#ffffff; --panel2:#eef2f1; --border:#d8e0df;
+  --text:#13211f; --muted:#5a6a68; --accent:#0f8a80;
+  --verified:#1f7a3d; --refuted:#c0392b; --unverifiable:#b07d15;
+  --computation:#2266b8; --data:#5a6f6c;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0d1413; --panel:#131c1b; --panel2:#0f1716; --border:#243130;
+  --text:#d7e1df; --muted:#899997; --accent:#34d3c3;
+  --verified:#49c96e; --refuted:#f0685c; --unverifiable:#e2b53f;
+  --computation:#5aa2ee; --data:#9fb0ad;
+}}
+:root[data-theme="light"]{
+  --bg:#f4f7f6; --panel:#ffffff; --panel2:#eef2f1; --border:#d8e0df;
+  --text:#13211f; --muted:#5a6a68; --accent:#0f8a80;
+  --verified:#1f7a3d; --refuted:#c0392b; --unverifiable:#b07d15; --computation:#2266b8; --data:#5a6f6c;
+}
+:root[data-theme="dark"]{
+  --bg:#0d1413; --panel:#131c1b; --panel2:#0f1716; --border:#243130;
+  --text:#d7e1df; --muted:#899997; --accent:#34d3c3;
+  --verified:#49c96e; --refuted:#f0685c; --unverifiable:#e2b53f; --computation:#5aa2ee; --data:#9fb0ad;
+}
+.prov-wrap *{box-sizing:border-box}
+.prov-wrap{max-width:1100px;margin:0 auto;padding:8px 4px 60px;
+  color:var(--text);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased}
+.prov-wrap .back{display:inline-block;font-size:13px;color:var(--muted);text-decoration:none;margin-bottom:14px}
+.prov-wrap .back:hover{color:var(--accent)}
+.prov-wrap header{border-bottom:1px solid var(--border);padding-bottom:18px;margin-bottom:22px}
+.prov-wrap .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 8px}
+.prov-wrap h1{font-size:clamp(22px,3.4vw,30px);margin:0 0 6px;letter-spacing:-.02em;text-wrap:balance;font-weight:650}
+.prov-wrap .sub{color:var(--muted);font-size:14px;margin:0}
+.prov-wrap .stats{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.prov-wrap .stat{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+  padding:10px 14px;min-width:96px}
+.prov-wrap .stat .n{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums;font-weight:600}
+.prov-wrap .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.prov-wrap .stat.ok .n{color:var(--verified)} .prov-wrap .stat.no .n{color:var(--refuted)}
+.prov-wrap .lede{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);
+  border-radius:10px;padding:13px 16px;margin:20px 0 6px;font-size:14px;color:var(--text)}
+.prov-wrap .lede b{color:var(--accent)}
+.prov-wrap .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:18px;margin-top:20px}
+@media(max-width:760px){.prov-wrap .grid{grid-template-columns:1fr}}
+.prov-wrap .col-h{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 10px}
+.prov-wrap ul.claims{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px;
+  max-height:64vh;overflow:auto}
+.prov-wrap button.claim{width:100%;text-align:left;background:var(--panel);border:1px solid var(--border);
+  border-radius:9px;padding:10px 12px;cursor:pointer;color:var(--text);font:inherit;
+  display:flex;gap:10px;align-items:flex-start;transition:border-color .12s,background .12s}
+.prov-wrap button.claim:hover{border-color:var(--accent)}
+.prov-wrap button.claim[aria-selected="true"]{border-color:var(--accent);background:var(--panel2);
+  box-shadow:inset 3px 0 0 var(--accent)}
+.prov-wrap button.claim:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.prov-wrap .dot{width:9px;height:9px;border-radius:50%;margin-top:6px;flex:0 0 auto}
+.prov-wrap .dot.verified{background:var(--verified)} .prov-wrap .dot.refuted{background:var(--refuted)}
+.prov-wrap .dot.unverifiable{background:var(--unverifiable)}
+.prov-wrap .claim .txt{font-size:13.5px;min-width:0}
+.prov-wrap .claim .cid{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.prov-wrap .kind{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.04em;
+  padding:1px 6px;border-radius:5px;border:1px solid var(--border);color:var(--muted);margin-left:6px}
+.prov-wrap .kind.caveat{color:var(--unverifiable);border-color:var(--unverifiable)}
+.prov-wrap .kind.anomaly{color:var(--refuted);border-color:var(--refuted)}
+.prov-wrap .kind.pattern{color:var(--accent);border-color:var(--accent)}
+.prov-wrap .detail{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px;
+  position:sticky;top:16px;max-height:78vh;overflow:auto}
+.prov-wrap .badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
+  letter-spacing:.05em;text-transform:uppercase;padding:3px 9px;border-radius:20px;font-weight:600}
+.prov-wrap .badge.verified{background:color-mix(in srgb,var(--verified) 16%,transparent);color:var(--verified)}
+.prov-wrap .badge.refuted{background:color-mix(in srgb,var(--refuted) 16%,transparent);color:var(--refuted)}
+.prov-wrap .badge.unverifiable{background:color-mix(in srgb,var(--unverifiable) 16%,transparent);color:var(--unverifiable)}
+.prov-wrap .badge.method{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);
+  margin-left:8px;text-transform:none;letter-spacing:.02em}
+.prov-wrap .chip{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid var(--accent);
+  border-radius:5px;padding:0 5px;margin-left:6px;opacity:.85;text-transform:none}
+.prov-wrap .detail h2{font-size:17px;margin:12px 0 8px;line-height:1.35;text-wrap:balance;font-weight:600}
+.prov-wrap .kv{font-family:var(--mono);font-size:13px;background:var(--panel2);border:1px solid var(--border);
+  border-radius:7px;padding:8px 11px;margin:8px 0;display:flex;gap:8px}
+.prov-wrap .kv .k{color:var(--muted)} .prov-wrap .kv .v{font-variant-numeric:tabular-nums;word-break:break-word}
+.prov-wrap .prov-h{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+  margin:20px 0 8px;border-top:1px solid var(--border);padding-top:14px}
+.prov-wrap .ant{border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin:8px 0;background:var(--panel2)}
+.prov-wrap .ant .type{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+  padding:1px 6px;border-radius:5px;color:#fff}
+.prov-wrap .ant .type.computation{background:var(--computation)} .prov-wrap .ant .type.data{background:var(--data)}
+.prov-wrap .ant .lab{font-family:var(--mono);font-size:12.5px;margin-left:8px;color:var(--text)}
+.prov-wrap pre{margin:9px 0 0;background:var(--bg);border:1px solid var(--border);border-radius:7px;
+  padding:10px 12px;overflow-x:auto;font-family:var(--mono);font-size:12px;line-height:1.45;color:var(--text)}
+.prov-wrap .ant .val{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:6px;
+  word-break:break-word;font-variant-numeric:tabular-nums}
+.prov-wrap .reverify{font-size:12px;color:var(--muted);margin-top:6px}
+.prov-wrap .reverify b{color:var(--verified)}
+.prov-wrap .reconcile{font-size:12px;color:var(--muted);margin-top:8px;padding:8px 11px;border-radius:7px;
+  background:color-mix(in srgb,var(--accent) 8%,transparent);border:1px solid var(--border)}
+.prov-wrap .reconcile b{color:var(--accent)}
+.prov-wrap .foot{margin-top:34px;padding-top:16px;border-top:1px solid var(--border);color:var(--muted);font-size:12.5px}
+.prov-wrap .foot code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px}
+.prov-wrap .empty{color:var(--muted);font-size:13px;padding:20px 4px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wrap prov-wrap">
+  {% if submission %}
+  <a class="back" href="/submissions/{{ submission.slug }}">&larr; Back to Submission</a>
+  {% endif %}
+  <header>
+    <p class="eyebrow">Autoresearch · claim ledger</p>
+    <h1>Every number traces to data or the code that produced it</h1>
+    <p class="sub" id="study">{% if submission %}{{ submission.title or submission.slug }} · agenda-driven autoresearch{% endif %}</p>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <div class="lede">
+    Claims are the currency. Each was recorded by an agent exploring the pipeline data, and
+    each carries a machine-checkable provenance — a <b>data path</b> or a re-runnable
+    <b>computation</b>. An independent pass re-derived every one; only <b>verified</b> claims
+    reach the manuscript. Select a claim to see what backs it.
+  </div>
+
+  <div class="grid">
+    <section>
+      <p class="col-h">Claims</p>
+      <ul class="claims" id="list"></ul>
+    </section>
+    <aside>
+      <p class="col-h">Provenance</p>
+      <div class="detail" id="detail"><p class="empty">Select a claim to inspect its provenance.</p></div>
+    </aside>
+  </div>
+
+  <p class="foot">Data path claims re-read the pipeline output; computation claims re-execute
+  the stored code. The ledger is self-contained — any model or reviewer can re-run
+  <code>verify()</code> and check every claim for themselves.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// The server-persisted autoresearch snapshot (schema §4). Already fully resolved.
+const DATA = {{ data_json | safe }};
+const CLAIMS = DATA.claims || [];
+const COMPS = DATA.computations || {};
+const AGENDA = DATA.agenda || [];
+const RUN = DATA.run || {};
+
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const fmt = v => (typeof v === 'string' ? v : JSON.stringify(v));
+const trunc = (v, n) => { const s = (v == null ? '' : fmt(v)); return s.length > n ? s.slice(0, n) : s; };
+
+// Preliminary banner when exploration stopped before completing the agenda.
+if (RUN && RUN.completed === false) {
+  const b = document.createElement('div');
+  b.className = 'lede';
+  b.style.borderLeftColor = 'var(--unverifiable)';
+  const done = RUN.investigations_done ?? 0;
+  const total = RUN.investigations_total ?? 0;
+  b.innerHTML = `<b style="color:var(--unverifiable)">⚠️ Preliminary</b> — exploration stopped `
+    + `with ${done}/${total} investigations done; these claims are partial.`;
+  document.querySelector('.prov-wrap header').after(b);
+}
+
+// Stats computed client-side from the snapshot (schema §4 carries no precomputed stats).
+const S = {
+  claims: CLAIMS.length,
+  verified: CLAIMS.filter(c => c.verdict === 'verified').length,
+  insights: CLAIMS.filter(c => c.kind === 'pattern' || c.kind === 'anomaly').length,
+  computations: Object.keys(COMPS).length,
+  investigations: AGENDA.length,
+};
+document.getElementById('stats').innerHTML = [
+  ['claims', S.claims, ''], ['verified', S.verified, 'ok'],
+  ['insights', S.insights, ''], ['investigations', S.investigations, ''],
+  ['computations', S.computations, '']
+].map(([l,n,c]) => `<div class="stat ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+
+const KIND = {quality_caveat:['caveat','caveat'], anomaly:['anomaly','anomaly'], pattern:['pattern','pattern']};
+
+const list = document.getElementById('list');
+if (!CLAIMS.length) {
+  list.innerHTML = '<li class="empty">No claims were recorded in this run.</li>';
+}
+CLAIMS.forEach((c,i) => {
+  const b = document.createElement('button');
+  b.className = 'claim'; b.setAttribute('role','option'); b.dataset.i = i;
+  b.setAttribute('aria-selected','false');
+  const nd = [...new Set((c.method||'').split(',').map(s=>s.split(':')[0].trim()).filter(x=>x && x!=='direct'))];
+  const chipMap = {'x100':'frac→%','/100':'%→frac','derived':'derived'};
+  const chip = (c.verdict==='verified' && nd.length)
+    ? `<span class="chip">${nd.map(x=>chipMap[x]||x).join(' · ')}</span>` : '';
+  const k = KIND[c.kind];
+  const kindChip = k ? `<span class="kind ${k[1]}">${k[0]}</span>` : '';
+  b.innerHTML = `<span class="dot ${c.verdict}"></span><span class="txt">`
+    + `<span class="cid">${esc(c.id)}</span>` + kindChip + chip
+    + `<br>${esc(c.statement)}</span>`;
+  b.onclick = () => select(i);
+  list.appendChild(b);
+});
+
+// Resolve one antecedent (schema §4 `resolved` item: {ant, code?, result?, value?}).
+// A `code` field marks a computation; otherwise it's a data-path read.
+function resolvedCard(a){
+  if (a && a.code !== undefined && a.code !== null){
+    const comp = COMPS[a.ant] || {};
+    const label = comp.label || a.ant;
+    const result = a.result !== undefined ? a.result : comp.result;
+    return `<div class="ant"><span class="type computation">computation</span>`
+      + `<span class="lab">${esc(a.ant)} · ${esc(label)}</span>`
+      + `<pre>${esc(a.code)}</pre>`
+      + `<div class="val">→ ${esc(trunc(result, 1200))}</div></div>`;
+  }
+  const val = (a && a.value !== undefined) ? trunc(a.value, 300) : '—';
+  return `<div class="ant"><span class="type data">data</span>`
+    + `<span class="lab">${esc(a && a.ant || '')}</span>`
+    + `<div class="val">= ${esc(val)}</div></div>`;
+}
+
+function select(i){
+  const c = CLAIMS[i];
+  if (!c) return;
+  [...list.children].forEach((el,j)=>{ if (el.setAttribute) el.setAttribute('aria-selected', j===i); });
+  const resolved = c.resolved || [];
+  const antCount = (c.antecedents || resolved).length;
+  const ants = resolved.map(resolvedCard).join('') || '<p class="empty">No antecedents recorded.</p>';
+  const how = {direct:'a direct data/computation read', 'x100':'a unit conversion (fraction→%)',
+    '/100':'a unit conversion (%→fraction)', 'derived':'a derivation from its inputs',
+    reconciled:'a skeptical model adjudication against the re-executed evidence'};
+  const name = {direct:'direct read','x100':'fraction→%','/100':'%→fraction',derived:'derived',
+    reconciled:'model-reconciled'};
+  const parts = [...new Set((c.method||'').split(',').map(s=>s.trim()).filter(Boolean))];
+  const nonDirect = parts.filter(p=>p.split(':')[0] !== 'direct');
+  const pick = (nonDirect.length ? nonDirect : parts);
+  const mlabel = pick.map(p=>{const[b,sub]=p.split(':'); return (name[b]||b)+(sub?` (${sub})`:'');}).join(' · ');
+  const methodBadge = (c.verdict==='verified' && mlabel)
+    ? `<span class="badge method" title="method: ${esc(c.method)}">✓ ${esc(mlabel)}</span>` : '';
+  const method = nonDirect.map(p=>p.split(':')[0])[0];
+  const via = method ? ` via ${how[method]||method}` : '';
+  const reverify = c.verdict==='verified'
+    ? `Re-derived from the antecedents below${via} — <b>verified</b>.`
+    : (c.verdict==='refuted'
+        ? 'The cited antecedents contradicted this value — <b style="color:var(--refuted)">refuted</b>, excluded from the manuscript.'
+        : 'No checkable antecedent — <b style="color:var(--unverifiable)">unverifiable</b>, excluded from the manuscript.');
+  const dk = KIND[c.kind];
+  document.getElementById('detail').innerHTML =
+    `<span class="badge ${c.verdict}">${esc(c.verdict||'unverifiable')}</span>` + methodBadge
+    + (dk ? `<span class="kind ${dk[1]}" style="margin-left:8px">${dk[0]}</span>` : '')
+    + `<h2>${esc(c.statement)}</h2>`
+    + `<div class="kv"><span class="k">value</span><span class="v">${esc(c.value)}</span></div>`
+    + `<div class="reverify">${reverify}</div>`
+    + (c.reconcile ? `<div class="reconcile"><b>Model adjudication:</b> ${esc((c.reconcile.reasoning||'').replace(/^VERDICT:[^\n]*\n?/i,''))}</div>` : '')
+    + `<p class="prov-h">Antecedents (${antCount})</p>${ants}`;
+}
+if (CLAIMS.length) select(0);
+</script>
+{% endblock %}
