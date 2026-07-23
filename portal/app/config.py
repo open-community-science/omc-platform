@@ -99,7 +99,7 @@ class Settings(BaseSettings):
     # every executing cluster, keep this off (--run_remove_human false), which is
     # fine for environmental data with no human host. Flip to True once the DB is
     # staged everywhere; OMC will then pass --human_ref instead.
-    illumina_remove_human: bool = False
+    illumina_remove_human: bool = True
 
     @property
     def admin_logins(self) -> set[str]:
