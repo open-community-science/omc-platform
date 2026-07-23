@@ -127,11 +127,16 @@ async def generate_manuscript_draft(
     base_url: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
+    cite_model: str | None = None,
     on_progress=None,
 ) -> dict:
     """
     Generate a manuscript draft from pipeline outputs and author interview.
 
+    model: model used for drafting the sections.
+    cite_model: model used for citation resolution (issue #21) — falls back to
+                `model` when unset, so the high-volume citation loop can run on a
+                cheaper/local model than the drafting.
     on_progress: optional async callable(event, detail) for streaming progress.
     Returns a dict with sections: abstract, introduction, methods, results, discussion
     """
@@ -303,7 +308,7 @@ Write a single paragraph (200-300 words) covering:
             search_fn=search_pubmed,
             base_url=base_url,
             api_key=api_key,
-            model=model,
+            model=cite_model or model,
         )
         if bibliography:
             sections["bibliography"] = bibliography
