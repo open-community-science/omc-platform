@@ -143,7 +143,7 @@ async def run_reviews(
         pipeline_config,
         base_url=llm["base_url"],
         api_key=llm["api_key"],
-        model=llm["model"],
+        model=settings.role_model("review", llm["model"]),
     )
 
     # Create PRs if the paper has a GitHub repo
@@ -189,7 +189,7 @@ async def run_reviews(
                 study_metadata=dict(submission.sample_metadata or {}),
                 base_url=llm["base_url"],
                 api_key=llm["api_key"],
-                model=llm["model"],
+                model=settings.role_model("draft", llm["model"]),
                 max_passes=settings.manuscript_revise_max_passes,
             )
             interview_data["_manuscript_revised"] = revised
@@ -279,7 +279,8 @@ async def generate_manuscript(
         study_metadata=dict(submission.sample_metadata or {}),
         base_url=llm["base_url"],
         api_key=llm["api_key"],
-        model=llm["model"],
+        model=settings.role_model("draft", llm["model"]),
+        cite_model=settings.role_model("cite", llm["model"]),
     )
 
     # Store manuscript in interview_data (but don't publish yet)
@@ -376,7 +377,8 @@ async def generate_manuscript_stream(
                     study_metadata=sub_study_meta,
                     base_url=llm["base_url"],
                     api_key=llm["api_key"],
-                    model=llm["model"],
+                    model=settings.role_model("draft", llm["model"]),
+                    cite_model=settings.role_model("cite", llm["model"]),
                     on_progress=on_progress,
                 )
                 result_holder["sections"] = sections

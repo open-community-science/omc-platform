@@ -195,7 +195,8 @@ async def process_completed_submission(submission: Submission, db_session) -> st
                 bioproject_accession=submission.bioproject_accession,
                 base_url=settings.llm_base_url,
                 api_key=settings.llm_api_key,
-                model=settings.llm_model,
+                model=settings.role_model("draft", settings.llm_model),
+                cite_model=settings.role_model("cite", settings.llm_model),
             )
         except Exception as e:
             logger.warning(f"AI generation failed, using placeholders: {e}")

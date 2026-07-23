@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     llm_api_key: str = "lm-studio"
     llm_model: str = "qwen/qwen3.5-35b-a3b"
 
+    # Per-role model overrides (issue #21). Each falls back to llm_model when
+    # unset, so single-model setups are unaffected. Lets an operator point the
+    # cheap/high-volume citation loop at a small/local model while drafting and
+    # review use a stronger one — and enables local-vs-remote model comparisons.
+    llm_model_draft: str = ""
+    llm_model_cite: str = ""
+    llm_model_review: str = ""
+
     # Claude API (for production — falls back to llm_* settings if empty)
     anthropic_api_key: str = ""
 
@@ -112,6 +120,19 @@ class Settings(BaseSettings):
     def admin_logins(self) -> set[str]:
         """Parsed, lowercased set of admin GitHub logins."""
         return {x.strip().lower() for x in self.admin_github_logins.split(",") if x.strip()}
+
+    def role_model(self, role: str, default: str = "") -> str:
+        """Model for an AI role ('draft' | 'cite' | 'review'), or `default`.
+
+        Returns the per-role override when configured, else `default` (the
+        caller's resolved model) so per-user backend choices still apply.
+        """
+        override = {
+            "draft": self.llm_model_draft,
+            "cite": self.llm_model_cite,
+            "review": self.llm_model_review,
+        }.get(role, "")
+        return override or default
 
     class Config:
         env_file = ".env"
