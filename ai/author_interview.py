@@ -132,7 +132,10 @@ PIPELINE: {pipeline_type}
 and selected a pipeline. Introduce yourself briefly, show that you've reviewed their
 metadata (mention something specific you noticed), and ask your first question.
 Keep it under 150 words.""",
-        model=model, max_tokens=300, temperature=0.7,
+        # 1000 not 300: hidden-reasoning models (gemma-4, qwen3.x) spend part of
+        # the budget on a reasoning channel; 300 left no room for the visible
+        # opener. llm_client also auto-retries on empty-but-truncated output.
+        model=model, max_tokens=1000, temperature=0.7,
     )
 
 
