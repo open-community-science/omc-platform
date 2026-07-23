@@ -92,7 +92,10 @@ _oom_retry() {  # $1=slug $2=OUTPUT_DIR(with trailing /) $3=job_id ; 0 if resubm
     local oom=0 st=""
     [[ "$jid" =~ ^[0-9]+$ ]] && st=$(sacct -n -X -j "$jid" -o State 2>/dev/null | head -1 | tr -d ' ')
     [[ "$st" == OUT_OF_MEMORY* ]] && oom=1
-    grep -qiE 'oom[_-]kill|OOM Killed|Out of memory|std::bad_alloc|Cannot allocate memory' \
+    # Cover both native (std::bad_alloc) and JVM OOM — danaSeq's BBTools steps
+    # (ERROR_CORRECT_ECCO, etc.) throw java.lang.OutOfMemoryError, which the old
+    # pattern missed, so a heap OOM there failed hard instead of retrying bigger.
+    grep -qiE 'oom[_-]kill|OOM Killed|Out of memory|std::bad_alloc|Cannot allocate memory|OutOfMemoryError|Java heap space|GC overhead limit' \
         /dev/null "${out}"slurm-pipeline-*.err "${out}"slurm-pipeline-*.out 2>/dev/null && oom=1
     [ "$oom" -eq 1 ] || return 1
     local att cur; att=$(sed -n 's/^OMC_MEM_ATTEMPT=//p' "$ps" | head -1); att=${att:-0}
@@ -172,10 +175,23 @@ for OUTPUT_DIR in "${OMC_RESULTS}"/*/; do
     else
         # A wrapper may report exit!=0 for an OOM-killed step — try to recover first.
         _oom_retry "$RSLUG" "$OUTPUT_DIR" "$JOB_ID" && continue
-        # /dev/null keeps grep from blocking on stdin when the globs match nothing.
-        REASON=$(grep -hiE 'ERROR|No such variable|Exception|Traceback|Killed|OOM' \
-            /dev/null "${OUTPUT_DIR}"slurm-pipeline-*.err "${OUTPUT_DIR}"slurm-pipeline-*.out 2>/dev/null \
-            | head -1 | cut -c1-300)
+        # Extract a MEANINGFUL failure reason. Nextflow animates progress lines
+        # like "[-  ] ERROR_CORRECT_ECCO -" whose PROCESS NAME contains "ERROR",
+        # so a naive grep for ERROR grabbed the progress bar instead of the real
+        # error. Prefer, in order: the failed-process line, the actual stderr in
+        # the "Command error:" block, then a generic error line — always skipping
+        # Nextflow's own bracketed progress/status lines.
+        LOGS=$(printf '%s ' /dev/null "${OUTPUT_DIR}"slurm-pipeline-*.err "${OUTPUT_DIR}"slurm-pipeline-*.out)
+        _grep() { grep -hE "$1" $LOGS 2>/dev/null | grep -vE '^\[[-= ]*\]|process > .*[0-9]+%' | head -1 | cut -c1-300; }
+        # 1) which process failed + exit status
+        REASON=$(_grep 'Error executing process|terminated with an error exit status|Caused by:')
+        # 2) the first real stderr line after "Command error:"
+        if [ -z "$REASON" ]; then
+            REASON=$(grep -hA3 'Command error:' $LOGS 2>/dev/null \
+                | grep -vE 'Command error:|^--|^\[[-= ]*\]' | grep -vE '^\s*$' | head -1 | cut -c1-300)
+        fi
+        # 3) generic fallback (still excluding progress bars)
+        [ -n "$REASON" ] || REASON=$(_grep 'No such variable|Exception|Traceback|Killed|OOM|OutOfMemoryError|Java heap space|std::bad_alloc|Cannot allocate')
         [ -n "$REASON" ] || REASON="Pipeline exited with code $EXIT"
         push_status "$RSLUG" "$(jq -nc --arg r "$REASON" --arg e "$EXIT" --arg j "$JOB_ID" \
             '{phase:"failed",reason:$r,exit_code:$e,job_id:$j}')"
