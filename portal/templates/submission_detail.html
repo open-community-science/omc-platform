@@ -599,6 +599,10 @@
                 <a href="/submissions/{{ submission.slug }}/manuscript" class="btn btn-primary">View Manuscript</a>
                 {% endif %}
             </div>
+            {# Claim-grounded autoresearch (issue #29). Renders nothing unless
+               settings.autoresearch_enabled. Reuses the parent's subId /
+               showStatus / showPersistentStatus globals. #}
+            {% include "_autoresearch_trigger.html" %}
             <p id="session-status" class="wf-step-desc" style="display:none; margin-top: 0.5rem;"></p>
 
             {# ── Generation progress log (inside step 3) ── #}

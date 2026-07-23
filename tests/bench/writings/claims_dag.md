@@ -1,6 +1,6 @@
-# Claim provenance DAG (qwen/qwen3.6-35b-a3b)
+# Claim provenance DAG (qwen/qwen3.6-35b-a3b) — INCOMPLETE (0/0 investigations)
 
-16/18 claims verified · 30 computations
+18/18 claims verified · 30 computations
 
 Legend: 🟩 verified · 🟥 refuted · 🟨 unverifiable · 🟦 computation · ⬛ data
 
@@ -113,9 +113,9 @@ graph LR
   k11["Mean pairwise Bray-Curtis dissimilarity between samples was "]
   style k11 fill:#2e7d32,color:#fff
   k12["PCA on log-transformed counts: PC1 explained 36.76% and PC2 "]
-  style k12 fill:#c62828,color:#fff
+  style k12 fill:#2e7d32,color:#fff
   k13["QUALITY CAVEAT: 73 of 84 samples (86.9%) were lost during de"]
-  style k13 fill:#c62828,color:#fff
+  style k13 fill:#2e7d32,color:#fff
   k14["QUALITY CAVEAT: 1 chloroplast ASV was detected in 3 samples "]
   style k14 fill:#2e7d32,color:#fff
   renorm_stats.chloroplast.n_asvs("renorm_stats.chloroplast.n_asvs")

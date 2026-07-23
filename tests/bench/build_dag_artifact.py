@@ -11,7 +11,11 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent.parent))
 sys.path.insert(0, str(HERE))
-from results_explorer import _navigate  # noqa: E402  (resolves data paths)
+from ai.autoresearch import DirDataSource  # noqa: E402  (resolves data paths)
+from fixtures import load_fixture, STUDY_GROUNDED, DATA_DIR  # noqa: E402
+
+# Resolve data-path antecedents against the same viz JSON the ledger was built from.
+_navigate = DirDataSource(DATA_DIR, study=STUDY_GROUNDED or {}, overview=load_fixture()).navigate
 
 # Optional: point at a specific run dir (e.g. writings/real_1543a4c1); default writings/.
 W = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "writings"

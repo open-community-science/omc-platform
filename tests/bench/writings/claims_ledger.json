@@ -1415,5 +1415,11 @@
         "PC2": 0.1573
       }
     }
+  },
+  "agenda": [],
+  "run": {
+    "completed": false,
+    "investigations_done": 0,
+    "investigations_total": 0
   }
 }
