@@ -493,7 +493,7 @@ async def resolve_citations(
 
     search = _make_searcher(search_fn, candidates_per_query) if search_fn else None
     library = CitationLibrary()
-    replacements = []  # (original_text, replacement_text)
+    edits = []  # (start, end, replacement) into the ORIGINAL full_text
 
     for i, ctx in enumerate(contexts):
         # queries only covers the first batch of contexts; fall back for the rest
@@ -534,12 +534,13 @@ async def resolve_citations(
             inline = f"[{hint or f'ref{i+1}'}]"
             log.info(f"No citation resolved for placeholder {i+1}: '{query}'")
 
-        original = full_text[ctx["span"][0]:ctx["span"][1]]
-        replacements.append((original, inline))
+        edits.append((ctx["span"][0], ctx["span"][1], inline))
 
-    # Apply replacements in reverse order to preserve spans
-    for original, replacement in reversed(replacements):
-        full_text = full_text.replace(original, replacement, 1)
+    # Apply by span, right-to-left, so identical placeholder strings (bare [CITE])
+    # each get THEIR chosen citation. A text-based replace(original, ..., 1) would
+    # always hit the first remaining occurrence and mis-assign papers (issue #34).
+    for start, end, replacement in sorted(edits, key=lambda e: e[0], reverse=True):
+        full_text = full_text[:start] + replacement + full_text[end:]
 
     # Split back into sections
     updated_sections = {}
