@@ -35,8 +35,23 @@ class Settings(BaseSettings):
     llm_api_key: str = "lm-studio"
     llm_model: str = "qwen/qwen3.5-35b-a3b"
 
+    # Per-role model overrides (issue #21). Each falls back to llm_model when
+    # unset, so single-model setups are unaffected. Lets an operator point the
+    # cheap/high-volume citation loop at a small/local model while drafting and
+    # review use a stronger one — and enables local-vs-remote model comparisons.
+    llm_model_draft: str = ""
+    llm_model_cite: str = ""
+    llm_model_review: str = ""
+
     # Claude API (for production — falls back to llm_* settings if empty)
     anthropic_api_key: str = ""
+
+    # Manuscript revise loop (issue #20). When enabled, after review agents run
+    # the portal feeds their findings + deterministic checks back into a section
+    # rewrite. Off by default — reviews always produce PRs regardless (the
+    # "agents always help, never block" principle); revise is purely additive.
+    manuscript_revise_enabled: bool = False
+    manuscript_revise_max_passes: int = 2
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./omc.db"
@@ -93,10 +108,31 @@ class Settings(BaseSettings):
     hpc_db_dir: str = "/home/rec3141/scratch/databases"
     results_path: str = "/home/rec3141/scratch/omc_results"
 
+    # illumina_assembly host (human) read removal. The pipeline needs a bbmap
+    # index of the masked hg19 reference at ${OMC_DB_DIR}/human_ref (build it
+    # with danaSeq's download-databases.sh --human). Until that DB is present on
+    # every executing cluster, keep this off (--run_remove_human false), which is
+    # fine for environmental data with no human host. Flip to True once the DB is
+    # staged everywhere; OMC will then pass --human_ref instead.
+    illumina_remove_human: bool = True
+
     @property
     def admin_logins(self) -> set[str]:
         """Parsed, lowercased set of admin GitHub logins."""
         return {x.strip().lower() for x in self.admin_github_logins.split(",") if x.strip()}
+
+    def role_model(self, role: str, default: str = "") -> str:
+        """Model for an AI role ('draft' | 'cite' | 'review'), or `default`.
+
+        Returns the per-role override when configured, else `default` (the
+        caller's resolved model) so per-user backend choices still apply.
+        """
+        override = {
+            "draft": self.llm_model_draft,
+            "cite": self.llm_model_cite,
+            "review": self.llm_model_review,
+        }.get(role, "")
+        return override or default
 
     class Config:
         env_file = ".env"

@@ -102,6 +102,11 @@ All settings via environment or `.env` (see `portal/app/config.py`):
 |----------|---------|-------------|
 | `LLM_BASE_URL` | `http://10.151.49.182:1234/v1` | OpenAI-compatible API |
 | `LLM_MODEL` | `qwen/qwen3.5-35b-a3b` | Model for AI features |
+| `LLM_MODEL_DRAFT` | (falls back to `LLM_MODEL`) | Model for manuscript drafting + revise |
+| `LLM_MODEL_CITE` | (falls back to `LLM_MODEL`) | Model for citation resolution (high-volume; use a cheap/local model) |
+| `LLM_MODEL_REVIEW` | (falls back to `LLM_MODEL`) | Model for the review agents |
+| `MANUSCRIPT_REVISE_ENABLED` | `false` | Run the review→revise loop after reviews (additive; stores `_manuscript_revised`) |
+| `MANUSCRIPT_REVISE_MAX_PASSES` | `2` | Max rewrite passes per section in the revise loop |
 | `GITHUB_APP_ID` | | GitHub App numeric ID |
 | `GITHUB_APP_PRIVATE_KEY` | | PEM file path or content |
 | `GITHUB_ORG` | `open-community-science` | Org for paper repos |
@@ -308,7 +313,7 @@ relay channels                     # list active channels
 ## Pipeline (danaSeq)
 
 - **Code:** `/data/danaseq` locally, `/home/rec3141/GENICE/danaSeq` on fir
-- **Container:** `ghcr.io/rec3141/danaseq-mag:latest` — rebuilt via GitHub Actions on push to `main`
+- **Containers (per stage):** `ghcr.io/rec3141/danaseq-illumina-assembly`, `danaseq-nanopore-assembly`, `danaseq-mag-analysis`, `danaseq-illumina-rna` (each `:latest`, rebuilt via GitHub Actions on push to `main`). The single `danaseq-mag` image was retired when the pipeline was split into per-stage images.
 - **Important:** Pipeline runs inside apptainer container. Host edits to `.nf` files don't take effect until container is rebuilt.
 - **Default flags:** `--all --run_sendsketch false --run_vamb_tax false` (sendsketch needs TaxServer)
 - **Resources:** 128G mem, 32 CPUs for `--all` mode (kaiju/kraken2/GTDB need 128G minimum)
@@ -424,6 +429,11 @@ The portal's `.env` on arbutus sets `LLM_BASE_URL=http://localhost:1234/v1`. Ses
 SECRET_KEY=<random>
 LLM_BASE_URL=http://localhost:1234/v1   # via reverse SSH tunnel from concentration
 LLM_MODEL=qwen/qwen3.5-35b-a3b
+# Optional per-role model overrides (default to LLM_MODEL when unset):
+# LLM_MODEL_DRAFT=qwen/qwen3.5-35b-a3b   # drafting + revise
+# LLM_MODEL_CITE=qwen/qwen3-4b            # cheap/local model for citation rounds
+# LLM_MODEL_REVIEW=qwen/qwen3.5-35b-a3b   # review agents
+# MANUSCRIPT_REVISE_ENABLED=false         # opt-in review→revise loop
 GITHUB_APP_ID=3078928
 GITHUB_APP_PRIVATE_KEY=<pem path>
 GITHUB_ORG=open-community-science

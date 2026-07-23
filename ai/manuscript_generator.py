@@ -252,11 +252,16 @@ async def generate_manuscript_draft(
     base_url: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
+    cite_model: str | None = None,
     on_progress=None,
 ) -> dict:
     """
     Generate a manuscript draft from pipeline outputs and author interview.
 
+    model: model used for drafting the sections.
+    cite_model: model used for citation resolution (issue #21) — falls back to
+                `model` when unset, so the high-volume citation loop can run on a
+                cheaper/local model than the drafting.
     on_progress: optional async callable(event, detail) for streaming progress.
     Returns a dict with sections: abstract, introduction, methods, results, discussion
     """
@@ -335,7 +340,7 @@ async def generate_manuscript_draft(
             search_fn=search_pubmed,
             base_url=base_url,
             api_key=api_key,
-            model=model,
+            model=cite_model or model,
         )
         if bibliography:
             sections["bibliography"] = bibliography
@@ -376,6 +381,26 @@ def _format_interview(interview_data: dict) -> str:
     return "\n".join(formatted)
 
 
+def _make_searcher(search_fn, candidates_per_query: int):
+    """Wrap a search callable so it always returns a list, awaiting coroutines.
+
+    Passes the candidate count only when the callable accepts it, so both the
+    real ``search_pubmed(query, max_results)`` and 1-arg test mocks work.
+    """
+    try:
+        accepts_count = len(inspect.signature(search_fn).parameters) >= 2
+    except (TypeError, ValueError):
+        accepts_count = False
+
+    async def run(query):
+        result = search_fn(query, candidates_per_query) if accepts_count else search_fn(query)
+        if inspect.isawaitable(result):
+            result = await result
+        return result or []
+
+    return run
+
+
 async def resolve_citations(
     sections: dict,
     pipeline_type: str = "",
@@ -383,16 +408,27 @@ async def resolve_citations(
     base_url: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
+    max_query_rounds: int = 2,
+    candidates_per_query: int = 5,
 ) -> tuple[dict, str]:
     """Resolve [CITE] placeholders in manuscript sections.
 
-    For each [CITE], generates a PubMed search query, searches PubMed,
-    and replaces the placeholder with an inline citation. Returns the
-    updated sections and a BibTeX bibliography string.
+    For each [CITE] slot this runs a small grounded loop (adapted from
+    AI-Scientist's citation harness): search PubMed, and if nothing comes back
+    reformulate the query and try again up to ``max_query_rounds``, stopping as
+    soon as candidates are found. When several candidates return, the model
+    selects the best fit (or declines, leaving a placeholder rather than citing
+    the wrong paper). All chosen articles flow through a
+    :class:`CitationLibrary` that deduplicates by DOI/PMID/title, so the same
+    paper is never added twice and only real search results enter the
+    bibliography. Returns the updated sections and a BibTeX bibliography string.
 
-    search_fn: optional callable(query) -> list[dict] for testing/mocking.
-               Each dict should have title, authors, journal, year, doi, pmid.
+    search_fn: optional callable(query[, max_results]) -> list[dict] for
+               testing/mocking. Each dict should have title, authors, journal,
+               year, doi, pmid.
     """
+    from .citation_resolver import CitationLibrary, refine_query, select_citation, _fallback_query
+
     # Combine all sections into one text for context extraction
     full_text = "\n\n".join(
         f"## {name}\n{content}" for name, content in sections.items()
@@ -402,7 +438,7 @@ async def resolve_citations(
     if not contexts:
         return sections, ""
 
-    # Generate search queries from contexts
+    # Generate an initial search query per placeholder
     queries = await generate_search_queries(
         contexts,
         pipeline_type=pipeline_type,
@@ -411,43 +447,48 @@ async def resolve_citations(
         model=model,
     )
 
-    # Search PubMed for each query and collect results
-    bibtex_entries = []
+    search = _make_searcher(search_fn, candidates_per_query) if search_fn else None
+    library = CitationLibrary()
     replacements = []  # (original_text, replacement_text)
 
-    for i, (ctx, query) in enumerate(zip(contexts, queries)):
-        article = None
-        if search_fn:
-            try:
-                result = search_fn(query)
-                if inspect.isawaitable(result):
-                    result = await result
-                results = result
-                if results:
-                    article = results[0]
-            except Exception as e:
-                log.warning(f"Search failed for query '{query}': {e}")
-            # Rate limit between searches
-            await asyncio.sleep(0.5)
+    for i, ctx in enumerate(contexts):
+        # queries only covers the first batch of contexts; fall back for the rest
+        query = queries[i] if i < len(queries) and queries[i] else _fallback_query(ctx)
 
-        if article:
-            # Generate citation key: firstauthor2023keyword
-            authors = article.get("authors", [])
-            from .citation_resolver import _surname
-            first_author = _surname(authors[0]).lower() if authors else "unknown"
-            year = article.get("year", "")
-            title_word = article.get("title", "").split()[0].lower() if article.get("title") else "ref"
-            cite_key = f"{first_author}{year}{title_word}"
+        candidates = []
+        if search:
+            for round_idx in range(max_query_rounds):
+                try:
+                    candidates = await search(query)
+                except Exception as e:
+                    log.warning(f"Search failed for query '{query}': {e}")
+                    candidates = []
+                await asyncio.sleep(0.5)  # NCBI rate limit
+                if candidates:
+                    break  # early stop for this slot — we found matches
+                if round_idx < max_query_rounds - 1:
+                    new_query = await refine_query(
+                        ctx, query, base_url=base_url, api_key=api_key, model=model
+                    )
+                    if not new_query:
+                        break  # model declined to broaden — give up on this slot
+                    query = new_query
 
-            inline = format_inline_citation(article, cite_key)
-            bibtex = format_bibtex_entry(article, cite_key)
-            bibtex_entries.append(bibtex)
-        else:
-            # No search result — leave a numbered placeholder
-            cite_key = f"ref{i+1}"
+        inline = None
+        if candidates:
+            chosen = await select_citation(
+                ctx, candidates, already_cited=library.titles(),
+                base_url=base_url, api_key=api_key, model=model,
+            )
+            if chosen:
+                cite_key = library.add(chosen)
+                inline = format_inline_citation(library.article_for(cite_key), cite_key)
+
+        if inline is None:
+            # No result, or the model declined to cite — leave a readable placeholder
             hint = ctx.get("hint", "")
-            inline = f"[{hint or cite_key}]"
-            log.info(f"No PubMed result for citation {i+1}: '{query}'")
+            inline = f"[{hint or f'ref{i+1}'}]"
+            log.info(f"No citation resolved for placeholder {i+1}: '{query}'")
 
         original = full_text[ctx["span"][0]:ctx["span"][1]]
         replacements.append((original, inline))
@@ -469,5 +510,152 @@ async def resolve_citations(
         else:
             updated_sections[name] = sections[name]
 
-    bibliography = "\n\n".join(bibtex_entries)
-    return updated_sections, bibliography
+    return updated_sections, library.bibtex()
+
+
+# ---------------------------------------------------------------------------
+# Revise loop (issue #20) — feed review findings + deterministic checks back
+# into a grounded section rewrite, the OMC analog of AI-Scientist's reflection.
+# ---------------------------------------------------------------------------
+
+REVISE_INSTRUCTIONS = SYSTEM_PROMPT + """
+
+You are now REVISING a single section to address specific reviewer and
+automated-check findings. Rules:
+- Fix only what the findings call out. Preserve all other content, facts, and numbers.
+- Never invent data, citations, numbers, software versions, or study details to
+  satisfy a finding. If a finding asks for information you do not have, insert a
+  clear [AUTHOR: ...] note instead of guessing.
+- Keep unresolved literature references as bare [CITE] placeholders.
+- Do not delete content merely to satisfy a length or completeness note — add the
+  missing content or mark it [AUTHOR: ...].
+
+Return ONLY the revised section text — no preamble, no code fences.
+If no change is warranted, return exactly: NO CHANGES NEEDED
+"""
+
+
+def flatten_review_comments(reviews) -> list[dict]:
+    """Flatten run_all_reviews() output into a flat issue list for revision."""
+    issues = []
+    for review in reviews or []:
+        rtype = review.get("review_type", "review")
+        for c in review.get("comments", []) or []:
+            issues.append({
+                "section": (c.get("section") or "general").lower(),
+                "issue": c.get("issue", ""),
+                "detail": c.get("detail", ""),
+                "severity": c.get("severity", "suggestion"),
+                "confidence": c.get("confidence", 0.5),
+                "source": rtype,
+            })
+    return issues
+
+
+def _strip_code_fences(text: str) -> str:
+    t = text.strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*\n", "", t)
+        if t.endswith("```"):
+            t = t[:-3]
+    return t.strip()
+
+
+def _build_revise_prompt(section, text, issues, general_issues, study_metadata=None):
+    lines = [f"Section: {section}", "", "Current text:", text, "", "Findings to address:"]
+    for n, i in enumerate(issues, 1):
+        lines.append(f"{n}. [{i.get('severity', '')}] {i.get('issue', '')} — {i.get('detail', '')}")
+    if general_issues:
+        lines += ["", "Manuscript-wide findings (address only if they affect this section):"]
+        for i in general_issues:
+            lines.append(f"- [{i.get('severity', '')}] {i.get('issue', '')} — {i.get('detail', '')}")
+    if study_metadata:
+        lines += ["", "STUDY CONTEXT (do not contradict or exceed this):", _format_study(study_metadata)]
+    lines += ["", f"Rewrite the {section} section addressing these findings, following all rules."]
+    return "\n".join(lines)
+
+
+async def revise_manuscript(
+    sections: dict,
+    reviews=None,
+    check_issues=None,
+    *,
+    results_data=None,
+    available_figures=None,
+    study_metadata=None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
+    max_passes: int = 2,
+    on_progress=None,
+) -> tuple[dict, list]:
+    """Revise sections to address review findings + deterministic checks.
+
+    Groups findings by section, rewrites each affected section, and re-runs the
+    deterministic checks between passes — stopping early for a section once its
+    deterministic issues clear or the model reports no change (bounded by
+    ``max_passes``). Returns ``(revised_sections, change_log)``. Degrades to the
+    original sections when no LLM is reachable and never mutates the input dict.
+    """
+    from .manuscript_checks import run_all_checks
+
+    revised = dict(sections)
+    change_log: list[dict] = []
+
+    async def emit(msg):
+        if on_progress:
+            await on_progress(msg)
+
+    # Reviewer findings + deterministic checks, merged into one issue list
+    issues = flatten_review_comments(reviews)
+    if check_issues is None:
+        check_issues = run_all_checks(sections, results_data, available_figures)
+    issues += check_issues
+    if not issues:
+        return revised, change_log
+
+    section_names = set(revised.keys())
+    general = [i for i in issues if i.get("section") not in section_names]
+    by_section: dict[str, list] = {}
+    for i in issues:
+        sec = i.get("section")
+        if sec in section_names:
+            by_section.setdefault(sec, []).append(i)
+
+    client = get_client(base_url=base_url, api_key=api_key)
+
+    for sec, sec_issues in by_section.items():
+        changed = False
+        passes = 0
+        remaining = sec_issues
+        errored = None
+        for _ in range(max_passes):
+            if not remaining:
+                break
+            passes += 1
+            prompt = _build_revise_prompt(sec, revised[sec], remaining, general, study_metadata)
+            try:
+                response = await _achat(client, REVISE_INSTRUCTIONS, prompt, model=model, max_tokens=8000)
+            except Exception as e:
+                log.warning(f"Revise LLM call failed for '{sec}': {e}")
+                errored = str(e)
+                break
+            text = _strip_think(response or "").strip()
+            if not text or text.upper().startswith("NO CHANGES NEEDED"):
+                break
+            text = _strip_code_fences(text)
+            if text and text != revised[sec]:
+                revised[sec] = text
+                changed = True
+            # Re-run deterministic checks scoped to this section for early-stop
+            recheck = run_all_checks({sec: revised[sec]}, results_data, available_figures)
+            remaining = [i for i in recheck if i.get("section") == sec]
+
+        entry = {"section": sec, "changed": changed, "passes": passes,
+                 "issues": len(sec_issues), "remaining_checks": len(remaining)}
+        if errored:
+            entry["error"] = errored
+        change_log.append(entry)
+        await emit(f"Revised {sec} ({'changed' if changed else 'no change'})")
+
+    return revised, change_log
