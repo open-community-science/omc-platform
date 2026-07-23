@@ -84,7 +84,7 @@ Check for:
 6. Missing analyses that would strengthen the paper
 
 Respond in the JSON format specified.""",
-        model=model, max_tokens=4000, temperature=0.5)
+        model=model, max_tokens=8000, temperature=0.5)
 
     return _parse_review(response, "statistical")
 
@@ -116,7 +116,7 @@ Check for:
 6. Whether the approach matches current best practices
 
 Respond in the JSON format specified.""",
-        model=model, max_tokens=4000, temperature=0.5)
+        model=model, max_tokens=8000, temperature=0.5)
 
     return _parse_review(response, "methodological")
 
@@ -159,7 +159,7 @@ Check for:
 6. Missing context that would help the reader
 
 Respond in the JSON format specified.""",
-        model=model, max_tokens=4000, temperature=0.5)
+        model=model, max_tokens=8000, temperature=0.5)
 
     return _parse_review(response, "clarity")
 
@@ -201,7 +201,7 @@ Check for:
 This review is about MISSING content, not quality. Flag anything that should be there but isn't.
 
 Respond in the JSON format specified.""",
-        model=model, max_tokens=4000, temperature=0.5)
+        model=model, max_tokens=8000, temperature=0.5)
 
     return _parse_review(response, "completeness")
 
@@ -255,7 +255,7 @@ You are an expert microbial ecologist. Check for:
 Be specific about which taxa or claims concern you, and explain what the expected biology would be.
 
 Respond in the JSON format specified.""",
-        model=model, max_tokens=4000, temperature=0.5)
+        model=model, max_tokens=8000, temperature=0.5)
 
     return _parse_review(response, "biological_plausibility")
 
@@ -293,7 +293,7 @@ For example: "The claim about SAR11 dominance should cite Giovannoni (2017) Scie
 Morris et al. (2002) Nature."
 
 Respond in the JSON format specified.""",
-        model=model, max_tokens=4000, temperature=0.5)
+        model=model, max_tokens=8000, temperature=0.5)
 
     return _parse_review(response, "citation")
 
