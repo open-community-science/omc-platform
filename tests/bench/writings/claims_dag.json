@@ -1,0 +1,236 @@
+{
+  "nodes": [
+    {
+      "id": "c1",
+      "type": "computation",
+      "label": "richness_per_sample"
+    },
+    {
+      "id": "c2",
+      "type": "computation",
+      "label": "richness_per_sample"
+    },
+    {
+      "id": "c3",
+      "type": "computation",
+      "label": "shannon_diversity"
+    },
+    {
+      "id": "c4",
+      "type": "computation",
+      "label": "counts_shape"
+    },
+    {
+      "id": "c5",
+      "type": "computation",
+      "label": "richness_per_sample"
+    },
+    {
+      "id": "c6",
+      "type": "computation",
+      "label": "shannon_diversity"
+    },
+    {
+      "id": "c7",
+      "type": "computation",
+      "label": "bray_curtis_matrix"
+    },
+    {
+      "id": "c8",
+      "type": "computation",
+      "label": "pca_ordination"
+    },
+    {
+      "id": "k1",
+      "type": "claim",
+      "label": "Initial sequencing yielded 1,398,204 raw reads across 84 sam",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "provenance.total.raw",
+      "type": "data",
+      "label": "provenance.total.raw"
+    },
+    {
+      "id": "k2",
+      "type": "claim",
+      "label": "After primer removal, 860,222 reads remained.",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "provenance.total.primer",
+      "type": "data",
+      "label": "provenance.total.primer"
+    },
+    {
+      "id": "k3",
+      "type": "claim",
+      "label": "After quality filtering, 519,769 reads were retained (37.2% ",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "overview.filtering",
+      "type": "data",
+      "label": "overview.filtering"
+    },
+    {
+      "id": "k4",
+      "type": "claim",
+      "label": "Quality filtering resulted in loss of 73 of 84 initial sampl",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    },
+    {
+      "id": "overview.asv_summary.n_samples",
+      "type": "data",
+      "label": "overview.asv_summary.n_samples"
+    },
+    {
+      "id": "provenance.n_samples",
+      "type": "data",
+      "label": "provenance.n_samples"
+    },
+    {
+      "id": "k5",
+      "type": "claim",
+      "label": "161 prokaryotic ASVs were identified in the final denoised d",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "renorm_stats.prokaryote.n_asvs",
+      "type": "data",
+      "label": "renorm_stats.prokaryote.n_asvs"
+    },
+    {
+      "id": "k6",
+      "type": "claim",
+      "label": "A total of 46,656 reads were assigned to prokaryotic ASVs ac",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "renorm_stats.prokaryote.n_reads",
+      "type": "data",
+      "label": "renorm_stats.prokaryote.n_reads"
+    },
+    {
+      "id": "k7",
+      "type": "claim",
+      "label": "Taxonomic classification against SILVA database yielded 162 ",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "taxonomy_summary.total_asvs_classified",
+      "type": "data",
+      "label": "taxonomy_summary.total_asvs_classified"
+    },
+    {
+      "id": "taxonomy_summary.classified_per_rank",
+      "type": "data",
+      "label": "taxonomy_summary.classified_per_rank"
+    },
+    {
+      "id": "k8",
+      "type": "claim",
+      "label": "Pseudomonadota was the dominant phylum with 116 ASVs, follow",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "taxonomy_summary.top_phyla",
+      "type": "data",
+      "label": "taxonomy_summary.top_phyla"
+    },
+    {
+      "id": "k9",
+      "type": "claim",
+      "label": "Observed ASV richness varied across samples from 19 (SRR3895",
+      "verdict": "refuted",
+      "kind": "observation"
+    },
+    {
+      "id": "k10",
+      "type": "claim",
+      "label": "Shannon diversity index (base 2) ranged from 2.01 (SRR389581",
+      "verdict": "refuted",
+      "kind": "observation"
+    },
+    {
+      "id": "k11",
+      "type": "claim",
+      "label": "PCA ordination of relative abundance data showed PC1 explain",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k12",
+      "type": "claim",
+      "label": "Bray-Curtis dissimilarity between the most similar pair (SRR",
+      "verdict": "verified",
+      "kind": "observation"
+    }
+  ],
+  "edges": [
+    {
+      "from": "provenance.total.raw",
+      "to": "k1"
+    },
+    {
+      "from": "provenance.total.primer",
+      "to": "k2"
+    },
+    {
+      "from": "overview.filtering",
+      "to": "k3"
+    },
+    {
+      "from": "overview.asv_summary.n_samples",
+      "to": "k4"
+    },
+    {
+      "from": "provenance.n_samples",
+      "to": "k4"
+    },
+    {
+      "from": "renorm_stats.prokaryote.n_asvs",
+      "to": "k5"
+    },
+    {
+      "from": "renorm_stats.prokaryote.n_reads",
+      "to": "k6"
+    },
+    {
+      "from": "taxonomy_summary.total_asvs_classified",
+      "to": "k7"
+    },
+    {
+      "from": "taxonomy_summary.classified_per_rank",
+      "to": "k7"
+    },
+    {
+      "from": "taxonomy_summary.top_phyla",
+      "to": "k8"
+    },
+    {
+      "from": "c5",
+      "to": "k9"
+    },
+    {
+      "from": "c6",
+      "to": "k10"
+    },
+    {
+      "from": "c8",
+      "to": "k11"
+    },
+    {
+      "from": "c7",
+      "to": "k12"
+    }
+  ]
+}
