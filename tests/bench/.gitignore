@@ -1,0 +1,5 @@
+__pycache__/
+results.json
+results.md
+run-*.md
+run-*.json
