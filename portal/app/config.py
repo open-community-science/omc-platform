@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     # Claude API (for production — falls back to llm_* settings if empty)
     anthropic_api_key: str = ""
 
+    # Manuscript revise loop (issue #20). When enabled, after review agents run
+    # the portal feeds their findings + deterministic checks back into a section
+    # rewrite. Off by default — reviews always produce PRs regardless (the
+    # "agents always help, never block" principle); revise is purely additive.
+    manuscript_revise_enabled: bool = False
+    manuscript_revise_max_passes: int = 2
+
     # Database
     database_url: str = "sqlite+aiosqlite:///./omc.db"
 

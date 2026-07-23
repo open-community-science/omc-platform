@@ -173,6 +173,30 @@ async def run_reviews(
     # Store review results and PR URLs in interview_data
     interview_data["_reviews"] = reviews
     interview_data["_review_prs"] = pr_urls
+
+    # Optional revise pass (issue #20): feed review findings + deterministic
+    # checks back into a section rewrite. Off by default and purely additive —
+    # the original manuscript and the review PRs above are left untouched; the
+    # revised draft is stored separately for the author to accept or discard.
+    revise_log = None
+    if settings.manuscript_revise_enabled:
+        try:
+            from ai.manuscript_generator import revise_manuscript
+            revised, revise_log = await revise_manuscript(
+                manuscript,
+                reviews=reviews,
+                results_data=pipeline_outputs,
+                study_metadata=dict(submission.sample_metadata or {}),
+                base_url=llm["base_url"],
+                api_key=llm["api_key"],
+                model=llm["model"],
+                max_passes=settings.manuscript_revise_max_passes,
+            )
+            interview_data["_manuscript_revised"] = revised
+            interview_data["_revise_log"] = revise_log
+        except Exception as e:
+            logger.warning(f"Revise pass failed for {slug} (reviews preserved): {e}")
+
     submission.interview_data = interview_data
     attributes.flag_modified(submission, "interview_data")
     await db.commit()
@@ -181,6 +205,7 @@ async def run_reviews(
         "slug": slug,
         "reviews": reviews,
         "pull_requests": pr_urls,
+        "revise_log": revise_log,
     }
 
 

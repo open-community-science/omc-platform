@@ -474,3 +474,151 @@ async def resolve_citations(
             updated_sections[name] = sections[name]
 
     return updated_sections, library.bibtex()
+
+
+# ---------------------------------------------------------------------------
+# Revise loop (issue #20) — feed review findings + deterministic checks back
+# into a grounded section rewrite, the OMC analog of AI-Scientist's reflection.
+# ---------------------------------------------------------------------------
+
+REVISE_INSTRUCTIONS = SYSTEM_PROMPT + """
+
+You are now REVISING a single section to address specific reviewer and
+automated-check findings. Rules:
+- Fix only what the findings call out. Preserve all other content, facts, and numbers.
+- Never invent data, citations, numbers, software versions, or study details to
+  satisfy a finding. If a finding asks for information you do not have, insert a
+  clear [AUTHOR: ...] note instead of guessing.
+- Keep unresolved literature references as bare [CITE] placeholders.
+- Do not delete content merely to satisfy a length or completeness note — add the
+  missing content or mark it [AUTHOR: ...].
+
+Return ONLY the revised section text — no preamble, no code fences.
+If no change is warranted, return exactly: NO CHANGES NEEDED
+"""
+
+
+def flatten_review_comments(reviews) -> list[dict]:
+    """Flatten run_all_reviews() output into a flat issue list for revision."""
+    issues = []
+    for review in reviews or []:
+        rtype = review.get("review_type", "review")
+        for c in review.get("comments", []) or []:
+            issues.append({
+                "section": (c.get("section") or "general").lower(),
+                "issue": c.get("issue", ""),
+                "detail": c.get("detail", ""),
+                "severity": c.get("severity", "suggestion"),
+                "confidence": c.get("confidence", 0.5),
+                "source": rtype,
+            })
+    return issues
+
+
+def _strip_code_fences(text: str) -> str:
+    t = text.strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*\n", "", t)
+        if t.endswith("```"):
+            t = t[:-3]
+    return t.strip()
+
+
+def _build_revise_prompt(section, text, issues, general_issues, study_metadata=None):
+    lines = [f"Section: {section}", "", "Current text:", text, "", "Findings to address:"]
+    for n, i in enumerate(issues, 1):
+        lines.append(f"{n}. [{i.get('severity', '')}] {i.get('issue', '')} — {i.get('detail', '')}")
+    if general_issues:
+        lines += ["", "Manuscript-wide findings (address only if they affect this section):"]
+        for i in general_issues:
+            lines.append(f"- [{i.get('severity', '')}] {i.get('issue', '')} — {i.get('detail', '')}")
+    if study_metadata:
+        lines += ["", "STUDY CONTEXT (do not contradict or exceed this):", _format_study(study_metadata)]
+    lines += ["", f"Rewrite the {section} section addressing these findings, following all rules."]
+    return "\n".join(lines)
+
+
+async def revise_manuscript(
+    sections: dict,
+    reviews=None,
+    check_issues=None,
+    *,
+    results_data=None,
+    available_figures=None,
+    study_metadata=None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
+    max_passes: int = 2,
+    on_progress=None,
+) -> tuple[dict, list]:
+    """Revise sections to address review findings + deterministic checks.
+
+    Groups findings by section, rewrites each affected section, and re-runs the
+    deterministic checks between passes — stopping early for a section once its
+    deterministic issues clear or the model reports no change (bounded by
+    ``max_passes``). Returns ``(revised_sections, change_log)``. Degrades to the
+    original sections when no LLM is reachable and never mutates the input dict.
+    """
+    from .manuscript_checks import run_all_checks
+
+    revised = dict(sections)
+    change_log: list[dict] = []
+
+    async def emit(msg):
+        if on_progress:
+            await on_progress(msg)
+
+    # Reviewer findings + deterministic checks, merged into one issue list
+    issues = flatten_review_comments(reviews)
+    if check_issues is None:
+        check_issues = run_all_checks(sections, results_data, available_figures)
+    issues += check_issues
+    if not issues:
+        return revised, change_log
+
+    section_names = set(revised.keys())
+    general = [i for i in issues if i.get("section") not in section_names]
+    by_section: dict[str, list] = {}
+    for i in issues:
+        sec = i.get("section")
+        if sec in section_names:
+            by_section.setdefault(sec, []).append(i)
+
+    client = get_client(base_url=base_url, api_key=api_key)
+
+    for sec, sec_issues in by_section.items():
+        changed = False
+        passes = 0
+        remaining = sec_issues
+        errored = None
+        for _ in range(max_passes):
+            if not remaining:
+                break
+            passes += 1
+            prompt = _build_revise_prompt(sec, revised[sec], remaining, general, study_metadata)
+            try:
+                response = await _achat(client, REVISE_INSTRUCTIONS, prompt, model=model, max_tokens=8000)
+            except Exception as e:
+                log.warning(f"Revise LLM call failed for '{sec}': {e}")
+                errored = str(e)
+                break
+            text = _strip_think(response or "").strip()
+            if not text or text.upper().startswith("NO CHANGES NEEDED"):
+                break
+            text = _strip_code_fences(text)
+            if text and text != revised[sec]:
+                revised[sec] = text
+                changed = True
+            # Re-run deterministic checks scoped to this section for early-stop
+            recheck = run_all_checks({sec: revised[sec]}, results_data, available_figures)
+            remaining = [i for i in recheck if i.get("section") == sec]
+
+        entry = {"section": sec, "changed": changed, "passes": passes,
+                 "issues": len(sec_issues), "remaining_checks": len(remaining)}
+        if errored:
+            entry["error"] = errored
+        change_log.append(entry)
+        await emit(f"Revised {sec} ({'changed' if changed else 'no change'})")
+
+    return revised, change_log
