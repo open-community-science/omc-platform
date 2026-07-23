@@ -1,0 +1,313 @@
+{
+  "nodes": [
+    {
+      "id": "c1",
+      "type": "computation",
+      "label": "inspect shapes"
+    },
+    {
+      "id": "c2",
+      "type": "computation",
+      "label": "domain composition per sample"
+    },
+    {
+      "id": "c3",
+      "type": "computation",
+      "label": "domain purity per sample and batch alignment"
+    },
+    {
+      "id": "c4",
+      "type": "computation",
+      "label": "check description/library_strategy consistency within eukaryote batch"
+    },
+    {
+      "id": "c5",
+      "type": "computation",
+      "label": "alpha diversity vs depth"
+    },
+    {
+      "id": "c6",
+      "type": "computation",
+      "label": "alpha diversity vs depth split by domain batch"
+    },
+    {
+      "id": "c7",
+      "type": "computation",
+      "label": "rank abundance and rare biosphere"
+    },
+    {
+      "id": "c8",
+      "type": "computation",
+      "label": "check min counts and top taxa IDs"
+    },
+    {
+      "id": "c9",
+      "type": "computation",
+      "label": "bray-curtis PCoA vs precomputed xy"
+    },
+    {
+      "id": "c10",
+      "type": "computation",
+      "label": "clustering by domain in bray curtis space and meta xy separation check"
+    },
+    {
+      "id": "c11",
+      "type": "computation",
+      "label": "within-batch sample type parsing"
+    },
+    {
+      "id": "c12",
+      "type": "computation",
+      "label": "PERMANOVA-like test for sample type within bacteria batch"
+    },
+    {
+      "id": "c13",
+      "type": "computation",
+      "label": "indicator taxa by sample type within bacteria batch"
+    },
+    {
+      "id": "c14",
+      "type": "computation",
+      "label": "contamination screen for kit genera"
+    },
+    {
+      "id": "c15",
+      "type": "computation",
+      "label": "core vs transient taxa prevalence"
+    },
+    {
+      "id": "c16",
+      "type": "computation",
+      "label": "Kruskal-Wallis differential abundance per genus across habitat types in bacteria batch"
+    },
+    {
+      "id": "c17",
+      "type": "computation",
+      "label": "co-occurrence network among core/abundant genera in bacteria batch"
+    },
+    {
+      "id": "c18",
+      "type": "computation",
+      "label": "xy vs depth/richness technical check within each batch"
+    },
+    {
+      "id": "k1",
+      "type": "claim",
+      "label": "The dataset is not pure 16S: SILVA domain classification spl",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "get_dataset('study').caveat",
+      "type": "data",
+      "label": "get_dataset('study').caveat"
+    },
+    {
+      "id": "k2",
+      "type": "claim",
+      "label": "Both accession batches sample the same underlying site/mater",
+      "verdict": "unverifiable",
+      "kind": "observation"
+    },
+    {
+      "id": "k3",
+      "type": "claim",
+      "label": "ASV richness is strongly confounded with sequencing depth, e",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k4",
+      "type": "claim",
+      "label": "Pielou evenness decreases with increasing sequencing depth, ",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    },
+    {
+      "id": "k5",
+      "type": "claim",
+      "label": "This ASV table has already been pre-filtered to remove singl",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    },
+    {
+      "id": "k6",
+      "type": "claim",
+      "label": "The community is moderately dominated by a few taxa: the sin",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k7",
+      "type": "claim",
+      "label": "Between the two domain batches (bacteria vs eukaryote runs),",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k8",
+      "type": "claim",
+      "label": "The precomputed ordination coordinate meta['y'] almost perfe",
+      "verdict": "refuted",
+      "kind": "pattern"
+    },
+    {
+      "id": "k9",
+      "type": "claim",
+      "label": "Within each domain batch separately, sample/habitat type (fr",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k10",
+      "type": "claim",
+      "label": "Distinct dominant genera characterize each sea-ice habitat t",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k11",
+      "type": "claim",
+      "label": "Classic kit/reagent contaminant genera are essentially absen",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k12",
+      "type": "claim",
+      "label": "Core taxa (\u226550% sample prevalence) are a tiny fraction of to",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k13",
+      "type": "claim",
+      "label": "The core microbiome genera consistently present across sea-i",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k14",
+      "type": "claim",
+      "label": "Differential abundance testing (Kruskal-Wallis) across the f",
+      "verdict": "verified",
+      "kind": "observation"
+    },
+    {
+      "id": "k15",
+      "type": "claim",
+      "label": "A positively co-occurring guild of genera (Neptuniibacter, C",
+      "verdict": "refuted",
+      "kind": "observation"
+    },
+    {
+      "id": "k16",
+      "type": "claim",
+      "label": "Within the eukaryote batch, the precomputed ordination x-coo",
+      "verdict": "verified",
+      "kind": "quality_caveat"
+    }
+  ],
+  "edges": [
+    {
+      "from": "c2",
+      "to": "k1"
+    },
+    {
+      "from": "c3",
+      "to": "k1"
+    },
+    {
+      "from": "c4",
+      "to": "k1"
+    },
+    {
+      "from": "get_dataset('study').caveat",
+      "to": "k1"
+    },
+    {
+      "from": "c4",
+      "to": "k2"
+    },
+    {
+      "from": "c5",
+      "to": "k3"
+    },
+    {
+      "from": "c6",
+      "to": "k3"
+    },
+    {
+      "from": "c5",
+      "to": "k4"
+    },
+    {
+      "from": "c6",
+      "to": "k4"
+    },
+    {
+      "from": "c7",
+      "to": "k5"
+    },
+    {
+      "from": "c8",
+      "to": "k5"
+    },
+    {
+      "from": "c7",
+      "to": "k6"
+    },
+    {
+      "from": "c8",
+      "to": "k6"
+    },
+    {
+      "from": "c10",
+      "to": "k7"
+    },
+    {
+      "from": "c10",
+      "to": "k8"
+    },
+    {
+      "from": "c12",
+      "to": "k9"
+    },
+    {
+      "from": "c13",
+      "to": "k10"
+    },
+    {
+      "from": "c14",
+      "to": "k11"
+    },
+    {
+      "from": "c15",
+      "to": "k12"
+    },
+    {
+      "from": "c15",
+      "to": "k13"
+    },
+    {
+      "from": "c13",
+      "to": "k13"
+    },
+    {
+      "from": "c16",
+      "to": "k14"
+    },
+    {
+      "from": "c17",
+      "to": "k15"
+    },
+    {
+      "from": "c13",
+      "to": "k15"
+    },
+    {
+      "from": "c18",
+      "to": "k16"
+    }
+  ]
+}

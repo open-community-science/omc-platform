@@ -13,9 +13,11 @@ sys.path.insert(0, str(HERE.parent.parent))
 sys.path.insert(0, str(HERE))
 from results_explorer import _navigate  # noqa: E402  (resolves data paths)
 
-W = HERE / "writings"
+# Optional: point at a specific run dir (e.g. writings/real_1543a4c1); default writings/.
+W = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "writings"
 ledger = json.loads((W / "claims_ledger.json").read_text())
 claims, comps = ledger["claims"], ledger["computations"]
+agenda = ledger.get("agenda", [])
 
 # Resolve each antecedent to a displayable node for the viewer.
 def resolve(ant):
@@ -33,17 +35,21 @@ for c in claims:
         "id": c["id"], "statement": c["statement"], "value": c["value"],
         "verdict": c.get("verdict", "unverifiable"), "kind": c.get("kind", "observation"),
         "method": c.get("method"),
+        "reconcile": c.get("reconcile"),
         "antecedents": [resolve(a) for a in c.get("antecedents", [])],
     })
 
 stats = {
     "claims": len(claims),
     "verified": sum(c.get("verdict") == "verified" for c in claims),
-    "refuted": sum(c.get("verdict") == "refuted" for c in claims),
+    "insights": sum(c.get("kind") in ("pattern", "anomaly") for c in claims),
     "computations": len(comps),
+    "investigations": len(agenda),
 }
-study = "16S amplicon · frost flower · Ice Chamber Experiment (PRJNA1473294)"
-DATA = json.dumps({"claims": view, "stats": stats, "study": study})
+slug = W.name.replace("real_", "")
+study = f"microscape amplicon submission {slug} · agenda-driven autoresearch"
+run = ledger.get("run", {})
+DATA = json.dumps({"claims": view, "stats": stats, "study": study, "run": run})
 
 HTML = r'''<title>Claim Provenance — Results Autoresearch</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -110,6 +116,8 @@ button.claim:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .kind{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.04em;
   padding:1px 6px;border-radius:5px;border:1px solid var(--border);color:var(--muted);margin-left:6px}
 .kind.caveat{color:var(--unverifiable);border-color:var(--unverifiable)}
+.kind.anomaly{color:var(--refuted);border-color:var(--refuted)}
+.kind.pattern{color:var(--accent);border-color:var(--accent)}
 .detail{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px;
   position:sticky;top:16px;max-height:78vh;overflow:auto}
 .badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
@@ -138,6 +146,9 @@ pre{margin:9px 0 0;background:var(--bg);border:1px solid var(--border);border-ra
   word-break:break-word;font-variant-numeric:tabular-nums}
 .reverify{font-size:12px;color:var(--muted);margin-top:6px}
 .reverify b{color:var(--verified)}
+.reconcile{font-size:12px;color:var(--muted);margin-top:8px;padding:8px 11px;border-radius:7px;
+  background:color-mix(in srgb,var(--accent) 8%,transparent);border:1px solid var(--border)}
+.reconcile b{color:var(--accent)}
 .foot{margin-top:34px;padding-top:16px;border-top:1px solid var(--border);color:var(--muted);font-size:12.5px}
 .foot code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px}
 .empty{color:var(--muted);font-size:13px;padding:20px 4px}
@@ -178,12 +189,23 @@ pre{margin:9px 0 0;background:var(--bg);border:1px solid var(--border);border-ra
 const DATA = __DATA__;
 const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 document.getElementById('study').textContent = DATA.study;
+if (DATA.run && DATA.run.completed === false) {
+  const b = document.createElement('div');
+  b.className = 'lede';
+  b.style.borderLeftColor = 'var(--unverifiable)';
+  b.innerHTML = `<b style="color:var(--unverifiable)">⚠️ Preliminary</b> — exploration stopped `
+    + `with ${DATA.run.investigations_done}/${DATA.run.investigations_total} investigations done; `
+    + `these claims are partial.`;
+  document.querySelector('header').after(b);
+}
 
 const S = DATA.stats;
 document.getElementById('stats').innerHTML = [
   ['claims', S.claims, ''], ['verified', S.verified, 'ok'],
-  ['refuted', S.refuted, 'no'], ['computations', S.computations, '']
+  ['insights', S.insights ?? 0, ''], ['investigations', S.investigations ?? 0, ''],
+  ['computations', S.computations, '']
 ].map(([l,n,c]) => `<div class="stat ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+const KIND = {quality_caveat:['caveat','caveat'], anomaly:['anomaly','anomaly'], pattern:['pattern','pattern']};
 
 const list = document.getElementById('list');
 DATA.claims.forEach((c,i) => {
@@ -194,9 +216,10 @@ DATA.claims.forEach((c,i) => {
   const chipMap = {'x100':'frac→%','/100':'%→frac','derived':'derived'};
   const chip = (c.verdict==='verified' && nd.length)
     ? `<span class="chip">${nd.map(x=>chipMap[x]||x).join(' · ')}</span>` : '';
+  const k = KIND[c.kind];
+  const kindChip = k ? `<span class="kind ${k[1]}">${k[0]}</span>` : '';
   b.innerHTML = `<span class="dot ${c.verdict}"></span><span class="txt">`
-    + `<span class="cid">${c.id}</span>` + chip
-    + (c.kind==='quality_caveat' ? '<span class="kind caveat">caveat</span>' : '')
+    + `<span class="cid">${c.id}</span>` + kindChip + chip
     + `<br>${esc(c.statement)}</span>`;
   b.onclick = () => select(i);
   list.appendChild(b);
@@ -217,8 +240,10 @@ function select(i){
       + `<div class="val">= ${esc(a.value)}</div></div>`;
   }).join('') || '<p class="empty">No antecedents recorded.</p>';
   const how = {direct:'a direct data/computation read', 'x100':'a unit conversion (fraction→%)',
-    '/100':'a unit conversion (%→fraction)', 'derived':'a derivation from its inputs'};
-  const name = {direct:'direct read','x100':'fraction→%','/100':'%→fraction',derived:'derived'};
+    '/100':'a unit conversion (%→fraction)', 'derived':'a derivation from its inputs',
+    reconciled:'a skeptical model adjudication against the re-executed evidence'};
+  const name = {direct:'direct read','x100':'fraction→%','/100':'%→fraction',derived:'derived',
+    reconciled:'model-reconciled'};
   const parts = [...new Set((c.method||'').split(',').map(s=>s.trim()).filter(Boolean))];
   const nonDirect = parts.filter(p=>p.split(':')[0] !== 'direct');
   const pick = (nonDirect.length ? nonDirect : parts);
@@ -232,12 +257,14 @@ function select(i){
     : (c.verdict==='refuted'
         ? 'The cited antecedents contradicted this value — <b style="color:var(--refuted)">refuted</b>, excluded from the manuscript.'
         : 'No checkable antecedent — <b style="color:var(--unverifiable)">unverifiable</b>, excluded from the manuscript.');
+  const dk = KIND[c.kind];
   document.getElementById('detail').innerHTML =
     `<span class="badge ${c.verdict}">${c.verdict}</span>` + methodBadge
-    + (c.kind==='quality_caveat' ? '<span class="kind caveat" style="margin-left:8px">quality caveat</span>' : '')
+    + (dk ? `<span class="kind ${dk[1]}" style="margin-left:8px">${dk[0]}</span>` : '')
     + `<h2>${esc(c.statement)}</h2>`
     + `<div class="kv"><span class="k">value</span><span class="v">${esc(c.value)}</span></div>`
     + `<div class="reverify">${reverify}</div>`
+    + (c.reconcile ? `<div class="reconcile"><b>Model adjudication:</b> ${esc((c.reconcile.reasoning||'').replace(/^VERDICT:[^\n]*\n?/i,''))}</div>` : '')
     + `<p class="prov-h">Antecedents (${c.antecedents.length})</p>${ants}`;
 }
 select(0);

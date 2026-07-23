@@ -18,10 +18,11 @@ Out:  writings/{claims_ledger.json, claims_dag.json, claims_dag.md, results_from
 """
 import gzip
 import json
+import os
 import re
+import subprocess
 import sys
 import time
-import traceback
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -36,10 +37,26 @@ from ai.manuscript_checks import check_numbers_supported
 from fixtures import load_fixture, STUDY_GROUNDED, DATA_DIR
 from run_bench import _unload_all, _lms_load
 
-BASE_URL = "http://localhost:1234/v1"
-MODEL = "qwen/qwen3.6-35b-a3b"
+# Endpoint/model are env-configurable so the same loop can run on a LOCAL LM Studio
+# model or a REMOTE OpenAI-compatible API (e.g. OpenRouter → anthropic/claude-sonnet-5).
+BASE_URL = os.environ.get("EXPLORER_BASE_URL", "http://localhost:1234/v1")
+MODEL = os.environ.get("EXPLORER_MODEL", "qwen/qwen3.6-35b-a3b")
+API_KEY = os.environ.get("EXPLORER_API_KEY", "lm-studio")
+REMOTE = not any(h in BASE_URL for h in ("localhost", "127.0.0.1"))  # skip lms for remote
 OUT = HERE / "writings"
 OUT.mkdir(exist_ok=True)
+
+
+def _client():
+    return OpenAI(base_url=BASE_URL, api_key=API_KEY)
+
+
+def _ensure_model_loaded():
+    """Load the model locally (LM Studio); no-op for a remote endpoint."""
+    if REMOTE:
+        return True
+    _unload_all()
+    return _lms_load(MODEL, 65536, 300)[1]
 
 
 # ── Datasets (source of truth for reads + verification) ───────────────────────
@@ -56,8 +73,21 @@ def _build_datasets():
     fx = load_fixture()
     prov = _rj("provenance") or {}
     samples = _rj("samples") or []
+    sg = STUDY_GROUNDED or {}
     return {
         "overview": fx,
+        # Stated study/methods context — the amplicon target here is the SRA metadata
+        # LABEL, which is frequently wrong; verify it against the observed taxonomy.
+        "study": {
+            "stated_target_label": sg.get("title"),
+            "study_name": sg.get("study_name"),
+            "organism": sg.get("organism"),
+            "platform": sg.get("platform"),
+            "taxonomy_database": fx.get("taxonomy_summary", {}).get("database"),
+            "pipeline_stages": [s.get("id") for s in prov.get("stages", [])],
+            "caveat": ("stated_target_label is the SRA-metadata amplicon label and can be "
+                       "wrong (18S runs are commonly mislabeled '16S'); confirm against tax Domain."),
+        },
         "renorm_stats": _rj("renorm_stats") or fx.get("renorm", {}),
         "provenance": {"total": prov.get("total", {}),
                        "stages": [s.get("id") for s in prov.get("stages", [])],
@@ -84,6 +114,28 @@ def _count_matrix() -> pd.DataFrame:
 COUNTS = _count_matrix()
 
 
+def _tax_df() -> pd.DataFrame:
+    """ASV → taxonomic rank table (Domain..Genus), aligned to COUNTS columns.
+    Lets the agent group abundances by taxon, split prokaryote vs eukaryote, and
+    screen for named contaminants."""
+    tax = _rj("taxonomy") or {}
+    _db, body = next(iter(tax.items()), ("none", {}))
+    levels, assign = body.get("levels", []), body.get("assignments", {})
+    df = pd.DataFrame.from_dict({a: dict(zip(levels, lin)) for a, lin in assign.items()}, orient="index")
+    return df.reindex(columns=levels)
+
+
+def _samples_df() -> pd.DataFrame:
+    """Per-sample metadata (library_name, collection_date, precomputed x/y, etc.)."""
+    sm = _rj("samples") or []
+    df = pd.DataFrame(sm)
+    return df.set_index("id") if "id" in df.columns else df
+
+
+TAX_DF = _tax_df()
+SAMPLES_META = _samples_df()
+
+
 def _navigate(path):
     cur = DATASETS
     for part in path.split("."):
@@ -96,31 +148,99 @@ def _navigate(path):
     return True, cur
 
 
-# ── Sandboxed analysis execution (prototype of a Marimo cell) ─────────────────
-_SAFE_BUILTINS = {k: __builtins__[k] if isinstance(__builtins__, dict) else getattr(__builtins__, k)
-                  for k in ("len range sum min max sorted list dict set tuple float int str bool "
-                            "round abs enumerate zip map filter any all print isinstance").split()}
+# ── Analysis execution: isolation ─────────────────────────────────────────────
+# In PRODUCTION the agent's analysis cells run as Marimo notebooks INSIDE the
+# omc-session container, which is the real jail: the omc-sessions bridge DROPs all
+# outbound except the portal LLM proxy (session/setup-network.sh, enable_icc=false),
+# /data is a READ-ONLY squashfuse mount, and the container is capped at 2g/1cpu and
+# is ephemeral (portal/app/sessions.py). That already provides network isolation,
+# read-only data, and resource limits.
+#
+# THIS harness, however, runs standalone on the dev host — no container — so it
+# approximates that boundary with a separate python process: CPU + memory rlimits,
+# a wall-clock timeout, and network disabled (trusted imports load first, then the
+# socket is cut before the cell runs). The dev-host filesystem is NOT confined here,
+# so the harness is for trusted local benchmarking over vetted pipeline outputs; the
+# container is what confines untrusted execution in production.
+_CHILD_RUNNER = r'''
+import os, sys, json, gzip, resource
+resource.setrlimit(resource.RLIMIT_CPU, (25, 25))          # ~25s CPU
+try:  # generous virtual-address cap — numpy/BLAS reserve a lot even when RSS is small
+    resource.setrlimit(resource.RLIMIT_AS, (8 * 1024**3, 8 * 1024**3))
+except (ValueError, OSError):
+    pass
+DATA = os.environ["EXPLORER_DATA_DIR"]
+def _rj(name):
+    for p in (os.path.join(DATA, name + ".json"), os.path.join(DATA, name + ".json.gz")):
+        if os.path.exists(p):
+            op = gzip.open if p.endswith(".gz") else open
+            with op(p, "rt") as f:
+                return json.load(f)
+    return None
+# Trusted imports FIRST (ssl, loaded transitively, subclasses socket.socket) —
+# only after they're loaded do we disable the network for the model's code.
+import numpy as np, pandas as pd
+from scipy.spatial.distance import pdist, squareform, braycurtis
+from scipy.stats import entropy, pearsonr, spearmanr, kruskal, mannwhitneyu
+from sklearn.decomposition import PCA
+_c = _rj("counts"); counts = None
+if _c:
+    _m = np.zeros((len(_c["samples"]), len(_c["asvs"])))
+    for _s, _a, _n, _r in _c["data"]:
+        _m[_s, _a] = _n
+    counts = pd.DataFrame(_m, index=_c["samples"], columns=_c["asvs"])
+_t = _rj("taxonomy") or {}
+_db, _body = next(iter(_t.items()), ("none", {}))
+_lv = _body.get("levels", [])
+tax = pd.DataFrame.from_dict({a: dict(zip(_lv, l)) for a, l in _body.get("assignments", {}).items()},
+                            orient="index").reindex(columns=_lv)
+meta = pd.DataFrame(_rj("samples") or [])
+meta = meta.set_index("id") if "id" in meta.columns else meta
+import socket
+def _no_net(*a, **k):
+    raise OSError("network disabled in analysis sandbox")
+socket.socket = _no_net; socket.create_connection = _no_net; socket.getaddrinfo = _no_net
+def _j(v, d=0):
+    if d > 4: return str(v)
+    if isinstance(v, (np.floating, np.integer)): return round(float(v), 4)
+    if isinstance(v, float): return round(v, 4)
+    if isinstance(v, np.ndarray): return _j(v.tolist(), d + 1)
+    if isinstance(v, dict): return {str(k): _j(x, d + 1) for k, x in list(v.items())[:50]}
+    if isinstance(v, (list, tuple)): return [_j(x, d + 1) for x in list(v)[:50]]
+    if isinstance(v, (pd.Series, pd.DataFrame)): return _j(v.to_dict(), d + 1)
+    return v
+_ns = dict(np=np, pd=pd, counts=counts, tax=tax, meta=meta, pdist=pdist, squareform=squareform,
+           braycurtis=braycurtis, entropy=entropy, pearsonr=pearsonr, spearmanr=spearmanr,
+           kruskal=kruskal, mannwhitneyu=mannwhitneyu, PCA=PCA)
+try:
+    exec(sys.stdin.read(), _ns)
+    print(json.dumps({"__ok__": _j(_ns["result"])} if "result" in _ns
+                     else {"__err__": "code did not set a `result` variable"}))
+except Exception as e:
+    print(json.dumps({"__err__": f"{type(e).__name__}: {e}"}))
+'''
 
 
-def _analysis_namespace():
-    from scipy.spatial.distance import pdist, squareform, braycurtis
-    from scipy.stats import entropy
-    from sklearn.decomposition import PCA
-    return {"__builtins__": _SAFE_BUILTINS, "np": np, "pd": pd, "counts": COUNTS.copy(),
-            "pdist": pdist, "squareform": squareform, "braycurtis": braycurtis,
-            "entropy": entropy, "PCA": PCA}
-
-
-def _run_code(code: str):
-    """Exec analysis code that must set `result`. Returns (ok, result_or_err)."""
-    ns = _analysis_namespace()
+def _run_code(code: str, timeout: int = 30):
+    """Run model-written analysis code in a resource-limited subprocess. Returns
+    (ok, result_or_error). Data is loaded from OMC_BENCH_DATA inside the child, so
+    the same code re-runs deterministically at verification time."""
     try:
-        exec(code, ns)
-        if "result" not in ns:
-            return False, "code did not set a `result` variable"
-        return True, _jsonify(ns["result"])
-    except Exception:
-        return False, traceback.format_exc().splitlines()[-1]
+        p = subprocess.run(
+            [sys.executable, "-c", _CHILD_RUNNER], input=code, text=True,
+            capture_output=True, timeout=timeout,
+            env={**os.environ, "EXPLORER_DATA_DIR": str(DATA_DIR),
+                 # single-threaded BLAS: deterministic + far smaller virtual footprint
+                 "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"},
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"timeout >{timeout}s"
+    lines = (p.stdout or "").strip().splitlines()
+    try:
+        r = json.loads(lines[-1]) if lines else {}
+    except json.JSONDecodeError:
+        return False, ((p.stderr or p.stdout or "no output").strip().splitlines() or ["error"])[-1][:200]
+    return (True, r["__ok__"]) if "__ok__" in r else (False, r.get("__err__", "error"))
 
 
 def _jsonify(v, depth=0):
@@ -157,46 +277,108 @@ def _flatten_numbers(v, acc):
 # ── DAG state ─────────────────────────────────────────────────────────────────
 COMPUTATIONS = {}  # id -> {label, code, result}
 LEDGER = []        # claim dicts
+AGENDA = []        # investigation worklist: {id, question, rationale, status, parent}
+
+
+def _current_investigation():
+    """The investigation being worked (first in-progress, else first pending)."""
+    for st in ("in_progress", "pending"):
+        for a in AGENDA:
+            if a["status"] == st:
+                return a["id"]
+    return None
 
 
 TOOLS = [
     {"type": "function", "function": {
-        "name": "list_datasets",
-        "description": "List available summary datasets you can inspect.",
+        "name": "propose_agenda",
+        "description": ("FIRST STEP. Propose the analyses / hypothesis tests worth running on this "
+                        "amplicon dataset — the things a curious microbial ecologist would actually "
+                        "test. Be comprehensive and go beyond the obvious summary stats."),
+        "parameters": {"type": "object", "properties": {
+            "items": {"type": "array", "items": {"type": "object", "properties": {
+                "question": {"type": "string", "description": "the analysis/hypothesis, e.g. 'Do samples cluster in ordination, and which taxa drive the separation?'"},
+                "rationale": {"type": "string", "description": "why it matters ecologically"}},
+                "required": ["question"]}}},
+            "required": ["items"]}}},
+    {"type": "function", "function": {
+        "name": "get_agenda",
+        "description": "See the current agenda and each item's status (pending/in_progress/done).",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "add_followup",
+        "description": ("Recurse: when a result is surprising or opens a deeper question, add a "
+                        "follow-up investigation (e.g. ordination shows structure → which taxa drive "
+                        "it → are they contaminants or real signal?). This is how you go deeper."),
+        "parameters": {"type": "object", "properties": {
+            "question": {"type": "string"}, "rationale": {"type": "string"}},
+            "required": ["question"]}}},
+    {"type": "function", "function": {
+        "name": "mark_done",
+        "description": "Mark the current investigation finished; move to the next agenda item.",
         "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
         "name": "get_dataset",
-        "description": "Load a named summary dataset's contents.",
+        "description": "Load a named summary dataset's contents (list_datasets to see names).",
         "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}},
     {"type": "function", "function": {
+        "name": "list_datasets",
+        "description": "List available summary datasets.",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
         "name": "run_analysis",
-        "description": ("Run Python to compute a statistic the summaries don't provide (diversity, "
-                        "richness, Bray-Curtis, ordination). Available in scope: `counts` (pandas "
-                        "DataFrame, 11 samples x 162 ASVs of read counts), np, pd, pdist, squareform, "
-                        "braycurtis, entropy, PCA. Your code MUST assign the answer to `result`. "
-                        "Returns result. Use this before claiming any computed number."),
+        "description": ("Run Python to compute anything the summaries lack. In scope: `counts` "
+                        "(samples×ASV read-count DataFrame), `tax` (ASV×rank Domain..Genus — join to "
+                        "counts to work at taxon level or split Bacteria/Archaea vs Eukaryota), `meta` "
+                        "(per-sample metadata incl. library_name, collection_date, x/y). Helpers: np, "
+                        "pd, pdist, squareform, braycurtis, entropy, pearsonr, spearmanr, kruskal, "
+                        "mannwhitneyu, PCA. Code MUST assign to `result`. Compute before you claim."),
         "parameters": {"type": "object", "properties": {
-            "label": {"type": "string", "description": "short name, e.g. 'shannon_diversity'"},
-            "code": {"type": "string", "description": "Python that sets `result`"}},
+            "label": {"type": "string"}, "code": {"type": "string", "description": "Python that sets `result`"}},
             "required": ["label", "code"]}}},
     {"type": "function", "function": {
         "name": "record_claim",
-        "description": ("Record ONE verifiable claim. Cite antecedents so it can be re-checked: "
-                        "data paths (e.g. 'renorm_stats.prokaryote.n_asvs') and/or computation ids "
-                        "returned by run_analysis (e.g. 'c1')."),
+        "description": ("Record ONE verifiable claim from the current investigation. Cite antecedents "
+                        "(data paths and/or computation ids) so it can be re-checked. Prefer insight "
+                        "(patterns, relationships, anomalies) over restating summary numbers."),
         "parameters": {"type": "object", "properties": {
             "statement": {"type": "string"},
             "value": {"type": "string", "description": "the exact supporting value"},
-            "antecedents": {"type": "array", "items": {"type": "string"},
-                            "description": "data paths and/or computation ids this claim depends on"},
-            "kind": {"type": "string", "enum": ["observation", "quality_caveat"]}},
+            "antecedents": {"type": "array", "items": {"type": "string"}},
+            "kind": {"type": "string", "enum": ["observation", "pattern", "anomaly", "quality_caveat"]}},
             "required": ["statement", "value", "antecedents"]}}},
 ]
 
 
 def _exec_tool(name, args):
+    if name == "propose_agenda":
+        for it in args.get("items", [])[:20]:
+            AGENDA.append({"id": f"a{len(AGENDA) + 1}", "question": it.get("question", ""),
+                           "rationale": it.get("rationale", ""), "status": "pending", "parent": None})
+        if AGENDA:
+            AGENDA[0]["status"] = "in_progress"
+        return {"agenda": [{"id": a["id"], "question": a["question"], "status": a["status"]} for a in AGENDA]}
+    if name == "get_agenda":
+        return {"agenda": [{"id": a["id"], "question": a["question"], "status": a["status"],
+                            "parent": a["parent"]} for a in AGENDA]}
+    if name == "add_followup":
+        parent = _current_investigation()
+        AGENDA.append({"id": f"a{len(AGENDA) + 1}", "question": args.get("question", ""),
+                       "rationale": args.get("rationale", ""), "status": "pending", "parent": parent})
+        return {"added": AGENDA[-1]["id"], "parent": parent, "pending": sum(a["status"] == "pending" for a in AGENDA)}
+    if name == "mark_done":
+        cur = _current_investigation()
+        for a in AGENDA:
+            if a["id"] == cur:
+                a["status"] = "done"
+        nxt = _current_investigation()
+        for a in AGENDA:
+            if a["id"] == nxt and a["status"] == "pending":
+                a["status"] = "in_progress"
+        pend = sum(a["status"] in ("pending", "in_progress") for a in AGENDA)
+        return {"done": cur, "now": nxt, "remaining": pend}
     if name == "list_datasets":
-        return {"datasets": list(DATASETS), "note": "use run_analysis + `counts` for diversity/ordination"}
+        return {"datasets": list(DATASETS), "note": "use run_analysis with `counts`/`tax`/`meta` for real tests"}
     if name == "get_dataset":
         d = DATASETS.get(args.get("name"))
         return d if d is not None else {"error": "unknown", "available": list(DATASETS)}
@@ -209,41 +391,65 @@ def _exec_tool(name, args):
         return {"ok": True, "computation_id": cid, "result": res}
     if name == "record_claim":
         claim = {"id": f"k{len(LEDGER) + 1}", "statement": args.get("statement", ""),
-                 "value": str(args.get("value", "")), "antecedents": args.get("antecedents", []),
-                 "kind": args.get("kind", "observation")}
+                 "value": str(args.get("value", "")), "antecedents": _norm_antecedents(args.get("antecedents")),
+                 "kind": args.get("kind", "observation"), "investigation": _current_investigation()}
         LEDGER.append(claim)
         return {"recorded": True, "claim_id": claim["id"], "n_claims": len(LEDGER)}
     return {"error": f"unknown tool {name}"}
 
 
-EXPLORE_SYSTEM = """You are a microbial-ecology data analyst establishing the factual basis
-for a Results section from a 16S amplicon pipeline. Work by EXPLORATION:
+EXPLORE_SYSTEM = """You are a curious microbial ecologist investigating a 16S/18S amplicon
+dataset. Your job is not to restate summary statistics — it is to TEST HYPOTHESES and find
+PATTERNS, RELATIONSHIPS, and ANOMALIES a scientist would care about, then ground each in a
+re-runnable computation.
 
-1. list_datasets / get_dataset to read reported numbers.
-2. For statistics the summaries DON'T contain (alpha diversity, richness per sample,
-   Bray-Curtis dissimilarity, ordination), WRITE AND RUN code with run_analysis over the
-   `counts` matrix. Never claim a computed number you did not actually compute.
-3. record_claim for every finding, citing antecedents (data paths and/or computation ids)
-   so another analyst can re-verify it. Be honest about data quality (record quality_caveat
-   for lost samples, thin coverage, etc.). Do NOT invent statistics.
+Work systematically and recursively:
+1. FIRST call propose_agenda with the analyses/hypothesis tests worth running here — the
+   standard microbial-ecology toolkit AND less obvious ideas. Think across: alpha diversity
+   (richness, Shannon, Simpson, Pielou evenness) and its dependence on sequencing depth;
+   dominance and the rare biosphere; beta-diversity structure (Bray-Curtis/Jaccard,
+   ordination) and WHICH taxa drive it; differential abundance / indicator taxa between
+   sample groups; co-occurrence; the prokaryote-vs-eukaryote split (use `tax` Domain);
+   core vs transient taxa (prevalence); and a contamination screen for known kit/reagent
+   genera (e.g. Ralstonia, Bradyrhizobium, Cutibacterium, Pelomonas, Delftia).
+2. Work the agenda item by item. For each: run_analysis over `counts`/`tax`/`meta` to test
+   it, then record_claim(s) with the exact value(s) and antecedents. mark_done and move on.
+3. RECURSE: whenever a result is surprising or opens a question, add_followup — that is how
+   you go deeper (a cluster in ordination → its driver taxa → are they contamination?).
+4. Prefer claims of kind "pattern" or "anomaly" (an insight) over "observation" (a restated
+   number). Be honest: record quality_caveat for depth bias, low evenness, contamination,
+   or anything that undermines a result. Never claim a number you did not compute.
 
-Cover: retention & how many samples survived, ASV counts, taxonomic composition, AND at
-least one computed diversity/ordination result. Aim for ~8-12 sourced claims. Reply DONE
-when finished."""
+KNOW WHAT THE FIELDS MEAN, then think critically about the data:
+- `meta['x']`/`meta['y']` are PRECOMPUTED ORDINATION coordinates, not geographic lat/lon.
+- `meta['collection_date']` is often a database record-creation date, not a verified sampling
+  date. Treat SRA metadata labels — including the stated amplicon target — as unverified: they
+  are frequently wrong.
+- A named test (Mantel, PERMANOVA, ...) must be the test you actually ran; don't upgrade a
+  plain correlation to a named test.
+- Sanity-check the data against the stated context in get_dataset('study'). Don't invent
+  effects the data doesn't support; equally, don't accept a label the data contradicts —
+  where they disagree, the contradiction is itself a grounded finding worth recording.
+
+Keep going until the agenda (including follow-ups) is worked through, then reply DONE."""
 
 
-def explore(client, max_steps=20):
+def explore(client, max_steps=48):
     messages = [{"role": "system", "content": EXPLORE_SYSTEM},
-                {"role": "user", "content": "Explore, compute, and record verifiable claims for the Results section."}]
+                {"role": "user", "content": "Propose your agenda of microbial-ecology tests, then work through it, recursing where it gets interesting."}]
     for step in range(max_steps):
         r = client.chat.completions.create(model=MODEL, messages=messages, tools=TOOLS,
-                                           tool_choice="auto", temperature=0.2, max_tokens=2500)
+                                           tool_choice="auto", temperature=0.25, max_tokens=2500)
         msg = r.choices[0].message
         if not msg.tool_calls:
             content, _ = _visible_and_finish(r)
-            if "DONE" in (content or "").upper() or len(LEDGER) >= 8:
+            active = [a for a in AGENDA if a["status"] in ("pending", "in_progress")]
+            if "DONE" in (content or "").upper() and not active:
                 break
-            messages.append({"role": "user", "content": "Continue: run_analysis / record_claim, or DONE."})
+            if "DONE" in (content or "").upper() and active:
+                messages.append({"role": "user", "content": f"{len(active)} agenda items remain — work the next one (get_agenda)."})
+                continue
+            messages.append({"role": "user", "content": "Continue with the current investigation, or mark_done and take the next."})
             continue
         messages.append({"role": "assistant", "content": msg.content or "",
                          "tool_calls": [tc.model_dump() for tc in msg.tool_calls]})
@@ -253,19 +459,40 @@ def explore(client, max_steps=20):
             except json.JSONDecodeError:
                 args = {}
             result = _exec_tool(tc.function.name, args)
-            label = args.get("label") or args.get("name") or (args.get("statement") or "")[:40]
-            print(f"  step {step}: {tc.function.name}({label}) -> {str(result)[:80]}")
+            label = args.get("label") or args.get("name") or args.get("question") or (args.get("statement") or "")[:40]
+            print(f"  [{step}] {tc.function.name}({str(label)[:46]}) -> {str(result)[:70]}", flush=True)
             messages.append({"role": "tool", "tool_call_id": tc.id,
                              "content": json.dumps(result, default=str)[:3500]})
+    # If we hit the step cap with work outstanding, DO NOT pretend it finished:
+    # the current item was interrupted (not done), and pending items stay pending.
+    # Returns True only when the agenda was actually worked through.
+    for a in AGENDA:
+        if a["status"] == "in_progress":
+            a["status"] = "interrupted"
+    return not any(a["status"] in ("pending", "in_progress", "interrupted") for a in AGENDA)
 
 
 # ── Verification: re-derive every claim ───────────────────────────────────────
+def _norm_antecedents(x):
+    """Antecedents as a clean list of tokens. Some models (e.g. Sonnet) return the
+    array arg as a delimited STRING ('c2, c3; path') instead of a JSON list — split
+    it rather than iterating it character-by-character."""
+    if isinstance(x, list):
+        items = x
+    elif isinstance(x, str):
+        items = re.split(r"[;,]", x)
+    else:
+        items = []
+    return [t.strip() for t in items if t and t.strip()]
+
+
 def _nums(s):
-    """Every genuine number in a string. The negative lookbehind drops digits glued
-    to letters (the '1'/'2' in 'PC1'/'PC2' are identifiers, not quantities).
-    Handles ranges ('19-98', '2.01-4.71') and thousands commas."""
+    """Every genuine quantity in a string. The lookbehind blocks numbers embedded in
+    an alphanumeric token — not just glued to a letter ('PC1') but mid-token digit
+    runs like 'SRR38966955' (block preceded-by letter/digit/dot) — so accession IDs
+    aren't mistaken for claimed values. Handles ranges ('19-98') and thousands commas."""
     return [float(x.replace(",", ""))
-            for x in re.findall(r"(?<![A-Za-z])\d[\d,]*(?:\.\d+)?", str(s))]
+            for x in re.findall(r"(?<![A-Za-z0-9.])\d[\d,]*(?:\.\d+)?", str(s))]
 
 
 def _close(x, n):
@@ -300,12 +527,56 @@ def _match_num(x, cands):
     return None
 
 
-def verify():
+RECONCILE_SYSTEM = """You are a skeptical verification auditor. You are given a CLAIM and the
+INDEPENDENT EVIDENCE that was re-executed from the raw data (computation results and data
+values). Decide whether the evidence genuinely supports the claim's quantitative content.
+
+- Judge only against the evidence shown — never from prior knowledge.
+- Allow equivalent representations: unit conversions (a fraction vs a percent), values that
+  are a simple derivation of the evidence (e.g. a difference or ratio), and ranges.
+- IGNORE tokens that are identifiers, not quantities (sample accessions like SRR38966955).
+- If the claim packs several numbers, it is SUPPORTED only if every quantitative number is
+  backed; if some are and some aren't, say PARTIAL and list which fail.
+- Default to UNSUPPORTED when the evidence does not clearly back a number. Be strict.
+
+Reply with exactly one line 'VERDICT: SUPPORTED|PARTIAL|UNSUPPORTED' then one sentence why."""
+
+
+def _evidence_for(claim) -> str:
+    """The deterministic evidence block for a claim: re-executed computation results
+    and re-read data values for each antecedent. This is what the reconciler judges
+    against — not memory."""
+    parts = []
+    for ant in claim["antecedents"]:
+        if ant in COMPUTATIONS:
+            good, res = _run_code(COMPUTATIONS[ant]["code"])
+            parts.append(f"[{ant}] {COMPUTATIONS[ant]['label']} (re-executed) = "
+                         + (json.dumps(res)[:600] if good else "ERROR"))
+        else:
+            found, val = _navigate(ant)
+            parts.append(f"[{ant}] = {json.dumps(val)[:300] if found else 'NOT FOUND'}")
+    return "\n".join(parts)
+
+
+def reconcile_claim(client, claim) -> dict:
+    """Model adjudication of a claim against its re-executed evidence (issue #29).
+    Only invoked on a deterministic miss. Returns {verdict, reasoning}."""
+    user = (f"CLAIM: {claim['statement']}\nCLAIMED VALUE: {claim['value']}\n\n"
+            f"INDEPENDENT EVIDENCE (re-executed from raw data):\n{_evidence_for(claim)}")
+    from ai.llm_client import chat
+    resp = chat(client, RECONCILE_SYSTEM, user, model=MODEL, max_tokens=4000, temperature=0.0)
+    m = re.search(r"VERDICT:\s*(SUPPORTED|PARTIAL|UNSUPPORTED)", resp.upper())
+    return {"verdict": m.group(1).lower() if m else "unsupported", "reasoning": resp.strip()[:400]}
+
+
+def verify(client=None):
     """Re-derive each claim from its antecedents (data re-read; computations
-    re-EXECUTED). Distinguishes refuted (contradicts data) from unverifiable
-    (no checkable antecedent), so a true claim is never marked refuted for a
-    representation mismatch."""
+    re-EXECUTED). Deterministic first; a true claim is never marked refuted for a
+    representation mismatch. If `client` is given, a deterministic MISS escalates to
+    a skeptical model reconciliation against the same re-executed evidence — robust
+    on the hard cases, and labeled so it's clear which claims leaned on judgment."""
     for c in LEDGER:
+        c["antecedents"] = _norm_antecedents(c["antecedents"])  # tolerate string-form ledgers
         claim_nums = _nums(c["value"])
         candidates, strvals, checked = [], [], []
         for ant in c["antecedents"]:
@@ -330,6 +601,13 @@ def verify():
             ok = any(c["value"].strip().lower() in s.lower() for s in strvals) if strvals else None
         c["verdict"] = "verified" if ok else ("unverifiable" if (ok is None or not have_evidence) else "refuted")
         c["checked"] = checked
+        # Escalate deterministic misses to a skeptical model reconciliation against
+        # the SAME re-executed evidence (labeled, so judgment-backed claims are visible).
+        if c["verdict"] != "verified" and client is not None and have_evidence:
+            rec = reconcile_claim(client, c)
+            c["reconcile"] = rec
+            if rec["verdict"] == "supported":
+                c["verdict"], c["method"] = "verified", "reconciled"
 
 
 def _supported_results_data():
@@ -410,18 +688,40 @@ def write_results(client, verified):
     return content
 
 
-def reverify_saved():
-    """Re-run verification (and rebuild the DAG) on the saved ledger — no model.
-    Lets us test verifier changes against the exact recorded claims/computations."""
+def reverify_saved(client=None):
+    """Re-run verification (and rebuild the DAG) on the saved ledger. With no client
+    it is purely deterministic (no model — fully reproducible); with a client, a
+    deterministic miss escalates to skeptical model reconciliation."""
     saved = json.loads((OUT / "claims_ledger.json").read_text())
     LEDGER[:] = saved["claims"]
     COMPUTATIONS.clear(); COMPUTATIONS.update(saved["computations"])
-    verify()
+    AGENDA[:] = saved.get("agenda", [])
+    verify(client)
+    done = sum(a["status"] == "done" for a in AGENDA)
+    completed = bool(AGENDA) and all(a["status"] == "done" for a in AGENDA)
     (OUT / "claims_ledger.json").write_text(json.dumps(
-        {"claims": LEDGER, "computations": COMPUTATIONS}, indent=2, default=str) + "\n")
+        {"claims": LEDGER, "computations": COMPUTATIONS, "agenda": AGENDA,
+         "run": {"completed": completed, "investigations_done": done,
+                 "investigations_total": len(AGENDA)}}, indent=2, default=str) + "\n")
     dag = build_dag()
     (OUT / "claims_dag.json").write_text(json.dumps(dag, indent=2, default=str) + "\n")
-    verified = sum(c["verdict"] == "verified" for c in LEDGER)
+    verified_claims = [c for c in LEDGER if c["verdict"] == "verified"]
+    verified = len(verified_claims)
+    status = "complete" if completed else f"INCOMPLETE ({done}/{len(AGENDA)} investigations)"
+    (OUT / "claims_dag.md").write_text(
+        f"# Claim provenance DAG ({MODEL}) — {status}\n\n{verified}/{len(LEDGER)} claims verified · "
+        f"{len(COMPUTATIONS)} computations\n\nLegend: 🟩 verified · 🟥 refuted · 🟨 unverifiable · "
+        f"🟦 computation · ⬛ data\n\n{dag_mermaid(dag)}\n")
+    # With a client, regenerate the Results prose so the snapshot is coherent.
+    if client is not None and verified_claims:
+        banner = "" if completed else (
+            f"> ⚠️ PRELIMINARY — {len(AGENDA) - done} of {len(AGENDA)} investigations outstanding; "
+            f"these Results are partial.\n\n")
+        text = write_results(client, verified_claims)
+        (OUT / "results_from_claims.md").write_text(
+            f"# Results from claims ({MODEL}) — {status}\n\n{banner}"
+            f"_{verified}/{len(LEDGER)} verified · {len(COMPUTATIONS)} computations · "
+            f"{done}/{len(AGENDA)} investigations_\n\n{text}\n")
     print(f"re-verified {verified}/{len(LEDGER)} claims (offline)")
     for c in LEDGER:
         if c["verdict"] != "verified":
@@ -432,27 +732,47 @@ def reverify_saved():
 
 def main():
     if "--reverify" in sys.argv:
-        reverify_saved(); return
-    _unload_all()
-    if not _lms_load(MODEL, 65536, 300)[1]:
+        client = None
+        if "--reconcile" in sys.argv:   # escalate deterministic misses to the model
+            if not _ensure_model_loaded():
+                print("load failed"); return
+            client = _client()
+        reverify_saved(client); return
+    if not _ensure_model_loaded():
         print("load failed"); return
-    client = OpenAI(base_url=BASE_URL, api_key="lm-studio")
+    client = _client()
+    print(f"model: {MODEL} @ {BASE_URL}")
 
-    print("=== EXPLORE (read + compute) ===")
+    print("=== EXPLORE (agenda-driven, recursive) ===")
     t0 = time.time()
-    explore(client)
-    verify()
-    print(f"  {len(LEDGER)} claims, {len(COMPUTATIONS)} computations in {time.time()-t0:.0f}s")
+    completed = explore(client)
+    verify(client)  # deterministic first; escalate misses to skeptical model reconciliation
+    done = sum(a["status"] == "done" for a in AGENDA)
+    outstanding = [a for a in AGENDA if a["status"] != "done"]
+    print(f"\n  agenda ({done}/{len(AGENDA)} investigations done"
+          f"{'' if completed else f' — INCOMPLETE, {len(outstanding)} outstanding'}):")
+    for a in AGENDA:
+        tag = "  └─" if a["parent"] else "•"
+        print(f"    {tag} [{a['status']}] {a['id']}: {a['question'][:72]}")
+    print(f"\n  {len(LEDGER)} claims, {len(COMPUTATIONS)} computations in {time.time()-t0:.0f}s")
     for c in LEDGER:
-        print(f"    [{c.get('verdict'):12}] {c['statement'][:64]}  (={c['value']}; {','.join(c['checked'])})")
+        print(f"    [{c.get('verdict'):12}|{c.get('kind','?')[:7]:7}] {c['statement'][:60]}  (={c['value']})")
 
     verified = [c for c in LEDGER if c["verdict"] == "verified"]
+    status = "complete" if completed else f"INCOMPLETE ({done}/{len(AGENDA)} investigations)"
+    banner = "" if completed else (
+        f"> ⚠️ PRELIMINARY — exploration stopped with {len(outstanding)} of {len(AGENDA)} "
+        f"investigations outstanding ({', '.join(a['id'] for a in outstanding)}); "
+        f"these Results are partial.\n\n")
+    # One atomic snapshot: ledger, DAG, and prose written from the SAME run state.
     (OUT / "claims_ledger.json").write_text(json.dumps(
-        {"claims": LEDGER, "computations": COMPUTATIONS}, indent=2, default=str) + "\n")
+        {"claims": LEDGER, "computations": COMPUTATIONS, "agenda": AGENDA,
+         "run": {"completed": completed, "investigations_done": done,
+                 "investigations_total": len(AGENDA)}}, indent=2, default=str) + "\n")
     dag = build_dag()
     (OUT / "claims_dag.json").write_text(json.dumps(dag, indent=2, default=str) + "\n")
     (OUT / "claims_dag.md").write_text(
-        f"# Claim provenance DAG ({MODEL})\n\n"
+        f"# Claim provenance DAG ({MODEL}) — {status}\n\n"
         f"{len(verified)}/{len(LEDGER)} claims verified · {len(COMPUTATIONS)} computations\n\n"
         f"Legend: 🟩 verified · 🟥 refuted · 🟨 unverifiable · 🟦 computation · ⬛ data\n\n"
         f"{dag_mermaid(dag)}\n")
@@ -463,9 +783,10 @@ def main():
     n_unsupported = sum(len(i["detail"].split("may be unsupported:")[1].split(","))
                         for i in unsupported) if unsupported else 0
     (OUT / "results_from_claims.md").write_text(
-        f"# Results from claims ({MODEL})\n\n_{len(verified)}/{len(LEDGER)} verified · "
-        f"{len(COMPUTATIONS)} computations · {n_unsupported} unsupported numbers_\n\n{text}\n")
-    print(f"  verified {len(verified)}/{len(LEDGER)}; {n_unsupported} unsupported numbers")
+        f"# Results from claims ({MODEL}) — {status}\n\n{banner}"
+        f"_{len(verified)}/{len(LEDGER)} verified · {len(COMPUTATIONS)} computations · "
+        f"{n_unsupported} unsupported numbers · {done}/{len(AGENDA)} investigations_\n\n{text}\n")
+    print(f"  {status}; verified {len(verified)}/{len(LEDGER)}; {n_unsupported} unsupported numbers")
     print(f"  -> claims_ledger.json, claims_dag.json, claims_dag.md, results_from_claims.md")
 
 
