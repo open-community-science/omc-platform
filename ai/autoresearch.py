@@ -63,9 +63,12 @@ Work systematically and recursively:
 4. Prefer claims of kind "pattern" or "anomaly" (an insight) over "observation" (a restated
    number). Be honest: record quality_caveat for depth bias, low evenness, contamination,
    or anything that undermines a result. Never claim a number you did not compute.
-5. When you must proceed on something you CANNOT confirm, call record_assumption rather than
-   deciding silently — an unstated normalization, an inferred grouping, an ambiguous field's
-   meaning. Assumptions are not claims; they make explicit what your findings rest on.
+5. SURFACE YOUR ASSUMPTIONS. Real analysis always rests on things you can't confirm — an
+   unstated normalization, an inferred grouping, an ambiguous field's meaning, the stated
+   amplicon target/primers, a database version. Every time you proceed past one, call
+   record_assumption right then (not silently). Assumptions are not claims; they make explicit
+   what your findings depend on. Expect to record several across a run — if you've recorded
+   none, you haven't looked hard enough.
 
 KNOW WHAT THE FIELDS MEAN, then think critically about the data:
 - `meta['x']`/`meta['y']` are PRECOMPUTED ORDINATION coordinates, not geographic lat/lon.
@@ -79,7 +82,8 @@ KNOW WHAT THE FIELDS MEAN, then think critically about the data:
   effects the data doesn't support; equally, don't accept a label the data contradicts —
   where they disagree, the contradiction is itself a grounded finding worth recording.
 
-Keep going until the agenda (including follow-ups) is worked through, then reply DONE."""
+Keep going until the agenda (including follow-ups) is worked through AND you have recorded the
+assumptions your findings rest on, then reply DONE."""
 
 
 RECONCILE_SYSTEM = """You are a skeptical verification auditor. You are given a CLAIM and the
@@ -760,8 +764,9 @@ class Autoresearcher:
             f"Claims you already recorded — do NOT repeat these; build beyond them:\n{claim_lines}\n\n"
             "Work any pending/interrupted items, then add_followup on the most promising "
             "or surprising leads and pursue them (a cluster → its driver taxa → are they "
-            "contamination?). Record new claims for what you find. Reply DONE only when "
-            "you judge the investigation has gone deep enough.")
+            "contamination?). Record new claims for what you find, and record_assumption for "
+            "anything new you had to take for granted but couldn't confirm. Reply DONE only "
+            "when you judge the investigation has gone deep enough.")
 
     async def explore(self, resume: bool = False) -> bool:
         """Run the agenda-driven tool-calling loop. Returns True only when the
@@ -783,6 +788,7 @@ class Autoresearcher:
                 {"role": "system", "content": EXPLORE_SYSTEM},
                 {"role": "user", "content": "Propose your agenda of microbial-ecology tests, "
                  "then work through it, recursing where it gets interesting."}]
+        swept_assumptions = False   # force one assumptions pass before finishing
         for step in range(self.max_steps):
             r = await self.llm.chat(messages, model=self.explore_model, tools=TOOLS,
                                     tool_choice="auto", temperature=0.25, max_tokens=2500)
@@ -791,6 +797,19 @@ class Autoresearcher:
                 content = _strip_think(msg.content or "")
                 active = [a for a in self.agenda if a["status"] in ("pending", "in_progress")]
                 if "DONE" in content.upper() and not active:
+                    # Don't let it finish without one explicit look for assumptions —
+                    # models otherwise skip record_assumption entirely.
+                    if not swept_assumptions:
+                        swept_assumptions = True
+                        messages.append({"role": "user", "content":
+                            "Before you finish — required pass: look back over your whole analysis and "
+                            "call record_assumption for EACH thing you had to take for granted but could "
+                            "not confirm from the data or the stated context. Every real analysis makes "
+                            "some — e.g. whether counts are raw or normalized, what an ambiguous field "
+                            "means, an inferred grouping, the stated amplicon target/primers, a database "
+                            "version, or that a named test's assumptions held. Record each one now. Only "
+                            "if you truly relied on none, reply 'NO ASSUMPTIONS' then DONE."})
+                        continue
                     break
                 if "DONE" in content.upper() and active:
                     messages.append({"role": "user",
