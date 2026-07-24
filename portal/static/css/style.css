@@ -1583,3 +1583,25 @@ body {
 .primer-set-list { margin: 0.5rem 0 0.75rem 1rem; font-size: 0.85rem; list-style: disc; }
 .primer-set-list li { margin-bottom: 0.35rem; }
 .primer-set-list code { font-size: 0.8rem; }
+
+/* ── Progress chips (submission workflow at a glance) ── */
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 2px; }
+.chip-row.compact { margin: 8px 0 0; gap: 6px; }
+.dchip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px;
+  border-radius: 999px; font-size: 0.8rem; font-weight: 600; line-height: 1.5;
+  border: 1px solid transparent; text-decoration: none; white-space: nowrap;
+}
+.chip-row.compact .dchip { padding: 2px 9px; font-size: 0.72rem; }
+a.dchip { cursor: pointer; }
+.dchip.done { background: rgba(34,197,94,.14); color: #15803d; border-color: rgba(34,197,94,.32); }
+a.dchip.done:hover { background: rgba(34,197,94,.24); }
+.dchip.progress { background: rgba(59,130,246,.14); color: #1d4ed8; border-color: rgba(59,130,246,.32); }
+.dchip.pending { background: rgba(100,116,139,.12); color: #64748b; }
+.dchip.failed { background: rgba(239,68,68,.14); color: #b91c1c; border-color: rgba(239,68,68,.32); }
+.dchip.link { background: rgba(99,102,241,.12); color: #4338ca; border-color: rgba(99,102,241,.32); }
+.dchip.link:hover { background: rgba(99,102,241,.22); }
+@media (prefers-color-scheme: dark) {
+  .dchip.done { color: #4ade80; } .dchip.progress { color: #93c5fd; }
+  .dchip.pending { color: #94a3b8; } .dchip.failed { color: #fca5a5; } .dchip.link { color: #a5b4fc; }
+}
