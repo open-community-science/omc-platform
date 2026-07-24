@@ -119,6 +119,12 @@
 .prov-wrap .foot{margin-top:34px;padding-top:16px;border-top:1px solid var(--border);color:var(--muted);font-size:12.5px}
 .prov-wrap .foot code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px}
 .prov-wrap .empty{color:var(--muted);font-size:13px;padding:20px 4px}
+.prov-wrap .assumptions{margin-top:30px}
+.prov-wrap ul.assumption-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.prov-wrap .assumption{border:1px solid var(--border);border-left:3px solid #d97706;border-radius:8px;padding:11px 14px;background:var(--panel2)}
+.prov-wrap .assumption .a-stmt{font-size:13.5px;font-weight:600;line-height:1.5}
+.prov-wrap .assumption .a-why{font-size:12.5px;color:var(--muted);margin-top:5px;line-height:1.55}
+.prov-wrap .assumption .a-impact{font-size:12.5px;margin-top:5px;line-height:1.55}
 </style>
 {% endblock %}
 
@@ -171,6 +177,11 @@
     </aside>
   </div>
 
+  <div class="assumptions" id="assumptions-block" style="display:none">
+    <p class="col-h">Assumptions <span style="opacity:.5;font-weight:400">— where the analysis had to fill a gap it couldn't confirm</span></p>
+    <ul class="assumption-list" id="assumption-list"></ul>
+  </div>
+
   <p class="foot">Data path claims re-read the pipeline output; computation claims re-execute
   the stored code. The ledger is self-contained — any model or reviewer can re-run
   <code>verify()</code> and check every claim for themselves.</p>
@@ -182,6 +193,7 @@
 // The server-persisted autoresearch snapshot (schema §4). Already fully resolved.
 const DATA = {{ data_json | safe }};
 const CLAIMS = DATA.claims || [];
+const ASSUMPTIONS = DATA.assumptions || [];
 const COMPS = DATA.computations || {};
 const AGENDA = DATA.agenda || [];
 const RUN = DATA.run || {};
@@ -215,8 +227,8 @@ const S = {
 };
 document.getElementById('stats').innerHTML = [
   ['claims', S.claims, ''], ['verified', S.verified, 'ok'],
-  ['insights', S.insights, ''], ['investigations', S.investigations, ''],
-  ['computations', S.computations, '']
+  ['insights', S.insights, ''], ['assumptions', ASSUMPTIONS.length, ''],
+  ['investigations', S.investigations, ''], ['computations', S.computations, '']
 ].map(([l,n,c]) => `<div class="stat ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
 
 // Distinct models that contributed (claims may span several after "keep digging").
@@ -307,6 +319,17 @@ function select(i){
     + `<p class="prov-h">Antecedents (${antCount})</p>${ants}`;
 }
 if (CLAIMS.length) select(0);
+
+// Assumptions: honest, unconfirmable gaps the analysis flagged (record_assumption).
+if (ASSUMPTIONS.length) {
+  document.getElementById('assumptions-block').style.display = '';
+  document.getElementById('assumption-list').innerHTML = ASSUMPTIONS.map(a => {
+    const why = a.why ? `<div class="a-why">${esc(a.why)}</div>` : '';
+    const impact = a.impact ? `<div class="a-impact"><b>If wrong:</b> ${esc(a.impact)}</div>` : '';
+    const by = (MODELS.length > 1 && a.by) ? ` <span class="chip" title="assumed by ${esc(a.by)}">${esc(shortModel(a.by))}</span>` : '';
+    return `<li class="assumption"><div class="a-stmt">${esc(a.statement)}${by}</div>${why}${impact}</li>`;
+  }).join('');
+}
 
 // ── Dig deeper: continue the investigation from this page ────────────────────
 {% if submission %}

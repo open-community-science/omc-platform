@@ -63,6 +63,9 @@ Work systematically and recursively:
 4. Prefer claims of kind "pattern" or "anomaly" (an insight) over "observation" (a restated
    number). Be honest: record quality_caveat for depth bias, low evenness, contamination,
    or anything that undermines a result. Never claim a number you did not compute.
+5. When you must proceed on something you CANNOT confirm, call record_assumption rather than
+   deciding silently — an unstated normalization, an inferred grouping, an ambiguous field's
+   meaning. Assumptions are not claims; they make explicit what your findings rest on.
 
 KNOW WHAT THE FIELDS MEAN, then think critically about the data:
 - `meta['x']`/`meta['y']` are PRECOMPUTED ORDINATION coordinates, not geographic lat/lon.
@@ -160,6 +163,18 @@ TOOLS = [
             "antecedents": {"type": "array", "items": {"type": "string"}},
             "kind": {"type": "string", "enum": ["observation", "pattern", "anomaly", "quality_caveat"]}},
             "required": ["statement", "value", "antecedents"]}}},
+    {"type": "function", "function": {
+        "name": "record_assumption",
+        "description": ("When you must proceed despite something you CANNOT confirm from the data or the "
+                        "stated context, record the assumption. This is not a verifiable claim — it "
+                        "surfaces honest uncertainty where your judgment filled a gap (e.g. an unstated "
+                        "normalization, an inferred sample grouping, an ambiguous field's meaning), so a "
+                        "reader knows what rests on it. Record one whenever you'd otherwise silently assume."),
+        "parameters": {"type": "object", "properties": {
+            "statement": {"type": "string", "description": "the assumption, e.g. 'Assuming counts are raw reads (not rarefied), as no renorm_stats is present'"},
+            "why": {"type": "string", "description": "what you could not confirm, and why the assumption was needed"},
+            "impact": {"type": "string", "description": "how the findings would change if it is wrong (optional)"}},
+            "required": ["statement"]}}},
 ]
 
 
@@ -636,6 +651,7 @@ class Autoresearcher:
         # per-run state (was module globals in the prototype)
         self.computations: dict[str, Any] = {}   # cid -> {label, code, result}
         self.ledger: list[dict] = []              # claim dicts
+        self.assumptions: list[dict] = []         # acknowledged, unconfirmable assumptions
         self.agenda: list[dict] = []              # {id, question, rationale, status, parent}
         self.results_prose: str | None = None     # last write_results() output (for snapshot)
         self.results_prose_by: str | None = None  # model that wrote the prose
@@ -713,6 +729,16 @@ class Autoresearcher:
                      "by": self.explore_model}  # model that recorded this claim
             self.ledger.append(claim)
             return {"recorded": True, "claim_id": claim["id"], "n_claims": len(self.ledger)}
+        if name == "record_assumption":
+            assumption = {"id": f"as{len(self.assumptions) + 1}",
+                          "statement": args.get("statement", ""),
+                          "why": args.get("why", ""),
+                          "impact": args.get("impact", ""),
+                          "investigation": self._current_investigation(),
+                          "by": self.explore_model}  # model that made the assumption
+            self.assumptions.append(assumption)
+            return {"recorded": True, "assumption_id": assumption["id"],
+                    "n_assumptions": len(self.assumptions)}
         return {"error": f"unknown tool {name}"}
 
     # -- explore ----------------------------------------------------------------
@@ -960,6 +986,7 @@ class Autoresearcher:
             claims.append(entry)
         return {
             "claims": claims,
+            "assumptions": self.assumptions,
             "computations": self.computations,
             "agenda": self.agenda,
             "dag": self.build_dag(),
@@ -976,6 +1003,7 @@ class Autoresearcher:
         full ``snapshot()`` and the bench ``claims_ledger.json`` shape."""
         ar = cls(data, llm, executor, **kw)
         ar.ledger = list(snap.get("claims", []))
+        ar.assumptions = list(snap.get("assumptions", []))
         ar.computations = dict(snap.get("computations", {}))
         ar.agenda = list(snap.get("agenda", []))
         return ar

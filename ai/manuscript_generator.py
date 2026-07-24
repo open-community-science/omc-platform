@@ -193,7 +193,8 @@ def _format_autoresearch_findings(interview_data: dict) -> str:
     verified, so the numbers are trustworthy. Returns '' when no run exists."""
     ar = (interview_data or {}).get("_autoresearch") or {}
     claims = [c for c in ar.get("claims", []) if c.get("verdict") == "verified"]
-    if not claims:
+    assumptions = ar.get("assumptions", [])
+    if not claims and not assumptions:
         return ""
     lines = []
     for c in claims:
@@ -201,7 +202,7 @@ def _format_autoresearch_findings(interview_data: dict) -> str:
         stmt = (c.get("statement") or "").strip()
         val = str(c.get("value", "")).strip()
         lines.append(f"- [{kind}] {stmt}" + (f"  — value: {val}" if val else ""))
-    return (
+    block = (
         "VERIFIED FINDINGS FROM AUTONOMOUS ANALYSIS (autoresearch):\n"
         "An analysis agent explored this dataset — it proposed a research agenda, wrote and\n"
         "ran its own analysis code, and recorded claims. EACH claim below was then\n"
@@ -215,6 +216,21 @@ def _format_autoresearch_findings(interview_data: dict) -> str:
         "finding: decide which are the most interesting and important and weave them into a\n"
         "coherent narrative."
     )
+    if assumptions:
+        alines = []
+        for a in assumptions:
+            stmt = (a.get("statement") or "").strip()
+            why = (a.get("why") or "").strip()
+            impact = (a.get("impact") or "").strip()
+            extra = "; ".join(x for x in [why, (f"if wrong: {impact}" if impact else "")] if x)
+            alines.append(f"- {stmt}" + (f"  ({extra})" if extra else ""))
+        block += (
+            "\n\nASSUMPTIONS THE ANALYSIS MADE (things it could not confirm and had to assume):\n"
+            + "\n".join(alines) +
+            "\n\nAny result that depends on one of these assumptions must be stated with the\n"
+            "assumption made explicit (report them as caveats), not as settled fact."
+        )
+    return block
 
 
 def build_results_prompt(study_context: str, pipeline_outputs: dict, interview_data: dict) -> str:
