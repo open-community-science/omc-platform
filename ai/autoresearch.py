@@ -252,6 +252,49 @@ TOOLS = [
 ]
 
 
+# Read the real shape of the data instead of describing it in prose. An analyst
+# told "counts is a samples x ASV DataFrame" still transposed it and graded two
+# correct claims as overturned; shapes plus an explicit axis rule are much harder
+# to misread than an English sentence (#50).
+_BRIEFING_CODE = """
+_b = {}
+if counts is not None and getattr(counts, "size", 0):
+    _b["counts"] = {"shape": list(counts.shape),
+                    "sample_ids_sample": [str(x) for x in list(counts.index[:3])],
+                    "asv_ids_sample": [str(x) for x in list(counts.columns[:3])]}
+if tax is not None and getattr(tax, "size", 0):
+    _b["tax"] = {"shape": list(tax.shape), "columns": [str(c) for c in tax.columns]}
+if meta is not None and getattr(meta, "size", 0):
+    _b["meta"] = {"shape": list(meta.shape), "columns": [str(c) for c in meta.columns]}
+result = _b
+"""
+
+
+def format_briefing(b: dict) -> str:
+    """Render the probe result as the orientation block an analyst gets. The axis
+    rule is the load-bearing line: shape alone still leaves which-way-round open."""
+    if not b:
+        return ""
+    lines = ["DATA IN SCOPE — read from THIS dataset just now, not assumed:"]
+    c = b.get("counts")
+    if c:
+        rows, cols = c["shape"]
+        lines += [
+            f"  counts: {rows} rows x {cols} columns.",
+            f"    ROWS ARE SAMPLES ({', '.join(c.get('sample_ids_sample', []))} ...) — {rows} of them.",
+            f"    COLUMNS ARE ASVs ({', '.join(c.get('asv_ids_sample', []))} ...) — {cols} of them.",
+            "    So a PER-ASV statistic reduces over axis=0, and a PER-SAMPLE statistic",
+            "    reduces over axis=1. Check your orientation before you trust a number:",
+            f"    anything claiming there are {rows} ASVs or {cols} samples has them backwards.",
+        ]
+    for key in ("tax", "meta"):
+        d = b.get(key)
+        if d:
+            lines.append(f"  {key}: {d['shape'][0]} rows x {d['shape'][1]} columns "
+                         f"[{', '.join(d.get('columns', [])[:12])}]")
+    return "\n".join(lines)
+
+
 # ── Pure helpers (moved verbatim from the prototype) ──────────────────────────
 def _norm_antecedents(x):
     """Antecedents as a clean list of tokens. Some models (e.g. Sonnet) return the
@@ -902,6 +945,22 @@ class Autoresearcher:
         self.agenda: list[dict] = []              # {id, question, rationale, status, parent}
         self.results_prose: str | None = None     # last write_results() output (for snapshot)
         self.results_prose_by: str | None = None  # model that wrote the prose
+        self._briefing: str | None = None         # cached data-shape briefing
+
+    # -- data briefing ----------------------------------------------------------
+    async def data_briefing(self) -> str:
+        """Real shapes/orientation of the analysis frames, probed once per run.
+
+        An executor call, not a model call, so it costs seconds and no tokens. Any
+        failure degrades to "" — a missing briefing must never block exploration or
+        replication, and non-amplicon pipelines may have no counts/tax/meta at all."""
+        if self._briefing is None:
+            try:
+                ok, res = await self.executor.run(_BRIEFING_CODE)
+                self._briefing = format_briefing(res) if ok and isinstance(res, dict) else ""
+            except Exception:
+                self._briefing = ""
+        return self._briefing
 
     # -- progress ---------------------------------------------------------------
     async def _emit(self, event: str, detail: Any) -> None:
@@ -1037,7 +1096,9 @@ class Autoresearcher:
         else:
             messages = [
                 {"role": "system", "content": EXPLORE_SYSTEM},
-                {"role": "user", "content": "Propose your agenda of microbial-ecology tests, "
+                {"role": "user", "content": (f"{await self.data_briefing()}\n\n"
+                 if await self.data_briefing() else "")
+                 + "Propose your agenda of microbial-ecology tests, "
                  "then work through it, recursing where it gets interesting."}]
         swept_assumptions = False   # force one assumptions pass before finishing
         for step in range(self.max_steps):
@@ -1250,8 +1311,10 @@ class Autoresearcher:
         test a claim without knowing what it asserts. What is withheld is the
         implementation: which columns, what filtering, how the join was done. That is
         where the errors re-running the same code can never catch actually live."""
+        brief = await self.data_briefing()
         msgs = [{"role": "system", "content": REPLICATE_SYSTEM},
-                {"role": "user", "content": f"CLAIM: {claim['statement']}\n"
+                {"role": "user", "content": (f"{brief}\n\n" if brief else "")
+                                            + f"CLAIM: {claim['statement']}\n"
                                             f"CLAIMED VALUE: {claim['value']}\n\n"
                                             "Re-derive this independently."}]
         model = model or self.replicate_model
@@ -1363,6 +1426,14 @@ class Autoresearcher:
                     concur = bool(consensus)
                 else:
                     concur = all(r.get("analyst") == "contradicts" for r in reps)
+                # Two derivations from ONE model are one derivation. Observed on real
+                # data: the same model transposed a samples x ASV table in round 2 and
+                # emitted byte-identical code in round 3, so its correlated error
+                # "concurred" with itself and overturned two claims that were exactly
+                # right. Agreement is only evidence when the analysts are independent.
+                if concur and len({r.get("by") for r in reps if r.get("by")}) < 2:
+                    claim["correlated_analysts"] = True
+                    return "disputed"
                 return "overturned" if concur else "contested"
             return "contested"                       # mixed — the number is unstable
         if agree:
@@ -1567,6 +1638,9 @@ class Autoresearcher:
                 "replications": c.get("replications") or [],
                 "consensus_numbers": c.get("consensus_numbers") or [],
                 "antecedent_mismatch": c.get("antecedent_mismatch", False),
+                # Set when rounds 2/3 shared a model: their agreement is correlated,
+                # not independent, so it must not read as a settled conclusion.
+                "correlated_analysts": c.get("correlated_analysts", False),
                 "reproduced": c.get("reproduced"),
                 # Per-artifact attribution: the model that recorded the claim, and
                 # (when applicable) the model that reconciled it into "verified".

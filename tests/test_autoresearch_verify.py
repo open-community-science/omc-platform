@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ai.autoresearch import (  # noqa: E402
     Autoresearcher, LLMClient, MODEL_VIEW_CAP, _jsonify, _locate_numbers,
-    _match_num, _nums,
+    _match_num, _nums, format_briefing,
 )
 
 
@@ -492,6 +492,7 @@ def test_run_summary_reports_the_clean_room_outcome():
 
 # ── round 3: adjudication ─────────────────────────────────────────────────────
 def _claim(verdict="disputed", reproduced=True, value="rho=0.78", reps=()):
+    reps = [{"by": "analyst-2", **r} for r in reps]      # round 2 ran on its own model
     return {"id": "k1", "statement": "richness tracks depth", "value": value,
             "antecedents": ["c1"], "kind": "pattern", "verdict": verdict,
             "reproduced": reproduced, "replications": list(reps)}
@@ -628,6 +629,99 @@ def test_overturned_and_contested_stay_out_of_the_prose():
     assert "solid finding" in prompt
     assert "overturned finding" not in prompt
     assert "contested finding" not in prompt
+
+
+# ── the data briefing, and correlated analysts ────────────────────────────────
+class TestBriefing:
+    def test_states_orientation_and_the_axis_rule_not_just_the_shape(self):
+        """Prose ("counts is a samples x ASV DataFrame") was not enough — an analyst
+        transposed it anyway and overturned two correct claims."""
+        out = format_briefing({"counts": {"shape": [63, 735],
+                                          "sample_ids_sample": ["SRR1"], "asv_ids_sample": ["ASV_1"]},
+                               "tax": {"shape": [735, 6], "columns": ["Domain", "Genus"]}})
+        assert "63 rows x 735 columns" in out
+        assert "ROWS ARE SAMPLES" in out and "COLUMNS ARE ASVs" in out
+        assert "axis=0" in out and "axis=1" in out
+        # Names the exact failure mode observed, in the data's own numbers.
+        assert "63 ASVs or 735 samples has them backwards" in out
+
+    def test_empty_probe_renders_nothing(self):
+        assert format_briefing({}) == ""
+
+    def test_partial_data_does_not_break_it(self):
+        out = format_briefing({"meta": {"shape": [63, 16], "columns": ["x", "y"]}})
+        assert "meta: 63 rows x 16 columns" in out and "counts" not in out
+
+
+def test_briefing_is_probed_once_and_reaches_the_analyst():
+    calls = []
+
+    class _Exec:
+        async def run(self, code, timeout=30):
+            calls.append(code)
+            return True, {"counts": {"shape": [63, 735], "sample_ids_sample": ["SRR1"],
+                                     "asv_ids_sample": ["ASV_1"]}}
+
+    seen = []
+
+    class _Chat:
+        class completions:
+            @staticmethod
+            async def create(**kw):
+                seen.append(kw)
+                class M:
+                    content = "```python\nresult = {'rho': 0.78}\n```\nSUPPORTS: YES"
+                class C:
+                    message = M()
+                class R:
+                    choices = [C()]
+                return R()
+
+    class _Client:
+        chat = _Chat()
+
+    ar = Autoresearcher(_StubData(), LLMClient(_Client(), "m"), _Exec(), replicate_model="a2")
+    ar.ledger = [dict(c) for c in _LEDGER]
+    ar.computations = dict(_COMPS)
+    asyncio.run(ar.replicate())
+    prompt = seen[0]["messages"][-1]["content"]
+    assert "ROWS ARE SAMPLES" in prompt          # orientation reached the analyst
+    assert calls.count(  # probed once, then cached — not re-run per claim
+        [c for c in calls if "sample_ids_sample" in c][0]) == 1
+
+
+def test_briefing_failure_never_blocks_replication():
+    class _Exec:
+        async def run(self, code, timeout=30):
+            raise RuntimeError("sandbox down")
+
+    ar = Autoresearcher(_StubData(), LLMClient(None, "m"), _Exec())
+    assert asyncio.run(ar.data_briefing()) == ""
+
+
+def test_one_model_cannot_concur_with_itself():
+    """Observed on real data: the same model transposed a table in round 2 and
+    emitted byte-identical code in round 3, so its own error 'concurred' and
+    overturned two claims that were exactly right."""
+    ar, _ = _round3(
+        "```python\nresult = {'rho': 0.21}\n```\nSUPPORTS: NO",
+        {"result = {'rho': 0.21}": {"rho": 0.21}},
+        _claim(reps=[{"round": 2, "code": "x", "result": {"rho": 0.2},
+                      "numbers_match": False, "analyst": "contradicts",
+                      "by": "third-model"}]))          # SAME model as round 3
+    c = ar.ledger[0]
+    assert c["verdict"] == "disputed"                  # not overturned
+    assert c["correlated_analysts"] is True
+
+
+def test_two_distinct_models_concurring_still_overturn():
+    ar, _ = _round3(
+        "```python\nresult = {'rho': 0.21}\n```\nSUPPORTS: NO",
+        {"result = {'rho': 0.21}": {"rho": 0.21}},
+        _claim(reps=[{"round": 2, "code": "x", "result": {"rho": 0.2},
+                      "numbers_match": False, "analyst": "contradicts"}]))  # by=analyst-2
+    assert ar.ledger[0]["verdict"] == "overturned"
+    assert ar.ledger[0].get("correlated_analysts", False) is False
 
 
 def test_assumptions_reach_the_writer():

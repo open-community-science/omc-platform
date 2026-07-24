@@ -1,6 +1,84 @@
 {
   "nodes": [
     {
+      "id": "a1",
+      "type": "investigation",
+      "label": "Does the data actually support the '16S amplicon' label, or is this a ",
+      "status": "done"
+    },
+    {
+      "id": "a2",
+      "type": "investigation",
+      "label": "How does sequencing depth (total_reads) vary across samples, and how m",
+      "status": "done"
+    },
+    {
+      "id": "a3",
+      "type": "investigation",
+      "label": "What is the dominance structure / rare biosphere shape (rank-abundance",
+      "status": "done"
+    },
+    {
+      "id": "a4",
+      "type": "investigation",
+      "label": "Do samples separate into distinct clusters in beta-diversity ordinatio",
+      "status": "done"
+    },
+    {
+      "id": "a5",
+      "type": "investigation",
+      "label": "Which taxa drive the separation between clusters/groups seen in ordina",
+      "status": "done"
+    },
+    {
+      "id": "a6",
+      "type": "investigation",
+      "label": "Is there a strong prokaryote vs eukaryote compositional split among sa",
+      "status": "done"
+    },
+    {
+      "id": "a7",
+      "type": "investigation",
+      "label": "Are known kit/reagent contaminant genera (Ralstonia, Bradyrhizobium, C",
+      "status": "done"
+    },
+    {
+      "id": "a8",
+      "type": "investigation",
+      "label": "What are the core (high-prevalence) vs transient (low-prevalence) taxa",
+      "status": "done"
+    },
+    {
+      "id": "a9",
+      "type": "investigation",
+      "label": "Is there differential abundance of taxa between the two accession batc",
+      "status": "done"
+    },
+    {
+      "id": "a10",
+      "type": "investigation",
+      "label": "Do any taxa show co-occurrence or mutual exclusion patterns (correlati",
+      "status": "done"
+    },
+    {
+      "id": "a11",
+      "type": "investigation",
+      "label": "Does the precomputed ordination (x/y) correlate with sequencing depth ",
+      "status": "interrupted"
+    },
+    {
+      "id": "a12",
+      "type": "investigation",
+      "label": "Is collection_date informative (real sampling gradient) or just a data",
+      "status": "pending"
+    },
+    {
+      "id": "a13",
+      "type": "investigation",
+      "label": "Within each domain batch, does Bray-Curtis structure separate by sampl",
+      "status": "pending"
+    },
+    {
       "id": "c1",
       "type": "computation",
       "label": "inspect shapes"
@@ -94,7 +172,7 @@
       "id": "k1",
       "type": "claim",
       "label": "The dataset is not pure 16S: SILVA domain classification spl",
-      "verdict": "verified",
+      "verdict": "disputed",
       "kind": "observation"
     },
     {
@@ -127,35 +205,35 @@
       "id": "k5",
       "type": "claim",
       "label": "This ASV table has already been pre-filtered to remove singl",
-      "verdict": "verified",
+      "verdict": "overturned",
       "kind": "quality_caveat"
     },
     {
       "id": "k6",
       "type": "claim",
       "label": "The community is moderately dominated by a few taxa: the sin",
-      "verdict": "verified",
+      "verdict": "contested",
       "kind": "observation"
     },
     {
       "id": "k7",
       "type": "claim",
       "label": "Between the two domain batches (bacteria vs eukaryote runs),",
-      "verdict": "verified",
+      "verdict": "contested",
       "kind": "observation"
     },
     {
       "id": "k8",
       "type": "claim",
       "label": "The precomputed ordination coordinate meta['y'] almost perfe",
-      "verdict": "refuted",
+      "verdict": "replicated",
       "kind": "pattern"
     },
     {
       "id": "k9",
       "type": "claim",
       "label": "Within each domain batch separately, sample/habitat type (fr",
-      "verdict": "verified",
+      "verdict": "contested",
       "kind": "observation"
     },
     {
@@ -176,7 +254,7 @@
       "id": "k12",
       "type": "claim",
       "label": "Core taxa (\u226550% sample prevalence) are a tiny fraction of to",
-      "verdict": "verified",
+      "verdict": "overturned",
       "kind": "observation"
     },
     {
@@ -197,18 +275,28 @@
       "id": "k15",
       "type": "claim",
       "label": "A positively co-occurring guild of genera (Neptuniibacter, C",
-      "verdict": "refuted",
+      "verdict": "partial",
       "kind": "observation"
     },
     {
       "id": "k16",
       "type": "claim",
       "label": "Within the eukaryote batch, the precomputed ordination x-coo",
-      "verdict": "verified",
+      "verdict": "replicated",
       "kind": "quality_caveat"
     }
   ],
   "edges": [
+    {
+      "from": "a4",
+      "to": "a13",
+      "kind": "followup"
+    },
+    {
+      "from": "a1",
+      "to": "k1",
+      "kind": "answers"
+    },
     {
       "from": "c2",
       "to": "k1"
@@ -226,16 +314,31 @@
       "to": "k1"
     },
     {
+      "from": "a1",
+      "to": "k2",
+      "kind": "answers"
+    },
+    {
       "from": "c4",
       "to": "k2"
     },
     {
+      "from": "a2",
+      "to": "k3",
+      "kind": "answers"
+    },
+    {
       "from": "c5",
       "to": "k3"
     },
     {
       "from": "c6",
       "to": "k3"
+    },
+    {
+      "from": "a2",
+      "to": "k4",
+      "kind": "answers"
     },
     {
       "from": "c5",
@@ -246,6 +349,11 @@
       "to": "k4"
     },
     {
+      "from": "a3",
+      "to": "k5",
+      "kind": "answers"
+    },
+    {
       "from": "c7",
       "to": "k5"
     },
@@ -254,36 +362,76 @@
       "to": "k5"
     },
     {
+      "from": "a3",
+      "to": "k6",
+      "kind": "answers"
+    },
+    {
       "from": "c7",
       "to": "k6"
     },
     {
       "from": "c8",
       "to": "k6"
+    },
+    {
+      "from": "a4",
+      "to": "k7",
+      "kind": "answers"
     },
     {
       "from": "c10",
       "to": "k7"
     },
     {
+      "from": "a4",
+      "to": "k8",
+      "kind": "answers"
+    },
+    {
       "from": "c10",
       "to": "k8"
+    },
+    {
+      "from": "a5",
+      "to": "k9",
+      "kind": "answers"
     },
     {
       "from": "c12",
       "to": "k9"
     },
     {
+      "from": "a5",
+      "to": "k10",
+      "kind": "answers"
+    },
+    {
       "from": "c13",
       "to": "k10"
+    },
+    {
+      "from": "a7",
+      "to": "k11",
+      "kind": "answers"
     },
     {
       "from": "c14",
       "to": "k11"
     },
     {
+      "from": "a8",
+      "to": "k12",
+      "kind": "answers"
+    },
+    {
       "from": "c15",
       "to": "k12"
+    },
+    {
+      "from": "a8",
+      "to": "k13",
+      "kind": "answers"
     },
     {
       "from": "c15",
@@ -294,8 +442,18 @@
       "to": "k13"
     },
     {
+      "from": "a9",
+      "to": "k14",
+      "kind": "answers"
+    },
+    {
       "from": "c16",
       "to": "k14"
+    },
+    {
+      "from": "a10",
+      "to": "k15",
+      "kind": "answers"
     },
     {
       "from": "c17",
@@ -304,6 +462,11 @@
     {
       "from": "c13",
       "to": "k15"
+    },
+    {
+      "from": "a11",
+      "to": "k16",
+      "kind": "answers"
     },
     {
       "from": "c18",
