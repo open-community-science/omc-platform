@@ -33,6 +33,7 @@ import asyncio
 import datetime as _datetime
 import gzip
 import json
+import math
 import os
 import re
 import subprocess
@@ -334,6 +335,33 @@ def _nums(s):
     return [float(x.replace(",", "")) for x in _NUM_RE.findall(str(s))]
 
 
+# A number introduced by a comparison is a THRESHOLD — it defines the analysis
+# rather than reporting its outcome, so no re-derivation will ever produce it.
+# Demanding it as evidence made an exact replication read as a failure: k12 stated
+# "core (>=50% prevalence): 14 ASVs; transient (<=10% prevalence): 511/735 (69.5%)",
+# the analyst reproduced 14 / 511 / 735 / 69.5% exactly, and the claim was still
+# graded unmatched because 50 and 10 appear in no result.
+_THRESHOLD_BEFORE_RE = re.compile(r"(?:[<>]=?|[\u2264\u2265]|\b(?:at least|at most|above|below|"
+                                  r"over|under|greater than|less than|exceeding)\s*)\s*$",
+                                  re.IGNORECASE)
+
+
+def _claim_nums(s):
+    """The numbers a claim ASSERTS, excluding the thresholds it merely cites."""
+    text = str(s)
+    out = []
+    for m in _NUM_RE.finditer(text):
+        if _THRESHOLD_BEFORE_RE.search(text[:m.start()]):
+            continue
+        # "2/63 samples", "511/735 ASVs": the numerator is the finding, the
+        # denominator is the population it was drawn from. Requiring the latter
+        # failed an otherwise exact replication.
+        if m.start() >= 2 and text[m.start() - 1] == "/" and text[m.start() - 2].isdigit():
+            continue
+        out.append(float(m.group().replace(",", "")))
+    return out
+
+
 def _close(x, n):
     return abs(x - n) < 0.05 * max(abs(n), 1)
 
@@ -421,6 +449,18 @@ def _flatten_numbers(v, acc):
 
 MODEL_VIEW_CAP = 50     # items shown to the model in a tool result
 RESULT_CAP = 200        # items KEPT in the stored/re-executed result (verification)
+
+
+def _usable_derivation(res) -> bool:
+    """Did this derivation actually compute anything comparable?
+
+    An all-``nan`` or empty result is a FAILED derivation, not a disagreement — it
+    means an empty selection, a failed join, or a groupby that matched nothing. On
+    real data four claims were voted against on the strength of ``{}`` or
+    ``{'rho': nan}``; that is the analyst failing, and it must not count against
+    the claim."""
+    nums = _flatten_result_numbers(res)
+    return any(math.isfinite(x) for x in nums)
 
 
 def _flatten_result_numbers(v) -> list[float]:
@@ -1171,7 +1211,7 @@ class Autoresearcher:
         bounded head of the result for shape. A number the claim cites is therefore
         never invisible merely because it serialized late — the reconciler can say
         "unsupported" on the evidence, not on a truncation artifact."""
-        targets = _nums(claim.get("value", "")) + _nums(claim.get("statement", ""))
+        targets = _claim_nums(claim.get("value", "")) + _claim_nums(claim.get("statement", ""))
         parts = []
         for ant in claim["antecedents"]:
             if ant in self.computations:
@@ -1234,7 +1274,7 @@ class Autoresearcher:
 
         for c in self.ledger:
             c["antecedents"] = _norm_antecedents(c["antecedents"])  # tolerate string-form ledgers
-            claim_nums = _nums(c["value"])
+            claim_nums = _claim_nums(c["value"])
             candidates: list[float] = []
             strvals: list[str] = []
             checked: list[str] = []
@@ -1264,6 +1304,7 @@ class Autoresearcher:
             # rounds change the verdict, and resolving them needs to know whether the
             # claim ever came back out of its OWN cited antecedents.
             c["reproduced"] = c["verdict"] == "verified"
+            c["verdict_round1"] = c["verdict"]   # the grade before any independent round
             # Escalate deterministic misses to a skeptical model reconciliation against
             # the SAME re-executed evidence (labelled, so judgment-backed claims are visible).
             if c["verdict"] != "verified" and self.reconcile and have_evidence:
@@ -1293,7 +1334,7 @@ class Autoresearcher:
         eligible = [c for c in self.ledger
                     if c.get("verdict") in ("verified", "partial")
                     and any(a in self.computations for a in c.get("antecedents", []))
-                    and _nums(c.get("value", ""))]
+                    and _claim_nums(c.get("value", ""))]
         return sorted(eligible, key=lambda c: rank.get(c.get("kind"), 9))
 
     async def _replicate_claim(self, claim: dict, max_attempts: int = 3,
@@ -1338,15 +1379,27 @@ class Autoresearcher:
                          {"role": "user", "content": f"Your code failed: {res}\nFix it and "
                                                      "re-send the full block."}]
                 continue
+            if not _usable_derivation(res):
+                # Code ran but computed nothing comparable. Spend a retry telling the
+                # analyst why, rather than banking a "disagreement" that is really a
+                # failed selection or join.
+                rep["error"] = "result contained no finite numbers (empty selection or failed join?)"
+                msgs += [{"role": "assistant", "content": text},
+                         {"role": "user", "content":
+                          f"Your code ran but produced {json.dumps(_jsonify(res), default=str)[:200]} "
+                          "— no finite numbers, so it tested nothing. Likely an empty filter, a failed "
+                          "join, or a group that matched no rows. Check your selections against the "
+                          "shapes above and re-send the full block."}]
+                continue
             m = re.search(r"SUPPORTS:\s*(YES|NO|INCONCLUSIVE)", text.upper())
             analyst = {"YES": "supports", "NO": "contradicts"}.get(
                 m.group(1) if m else "", "inconclusive")
             found: list[float] = []
             _flatten_numbers(res, found)
-            claim_nums = _nums(claim["value"])
+            claim_nums = _claim_nums(claim["value"])
             matched = [_match_num(x, found) for x in claim_nums]
             rep.update({
-                "code": code, "result": _jsonify(res, cap=MODEL_VIEW_CAP),
+                "code": code, "result": _jsonify(res, cap=MODEL_VIEW_CAP), "usable": True,
                 "numbers_match": bool(claim_nums) and all(matched),
                 "matched": [m for m in matched],
                 "analyst": analyst,
@@ -1395,7 +1448,10 @@ class Autoresearcher:
         3: one dissent is a stand-off that needs a casting vote, two independent
         derivations landing together is a conclusion.
         """
-        reps = [r for r in claim.get("replications", []) if r.get("code")]
+        # Only derivations that ran AND computed something get a vote. Older ledgers
+        # predate the `usable` flag, so fall back to "did it produce code".
+        reps = [r for r in claim.get("replications", [])
+                if r.get("usable", bool(r.get("code")))]
         if not reps:
             return claim["verdict"]                 # no independent evidence yet
         agree = [r for r in reps if r.get("numbers_match")]
@@ -1417,15 +1473,12 @@ class Autoresearcher:
                 # merely wrong in its own direction? Only the former is evidence
                 # ABOUT the claim; the latter says the quantity is unstable.
                 #
-                # Their NUMBERS decide this, not their self-reports: two analysts can
+                # Their NUMBERS decide this, never their self-reports: two analysts can
                 # both say "contradicts" while landing on entirely different values,
-                # which is the textbook contested case. The stated verdicts are only
-                # consulted when there is nothing numeric to compare.
-                numeric = [r for r in reps if _flatten_result_numbers(r.get("result"))]
-                if len(numeric) == len(reps):
-                    concur = bool(consensus)
-                else:
-                    concur = all(r.get("analyst") == "contradicts" for r in reps)
+                # which is the textbook contested case. (A derivation with no finite
+                # numbers is filtered out upstream as a failed derivation, so every
+                # rep here has something to compare.)
+                concur = bool(consensus)
                 # Two derivations from ONE model are one derivation. Observed on real
                 # data: the same model transposed a samples x ASV table in round 2 and
                 # emitted byte-identical code in round 3, so its correlated error
@@ -1455,7 +1508,24 @@ class Autoresearcher:
                                        "analyst": rep.get("analyst")})
         return rep
 
-    async def replicate(self, max_claims: int = 12) -> int:
+    def _clear_replications(self) -> None:
+        """Drop evidence from a PREVIOUS replication pass.
+
+        Rounds append, so re-running replication over a saved ledger silently stacked
+        a second pass on top of the first — one real run ended up with rounds
+        [2, 3, 2, 3] on a single claim, letting superseded derivations (written before
+        a prompt fix, by a since-changed model) keep voting alongside current ones.
+        A new pass supersedes the old one; the round-1 grade is restored so verdicts
+        do not carry over either."""
+        for c in self.ledger:
+            if c.get("replications"):
+                c["replications"] = []
+                for k in ("consensus_numbers", "antecedent_mismatch", "correlated_analysts"):
+                    c.pop(k, None)
+                if c.get("verdict_round1"):
+                    c["verdict"] = c["verdict_round1"]
+
+    async def replicate(self, max_claims: int = 12, fresh: bool = True) -> int:
         """Round 2 — the clean-room pass: independently re-derive the strongest
         claims (#50).
 
@@ -1466,11 +1536,15 @@ class Autoresearcher:
         the raw data alone, get the same number?
 
         Additive: with replication off, every verdict is exactly what it was.
+        ``fresh`` (the default) discards any previous pass first — pass False only to
+        deliberately accumulate rounds across passes.
         Returns the number of claims that got a usable independent derivation."""
+        if fresh:
+            self._clear_replications()
         done = 0
         for claim in self._replication_candidates()[:max_claims]:
             rep = await self._run_round(claim, round_no=2)
-            if not rep.get("code"):
+            if not rep.get("usable"):
                 continue                       # the analyst never produced runnable code
             done += 1
             claim["verdict"] = self._resolve_verdict(claim)
@@ -1485,7 +1559,7 @@ class Autoresearcher:
         is the finding."""
         return [c for c in self.ledger
                 if c.get("verdict") in ("disputed", "refuted")
-                and _nums(c.get("value", ""))
+                and _claim_nums(c.get("value", ""))
                 and any(a in self.computations for a in c.get("antecedents", []))]
 
     async def adjudicate(self, max_claims: int = 12) -> int:
@@ -1510,7 +1584,7 @@ class Autoresearcher:
         for claim in self._adjudication_candidates()[:max_claims]:
             rep = await self._run_round(claim, round_no=3, model=self.adjudicate_model,
                                         temperature=0.5)
-            if not rep.get("code"):
+            if not rep.get("usable"):
                 continue
             done += 1
             claim["verdict"] = self._resolve_verdict(claim)

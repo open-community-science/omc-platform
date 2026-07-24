@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ai.autoresearch import (  # noqa: E402
     Autoresearcher, LLMClient, MODEL_VIEW_CAP, _jsonify, _locate_numbers,
-    _match_num, _nums, format_briefing,
+    _match_num, _nums, _claim_nums, _usable_derivation, format_briefing,
 )
 
 
@@ -70,6 +70,41 @@ class TestMatchNum:
 
     def test_a_wrong_number_is_still_rejected(self):
         assert _match_num(915.0, [84.0, 11.0, 161.0]) is None
+
+
+class TestClaimNums:
+    """A threshold defines the analysis; it is not a result, so no re-derivation
+    will ever produce it. Demanding it as evidence failed an exact replication."""
+
+    def test_thresholds_are_excluded_from_the_claimed_values(self):
+        v = "core (>=50% prevalence): 14 ASVs; transient (<=10% prevalence): 511/735 ASVs (69.5%)"
+        assert _nums(v) == [50.0, 14.0, 10.0, 511.0, 735.0, 69.5]      # every number
+        assert _claim_nums(v) == [14.0, 511.0, 69.5]     # assertions only (735 is a denominator)
+
+    def test_unicode_and_worded_comparisons_too(self):
+        assert _claim_nums("core (\u226550% prevalence): 14 ASVs") == [14.0]
+        assert _claim_nums("at least 30 samples had 12 ASVs") == [12.0]
+
+    def test_a_denominator_is_context_not_a_finding(self):
+        """"2/63 samples" asserts the 2; the 63 is the population it came from.
+        Requiring it failed an otherwise exact replication (k11)."""
+        v = "Delftia: 1 ASV, 16 reads, present in 2/63 samples; rho=-0.015"
+        assert _claim_nums(v) == [1.0, 16.0, 2.0, -0.015]
+        assert 63.0 in _nums(v)                       # still a number, just not a claim
+
+    def test_a_bare_ratio_keeps_both_sides(self):
+        assert _claim_nums("ratio 3/4 and value 12.5") == [3.0, 12.5]
+
+    def test_ordinary_numbers_and_signs_survive(self):
+        assert _claim_nums("rho=-0.73, n=44") == [-0.73, 44.0]
+
+    def test_an_exact_replication_of_a_thresholded_claim_now_matches(self):
+        """The k12 case end to end: every derived quantity is backed, so the claim
+        must match even though its stated cutoffs appear in no result."""
+        v = "core (>=50% prevalence): 14 ASVs; transient (<=10% prevalence): 511/735 ASVs (69.5%)"
+        pool = [14.0, 511.0, 0.019, 0.6952]            # what the analyst derived
+        assert all(_match_num(x, pool) for x in _claim_nums(v))
+        assert not all(_match_num(x, pool) for x in _nums(v))   # would have failed before
 
 
 # ── claim-directed evidence ───────────────────────────────────────────────────
@@ -490,6 +525,48 @@ def test_run_summary_reports_the_clean_room_outcome():
     assert "auditor-model" in s["models"] and "third-model" in s["models"]
 
 
+class TestUsableDerivation:
+    """An all-nan or empty result is a FAILED derivation, not a disagreement — an
+    empty selection or a broken join. Four real claims were voted against on the
+    strength of `{}` or `{'rho': nan}`."""
+
+    def test_nan_and_empty_are_not_derivations(self):
+        assert _usable_derivation({"rho": float("nan")}) is False
+        assert _usable_derivation({}) is False
+        assert _usable_derivation({"a": {"b": [float("nan"), float("inf")]}}) is False
+
+    def test_any_finite_number_counts(self):
+        assert _usable_derivation({"rho": 0.78, "p": float("nan")}) is True
+        assert _usable_derivation({"n": 0}) is True
+
+
+def test_an_unusable_result_is_retried_with_the_reason():
+    replies = ["```python\nresult = {'rho': float('nan')}\n```\nSUPPORTS: NO",
+               "```python\nresult = {'rho': 0.78}\n```\nSUPPORTS: YES"]
+    ar = _replicating_researcher(
+        replies,
+        {"result = {'rho': float('nan')}": {"rho": float("nan")},
+         "result = {'rho': 0.78}": {"rho": 0.78}},
+        ledger=[dict(c) for c in _LEDGER], comps=dict(_COMPS))
+    asyncio.run(ar.replicate())
+    c = ar.ledger[0]
+    assert c["replications"][0]["attempts"] == 2
+    assert c["verdict"] == "replicated"
+    retry = "\n".join(m["content"] for m in ar.seen_prompts[1]["messages"])
+    assert "no finite numbers" in retry
+
+
+def test_a_failed_derivation_does_not_vote_against_the_claim():
+    """The k3/k7/k10/k16 failure: nan results counted as disagreement."""
+    ar = _replicating_researcher(
+        "```python\nresult = {'rho': float('nan')}\n```\nSUPPORTS: NO",
+        {"result = {'rho': float('nan')}": {"rho": float("nan")}},
+        ledger=[dict(c) for c in _LEDGER], comps=dict(_COMPS))
+    n = asyncio.run(ar.replicate())
+    assert n == 0                                   # nothing usable was produced
+    assert ar.ledger[0]["verdict"] == "verified"    # unchanged, not disputed
+
+
 # ── round 3: adjudication ─────────────────────────────────────────────────────
 def _claim(verdict="disputed", reproduced=True, value="rho=0.78", reps=()):
     reps = [{"by": "analyst-2", **r} for r in reps]      # round 2 ran on its own model
@@ -554,13 +631,17 @@ def test_numbers_decide_concurrence_not_the_analysts_self_reports():
     assert ar.ledger[0]["verdict"] == "contested"
 
 
-def test_self_reports_are_consulted_when_there_are_no_numbers_to_compare():
-    ar, _ = _round3(
+def test_a_non_numeric_derivation_cannot_settle_a_numeric_claim():
+    """Superseded behaviour: a result with no numbers used to let the analyst's own
+    SUPPORTS line decide. It cannot confirm or refute a quantity, so it now simply
+    does not vote."""
+    ar, n = _round3(
         "```python\nresult = {'note': 'no such pattern'}\n```\nSUPPORTS: NO",
         {"result = {'note': 'no such pattern'}": {"note": "no such pattern"}},
-        _claim(reps=[{"round": 2, "code": "x", "result": {"note": "absent"},
+        _claim(reps=[{"round": 2, "code": "x", "result": {"rho": 0.2},
                       "numbers_match": False, "analyst": "contradicts"}]))
-    assert ar.ledger[0]["verdict"] == "overturned"
+    assert n == 0
+    assert ar.ledger[0]["verdict"] == "disputed"      # still just the one dissent
 
 
 def test_round_three_rescues_a_refuted_claim_whose_citation_was_wrong():
@@ -722,6 +803,38 @@ def test_two_distinct_models_concurring_still_overturn():
                       "numbers_match": False, "analyst": "contradicts"}]))  # by=analyst-2
     assert ar.ledger[0]["verdict"] == "overturned"
     assert ar.ledger[0].get("correlated_analysts", False) is False
+
+
+def test_a_fresh_pass_supersedes_the_previous_one():
+    """Rounds append, so re-running replication over a saved ledger stacked a second
+    pass on the first — one real run reached [2, 3, 2, 3] on a single claim, with
+    superseded derivations still voting."""
+    ar = _replicating_researcher(
+        "```python\nresult = {'rho': 0.78}\n```\nSUPPORTS: YES",
+        {"result = {'rho': 0.78}": {"rho": 0.78}},
+        ledger=[{**_LEDGER[0], "verdict": "overturned", "verdict_round1": "verified",
+                 "consensus_numbers": [0.2], "correlated_analysts": True,
+                 "replications": [{"round": 2, "code": "stale", "result": {"rho": 0.2},
+                                   "numbers_match": False, "by": "old-model"}]}],
+        comps=dict(_COMPS))
+    asyncio.run(ar.replicate())
+    c = ar.ledger[0]
+    assert [r["round"] for r in c["replications"]] == [2]      # not [2, 2]
+    assert c["replications"][0]["code"] != "stale"
+    assert c["verdict"] == "replicated"
+    assert "correlated_analysts" not in c and "consensus_numbers" not in c
+
+
+def test_accumulating_across_passes_is_possible_but_opt_in():
+    ar = _replicating_researcher(
+        "```python\nresult = {'rho': 0.78}\n```\nSUPPORTS: YES",
+        {"result = {'rho': 0.78}": {"rho": 0.78}},
+        ledger=[{**_LEDGER[0],
+                 "replications": [{"round": 2, "code": "prior", "result": {"rho": 0.2},
+                                   "numbers_match": False, "by": "old-model"}]}],
+        comps=dict(_COMPS))
+    asyncio.run(ar.replicate(fresh=False))
+    assert len(ar.ledger[0]["replications"]) == 2
 
 
 def test_assumptions_reach_the_writer():

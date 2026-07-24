@@ -67,12 +67,61 @@ def _client() -> LLMClient:
     return LLMClient(AsyncOpenAI(base_url=BASE_URL, api_key=API_KEY), MODEL)
 
 
-def _ensure_model_loaded():
-    """Load the model locally (LM Studio); no-op for a remote endpoint."""
-    if REMOTE:
+_LOADED = {"model": None}
+
+
+def _switch_model(model: str) -> bool:
+    """Make `model` the one resident model (LM Studio); no-op for a remote endpoint.
+
+    A ~20 GB card cannot hold an explorer AND two analysts at once, so a genuinely
+    multi-model run has to PHASE them: each phase gets the whole card. Unload before
+    load — LM Studio's JIT loads on top and SIGSEGVs once VRAM is near full."""
+    if REMOTE or _LOADED["model"] == model:
         return True
     _unload_all()
-    return _lms_load(MODEL, 65536, 300)[1]
+    ok = _lms_load(model, 65536, 300)[1]
+    _LOADED["model"] = model if ok else None
+    return ok
+
+
+def _round_marks(reps) -> str:
+    """Per-round outcome. `nocode`/`noresult` are the ANALYST failing, which is a
+    different thing from disagreeing — printing both as "differ" made a broken
+    derivation read as evidence against the claim."""
+    out = []
+    for r in reps:
+        if not r.get("code"):
+            mark = "nocode"
+        elif not r.get("usable", True):
+            mark = "noresult"
+        else:
+            mark = "agree" if r.get("numbers_match") else "differ"
+        out.append(f"r{r.get('round', 2)}:{mark}")
+    return " ".join(out)
+
+
+async def _run_independent_rounds(ar):
+    """Rounds 2 and 3, each with its own model resident for the whole phase."""
+    print(f"\n=== ROUND 2: CLEAN-ROOM REPLICATION ({REPLICATE_MODEL}) ===", flush=True)
+    if not _switch_model(REPLICATE_MODEL):
+        print("  load failed — skipping", flush=True)
+        return
+    print(f"  {await ar.replicate()} claims independently re-derived", flush=True)
+    print(f"\n=== ROUND 3: ADJUDICATION ({ADJUDICATE_MODEL}) ===", flush=True)
+    if not _switch_model(ADJUDICATE_MODEL):
+        print("  load failed — skipping", flush=True)
+    else:
+        print(f"  {await ar.adjudicate()} stand-offs given a casting vote", flush=True)
+    for c in ar.ledger:
+        reps = c.get("replications") or []
+        if reps:
+            print(f"    [{c['verdict']:11}] {c['id']:4} {_round_marks(reps):34} "
+                  f"{c['statement'][:44]}", flush=True)
+
+
+def _ensure_model_loaded():
+    """Load the explorer/verifier model."""
+    return _switch_model(MODEL)
 
 
 def _data_source() -> DirDataSource:
@@ -146,17 +195,7 @@ async def _reverify_async(llm):
     # Re-grade a SAVED ledger through the independent rounds without re-exploring —
     # the cheap way to ask "how many of these claims survive a clean-room check?".
     if llm is not None and "--replicate" in sys.argv:
-        print(f"\n=== ROUND 2: CLEAN-ROOM REPLICATION ({REPLICATE_MODEL}) ===", flush=True)
-        print(f"  {await ar.replicate()} claims independently re-derived", flush=True)
-        print(f"\n=== ROUND 3: ADJUDICATION ({ADJUDICATE_MODEL}) ===", flush=True)
-        print(f"  {await ar.adjudicate()} stand-offs given a casting vote", flush=True)
-        for c in ar.ledger:
-            reps = c.get("replications") or []
-            if reps:
-                marks = " ".join("r%d:%s" % (r.get("round", 2),
-                                             "agree" if r.get("numbers_match") else "differ")
-                                 for r in reps)
-                print(f"    [{c['verdict']:11}] {c['id']} {marks:26} {c['statement'][:44]}", flush=True)
+        await _run_independent_rounds(ar)
     done = sum(a["status"] == "done" for a in ar.agenda)
     completed = bool(ar.agenda) and all(a["status"] == "done" for a in ar.agenda)
     _write_ledger(ar, completed)
@@ -196,19 +235,7 @@ async def _main_async(llm: LLMClient):
     completed = await ar.explore()
     await ar.verify()  # deterministic first; escalate misses to skeptical model reconciliation
     if "--replicate" in sys.argv:
-        print(f"\n=== ROUND 2: CLEAN-ROOM REPLICATION ({REPLICATE_MODEL}) ===")
-        n2 = await ar.replicate()
-        print(f"  {n2} claims independently re-derived")
-        print(f"\n=== ROUND 3: ADJUDICATION ({ADJUDICATE_MODEL}) ===")
-        n3 = await ar.adjudicate()
-        print(f"  {n3} stand-offs given a casting vote")
-        for c in ar.ledger:
-            reps = c.get("replications") or []
-            if reps:
-                marks = " ".join(("r%d:%s" % (r.get("round", 2),
-                                              "agree" if r.get("numbers_match") else "differ"))
-                                 for r in reps)
-                print(f"    [{c['verdict']:11}] {c['id']} {marks:26} {c['statement'][:44]}")
+        await _run_independent_rounds(ar)
     done = sum(a["status"] == "done" for a in ar.agenda)
     outstanding = [a for a in ar.agenda if a["status"] != "done"]
     print(f"\n  agenda ({done}/{len(ar.agenda)} investigations done"
