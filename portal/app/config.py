@@ -71,7 +71,10 @@ class Settings(BaseSettings):
     autoresearch_max_followups: int = 12      # cap on self-added agenda items
     autoresearch_time_budget_s: int = 1800    # wall-clock cap on explore()
     autoresearch_max_analysis_s: int = 60     # per run_analysis exec timeout (in-sandbox)
-    autoresearch_reconcile_enabled: bool = True   # skeptical-model verify fallback
+    # OBSOLETE (kept so existing .env files still load): verification is no longer
+    # "deterministic matching with a model fallback" — the model IS the verifier, so
+    # there is nothing to enable or disable. See ai.autoresearch.JUDGE_SYSTEM.
+    autoresearch_reconcile_enabled: bool = True
     # Clean-room replication (#50). After verification, a SECOND analyst — shown the
     # claim and the raw data but never the original code — writes its own analysis to
     # re-derive it. Agreement upgrades the claim to "replicated"; disagreement marks it

@@ -252,7 +252,6 @@ async def run_autoresearch_stream(
                 adjudicate_model=settings.role_model("adjudicate", llm["model"]),
                 max_steps=max_steps,
                 max_followups=settings.autoresearch_max_followups,
-                reconcile=settings.autoresearch_reconcile_enabled,
                 on_progress=on_progress)
             if resuming:
                 run.emit("session", f"resuming from {len(prior_snapshot.get('claims', []))} prior claims")

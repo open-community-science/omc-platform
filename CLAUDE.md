@@ -112,13 +112,13 @@ All settings via environment or `.env` (see `portal/app/config.py`):
 | `AUTORESEARCH_MAX_FOLLOWUPS` | `12` | Cap on self-added agenda items |
 | `AUTORESEARCH_TIME_BUDGET_S` | `1800` | Wall-clock cap on the explore loop |
 | `AUTORESEARCH_MAX_ANALYSIS_S` | `60` | Per `run_analysis` exec timeout (inside the session sandbox) |
-| `AUTORESEARCH_RECONCILE_ENABLED` | `true` | Skeptical-model fallback when deterministic verify misses; grades a claim `verified`, `partial` (finding holds, some values don't), or leaves it refuted |
+| `AUTORESEARCH_RECONCILE_ENABLED` | `true` | **Obsolete** — verification is now always model-judged (the numeric matcher was removed); kept only so existing `.env` files load |
 | `AUTORESEARCH_REPLICATE_ENABLED` | `false` | Clean-room pass (#50): a second analyst re-derives each strong claim from the raw data without seeing the original code. Agreement → `replicated`; disagreement → `disputed` |
 | `AUTORESEARCH_REPLICATE_MAX_CLAIMS` | `12` | Cap on claims sent for independent re-derivation (insights first) |
 | `AUTORESEARCH_ADJUDICATE_ENABLED` | `true` | Round 3: a third independent derivation breaks a `disputed` stand-off, or rescues a `refuted` claim whose citation was wrong. Only fires on claims left in doubt |
 | `AUTORESEARCH_COMMIT_ENABLED` | `false` | PR the verified Results prose to the paper repo `.omc/` |
 | `LLM_MODEL_EXPLORE` | (falls back to `LLM_MODEL`) | Model for the autoresearch agent loop |
-| `LLM_MODEL_VERIFY` | (falls back to `LLM_MODEL`) | Model for the skeptical reconciler |
+| `LLM_MODEL_VERIFY` | (falls back to `LLM_MODEL`) | Model that JUDGES claims against re-executed evidence, and judges each clean-room replication |
 | `LLM_MODEL_REPLICATE` | (falls back to `LLM_MODEL`) | Model for the clean-room analyst — **point this at a different model than `LLM_MODEL_EXPLORE`**; a model checking its own work shares its own blind spots |
 | `LLM_MODEL_ADJUDICATE` | (falls back to `LLM_MODEL`) | Model for round 3's casting vote — ideally a third distinct model |
 | `GITHUB_APP_ID` | | GitHub App numeric ID |

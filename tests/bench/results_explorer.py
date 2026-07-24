@@ -137,11 +137,11 @@ def _executor() -> SubprocessExecutor:
     return SubprocessExecutor(DATA_DIR)
 
 
-def _make_researcher(llm: LLMClient, *, reconcile: bool) -> Autoresearcher:
+def _make_researcher(llm: LLMClient) -> Autoresearcher:
     return Autoresearcher(_data_source(), llm, _executor(),
                           explore_model=MODEL, verify_model=MODEL,
                           replicate_model=REPLICATE_MODEL,
-                          adjudicate_model=ADJUDICATE_MODEL, reconcile=reconcile)
+                          adjudicate_model=ADJUDICATE_MODEL)
 
 
 def _supported_results_data(computations, ledger):
@@ -186,11 +186,10 @@ async def _reverify_async(llm):
     it is purely deterministic (no model — fully reproducible); with a client, a
     deterministic miss escalates to skeptical model reconciliation."""
     saved = json.loads((OUT / "claims_ledger.json").read_text())
-    reconcile = llm is not None
     ar = Autoresearcher.from_snapshot(saved, _data_source(), llm or LLMClient(None, MODEL),
                                       _executor(), explore_model=MODEL, verify_model=MODEL,
                                       replicate_model=REPLICATE_MODEL,
-                                      adjudicate_model=ADJUDICATE_MODEL, reconcile=reconcile)
+                                      adjudicate_model=ADJUDICATE_MODEL)
     await ar.verify()
     # Re-grade a SAVED ledger through the independent rounds without re-exploring —
     # the cheap way to ask "how many of these claims survive a clean-room check?".
@@ -231,7 +230,7 @@ async def _main_async(llm: LLMClient):
     print(f"model: {MODEL} @ {BASE_URL}")
     print("=== EXPLORE (agenda-driven, recursive) ===")
     t0 = time.time()
-    ar = _make_researcher(llm, reconcile=True)
+    ar = _make_researcher(llm)
     completed = await ar.explore()
     await ar.verify()  # deterministic first; escalate misses to skeptical model reconciliation
     if "--replicate" in sys.argv:
@@ -274,7 +273,7 @@ async def _main_async(llm: LLMClient):
 def main():
     if "--reverify" in sys.argv:
         client = None
-        if "--reconcile" in sys.argv:   # escalate deterministic misses to the model
+        if "--reconcile" in sys.argv:   # verification needs a model to judge
             if not _ensure_model_loaded():
                 print("load failed"); return
             client = _client()

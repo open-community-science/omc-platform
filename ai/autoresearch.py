@@ -63,7 +63,15 @@ Work systematically and recursively:
    it, then record_claim(s) with the exact value(s) and antecedents. mark_done and move on.
 3. RECURSE: whenever a result is surprising or opens a question, add_followup — that is how
    you go deeper (a cluster in ordination → its driver taxa → are they contamination?).
-4. Prefer claims of kind "pattern" or "anomaly" (an insight) over "observation" (a restated
+4. WRITE CLAIMS THAT CAN BE REPRODUCED. Every claim you record will be handed to an
+   independent analyst who gets the raw data and your claim — but NOT your code — and must
+   re-derive it. A vague claim is one you lose. So make each claim ONE testable assertion,
+   and put its numbers in `value` as LABELLED quantities (e.g.
+   "bacteria_F=14.61, bacteria_p=0.001, eukaryote_F=10.52") rather than buried in prose.
+   Name the subset or grouping the number applies to, and state the parameters you used
+   (thresholds, permutation counts) so your work can be repeated. If a claim needs three
+   sentences of context to interpret, split it.
+   Prefer claims of kind "pattern" or "anomaly" (an insight) over "observation" (a restated
    number). Be honest: record quality_caveat for depth bias, low evenness, contamination,
    or anything that undermines a result. Never claim a number you did not compute. Phrase
    caveats and anomalies collegially and matter-of-factly — a mislabel, mix-up, or
@@ -112,26 +120,55 @@ Keep going until the agenda (including follow-ups) is worked through AND you hav
 assumptions your findings rest on, then reply DONE."""
 
 
-RECONCILE_SYSTEM = """You are a skeptical verification auditor. You are given a CLAIM and the
-INDEPENDENT EVIDENCE that was re-executed from the raw data (computation results and data
-values). Decide whether the evidence genuinely supports the claim's quantitative content.
+JUDGE_SYSTEM = """You are a strict verification auditor. You are given a CLAIM and
+INDEPENDENT EVIDENCE — results re-executed from the raw data, with the analyst's own labels
+intact. Decide whether the evidence supports the claim's substantive findings.
 
-- Judge only against the evidence shown — never from prior knowledge.
-- Allow equivalent representations: unit conversions (a fraction vs a percent), values that
-  are a simple derivation of the evidence (e.g. a difference or ratio), and ranges.
-- IGNORE tokens that are identifiers, not quantities (sample accessions like SRR38966955).
-- If the claim packs several numbers, it is SUPPORTED only if every quantitative number is
-  backed; if some are and some aren't, say PARTIAL.
-- The evidence quotes, by path, every value that matches the claim's numbers, then the head
-  of the full result. A number absent from the quoted matches is genuinely unbacked — it is
-  not hidden by display truncation, so judge it on the evidence as shown.
-- Default to UNSUPPORTED when the evidence does not clearly back a number. Be strict.
+Read the LABELS, not just the numbers. `{"bacteria_F": 14.61}` backs "PERMANOVA F=14.61 for
+the bacteria batch"; a bare 14.61 sitting under a different label does not.
+
+- A claim's FINDINGS must be backed. The PARAMETERS it cites need not appear anywhere: a
+  permutation count (999), a prevalence threshold (>=50%), a group size (n=44), how many
+  genera were screened (6) — these describe how the analysis was done, not what it found.
+  Never mark a claim unsupported because a parameter was not restated.
+- Distinguish CONTRADICTED from NOT REPORTED. Contradicted means the evidence gives a
+  different value for the same quantity — that is grounds for UNSUPPORTED. Silence is not:
+  evidence that simply does not mention a quantity neither supports nor refutes it.
+- Allow equivalent representations: a fraction vs a percent, a rounded value, a simple
+  derivation (a difference, a ratio) of what is shown.
+- IGNORE tokens that are identifiers rather than quantities (sample accessions like
+  SRR38966955, ASV_000123, PC1).
+- If every finding is backed, say SUPPORTED. If some findings are backed and others are
+  CONTRADICTED, say PARTIAL and list the contradicted values. If the central finding is
+  contradicted, say UNSUPPORTED. If the evidence is empty or unrelated, say UNVERIFIABLE.
 
 Reply with exactly two lines:
-VERDICT: SUPPORTED|PARTIAL|UNSUPPORTED
-UNSUPPORTED: <comma-separated list of the exact claim numbers that are NOT backed, or 'none'>
-then one sentence why. The UNSUPPORTED list is what lets a partly-correct claim be salvaged
-by dropping only the bad values — list the numbers themselves, not descriptions of them."""
+VERDICT: SUPPORTED|PARTIAL|UNSUPPORTED|UNVERIFIABLE
+CONTRADICTED: <comma-separated claim values the evidence actually contradicts, or 'none'>
+then one sentence of reasoning. Be strict about contradictions and relaxed about silence."""
+
+
+REPLICATE_JUDGE_SYSTEM = """You are auditing a CLEAN-ROOM REPLICATION. A second analyst was
+given the claim and the raw data — never the original code — and wrote its own analysis. You
+see the claim and that analyst's labelled result.
+
+Decide whether the independent derivation REPRODUCES the claim's findings.
+
+Read the labels. `{"bacteria_F": 14.61, "bacteria_p": 0.001}` reproduces "PERMANOVA F=14.61,
+p=0.001 for the bacteria batch" even though the claim also mentions 999 permutations and 6
+groups, which an independent analyst has no reason to restate.
+
+- Parameters (permutation counts, thresholds, group sizes, how many things were screened) do
+  NOT need to appear. Only the findings do.
+- Silence is not disagreement. The derivation disagrees only where it computed a DIFFERENT
+  value for a quantity the claim asserts.
+- Allow fraction/percent, rounding, and simple derivations.
+- A result that computed nothing relevant is INCONCLUSIVE, not disagreement.
+
+Reply with exactly two lines:
+VERDICT: AGREES|PARTIAL|DIFFERS|INCONCLUSIVE
+CONTRADICTED: <the claim values this derivation actually contradicts, or 'none'>
+then one sentence saying what it computed and how it compares."""
 
 
 REPLICATE_SYSTEM = """You are an independent analyst performing a CLEAN-ROOM REPLICATION.
@@ -234,7 +271,11 @@ TOOLS = [
                         "(patterns, relationships, anomalies) over restating summary numbers."),
         "parameters": {"type": "object", "properties": {
             "statement": {"type": "string"},
-            "value": {"type": "string", "description": "the exact supporting value"},
+            "value": {"type": "string", "description": (
+                "the supporting quantities as LABELLED values, e.g. "
+                "'bacteria_F=14.61, bacteria_p=0.001, n_groups=6'. An independent analyst "
+                "will re-derive these from the raw data without seeing your code, so label "
+                "what each number IS and which subset it applies to.")},
             "antecedents": {"type": "array", "items": {"type": "string"}},
             "kind": {"type": "string", "enum": ["observation", "pattern", "anomaly", "quality_caveat"]}},
             "required": ["statement", "value", "antecedents"]}}},
@@ -310,119 +351,12 @@ def _norm_antecedents(x):
     return [t.strip() for t in items if t and t.strip()]
 
 
-_NUM_RE = re.compile(r"""
-    (?<![A-Za-z0-9.])           # not inside an identifier: SRR38966955, PC1, v1.2.3
-    -?                          # sign — see the range note below
-    \d[\d,]*(?:\.\d+)?          # 1  1,398,204  0.732
-    (?:[eE][+-]?\d+)?           # scientific notation: 6e-16, 1e-6, 1.4e3
-""", re.VERBOSE)
-
-
-def _nums(s):
-    """Every genuine quantity in a string.
-
-    The lookbehind blocks numbers embedded in an alphanumeric token — not just
-    glued to a letter ('PC1') but mid-token digit runs like 'SRR38966955' — so
-    accession IDs aren't mistaken for claimed values.
-
-    SIGN MATTERS: a '-' is read as a minus sign only where one can occur, i.e.
-    NOT directly after a digit. So 'rho=-0.73' yields -0.73 (and can no longer
-    verify against a POSITIVE correlation — the difference between co-occurrence
-    and mutual exclusion), while the range '19-98' still yields 19 and 98.
-
-    Scientific notation is a quantity, not two: 'p=6e-16' is 6e-16, not 6 and 16.
-    """
-    return [float(x.replace(",", "")) for x in _NUM_RE.findall(str(s))]
-
-
-# A number introduced by a comparison is a THRESHOLD — it defines the analysis
-# rather than reporting its outcome, so no re-derivation will ever produce it.
-# Demanding it as evidence made an exact replication read as a failure: k12 stated
-# "core (>=50% prevalence): 14 ASVs; transient (<=10% prevalence): 511/735 (69.5%)",
-# the analyst reproduced 14 / 511 / 735 / 69.5% exactly, and the claim was still
-# graded unmatched because 50 and 10 appear in no result.
-_THRESHOLD_BEFORE_RE = re.compile(r"(?:[<>]=?|[\u2264\u2265]|\b(?:at least|at most|above|below|"
-                                  r"over|under|greater than|less than|exceeding)\s*)\s*$",
-                                  re.IGNORECASE)
-
-
-def _claim_nums(s):
-    """The numbers a claim ASSERTS, excluding the thresholds it merely cites."""
-    text = str(s)
-    out = []
-    for m in _NUM_RE.finditer(text):
-        if _THRESHOLD_BEFORE_RE.search(text[:m.start()]):
-            continue
-        # "2/63 samples", "511/735 ASVs": the numerator is the finding, the
-        # denominator is the population it was drawn from. Requiring the latter
-        # failed an otherwise exact replication.
-        if m.start() >= 2 and text[m.start() - 1] == "/" and text[m.start() - 2].isdigit():
-            continue
-        out.append(float(m.group().replace(",", "")))
-    return out
-
-
 def _close(x, n):
     return abs(x - n) < 0.05 * max(abs(n), 1)
 
 
-def _match_num(x, cands):
-    """How (if at all) claim number x is backed by the antecedent numbers `cands`.
-
-    Verification must re-derive x in its STATED representation, not demand a literal
-    match: a value can be the same truth in different units (fraction<->percent) or
-    a simple derivation of the inputs (difference, ratio). Pairwise derivation is
-    limited to small summary sources so it can't spuriously fire on big result sets.
-    """
-    for n in cands:
-        if _close(x, n):
-            return "direct"
-        if _close(x, n * 100):
-            return "x100"          # claim in %, source a fraction
-        if n and _close(x, n / 100):
-            return "/100"          # claim a fraction, source in %
-    if len(cands) <= 12:            # derived from a summary (e.g. 73 = 84 - 11)
-        for i, a in enumerate(cands):
-            for j, b in enumerate(cands):
-                if i == j:          # same ELEMENT (identity would be luck-dependent
-                    continue        # for duplicate floats, e.g. [84.0, 84.0])
-                for val, tag in ((a - b, "diff"), (a + b, "sum"),
-                                 (100 * a / b if b else None, "pct"),
-                                 (100 * (b - a) / b if b else None, "pct")):
-                    if val is not None and _close(x, val):
-                        return "derived:" + tag
-    return None
-
-
-def _locate_numbers(v, targets, path="", out=None, cap=32):
-    """Dotted paths into a result whose numeric leaves back one of ``targets``.
-
-    The verifier used to hand the reconciler a blind ``json.dumps(result)[:600]``
-    prefix, so a claim citing a value that happened to serialize past 600 chars was
-    adjudicated as unbacked — the verifier's myopia scored as the scientist's error
-    (see issue #48: 6 of 18 computations in the real-sample run were truncated, one
-    to 20% of its content, and BOTH refuted claims cite truncation). Selecting the
-    evidence the claim actually points at is the same token cost with no cliff.
-
-    Matching reuses ``_match_num``, so a percent claim still locates its fraction.
-    """
-    if out is None:
-        out = []
-    if len(out) >= cap:
-        return out
-    if isinstance(v, bool):
-        return out
-    if isinstance(v, (int, float)):
-        if any(_match_num(t, [float(v)]) for t in targets):
-            out.append((path or "(value)", float(v)))
-    elif isinstance(v, dict):
-        for k, x in v.items():
-            _locate_numbers(x, targets, f"{path}.{k}" if path else str(k), out, cap)
-    elif isinstance(v, (list, tuple)):
-        for i, x in enumerate(v):
-            _locate_numbers(x, targets, f"{path}[{i}]", out, cap)
-    return out
-
+MODEL_VIEW_CAP = 50     # items shown to the model in a tool result
+RESULT_CAP = 200        # items KEPT in the stored/re-executed result
 
 _CODE_RE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
 
@@ -435,6 +369,7 @@ def _extract_code(text: str) -> str | None:
 
 
 def _flatten_numbers(v, acc):
+    """Collect every number in a nested result into ``acc`` (bools are not numbers)."""
     if isinstance(v, bool):
         return
     if isinstance(v, (int, float)):
@@ -445,10 +380,6 @@ def _flatten_numbers(v, acc):
     elif isinstance(v, (list, tuple)):
         for x in v:
             _flatten_numbers(x, acc)
-
-
-MODEL_VIEW_CAP = 50     # items shown to the model in a tool result
-RESULT_CAP = 200        # items KEPT in the stored/re-executed result (verification)
 
 
 def _usable_derivation(res) -> bool:
@@ -957,7 +888,6 @@ class Autoresearcher:
                  write_model: str | None = None, replicate_model: str | None = None,
                  adjudicate_model: str | None = None,
                  max_steps: int = 48, max_followups: int = 12,
-                 reconcile: bool = True,
                  on_progress: Optional[Callable[[str, Any], Awaitable]] = None):
         self.data = data
         self.llm = llm
@@ -976,7 +906,6 @@ class Autoresearcher:
         self.adjudicate_model = adjudicate_model or self.replicate_model
         self.max_steps = max_steps
         self.max_followups = max_followups
-        self.reconcile = reconcile
         self.on_progress = on_progress
         # per-run state (was module globals in the prototype)
         self.computations: dict[str, Any] = {}   # cid -> {label, code, result}
@@ -1202,69 +1131,51 @@ class Autoresearcher:
 
     # -- verify -----------------------------------------------------------------
     def _evidence_for(self, claim, comp_cache: dict) -> str:
-        """Deterministic evidence block for a claim: re-executed computation results
-        (from ``comp_cache``) and re-read data values. This is what the reconciler
-        judges against — not memory.
+        """Deterministic evidence block: re-executed computation results and re-read
+        data values, WITH their labels, which is what the judge reads.
 
-        Evidence is CLAIM-DIRECTED (#48): for each antecedent we first locate the
-        values that back the claim's own numbers and quote them by path, then add a
-        bounded head of the result for shape. A number the claim cites is therefore
-        never invisible merely because it serialized late — the reconciler can say
-        "unsupported" on the evidence, not on a truncation artifact."""
-        targets = _claim_nums(claim.get("value", "")) + _claim_nums(claim.get("statement", ""))
+        Results are shown whole. The old claim-directed extraction existed to work
+        around a 600-char prefix cap; with a model doing the judging, the labels are
+        the signal ("bacteria_F: 14.61" is what makes 14.61 mean something) and
+        cutting them out was the problem, not the size."""
         parts = []
         for ant in claim["antecedents"]:
             if ant in self.computations:
                 good, res = comp_cache.get(ant, (False, None))
                 label = self.computations[ant]["label"]
-                if not good:
-                    parts.append(f"[{ant}] {label} (re-executed) = ERROR")
-                    continue
-                hits = _locate_numbers(res, targets) if targets else []
-                block = [f"[{ant}] {label} (re-executed)"]
-                if hits:
-                    block.append("  values matching the claim:")
-                    block += [f"    {p} = {v}" for p, v in hits]
-                dump = json.dumps(res, default=str)
-                block.append(f"  full result ({len(dump)} chars"
-                             + (", head shown" if len(dump) > 600 else "") + f"): {dump[:600]}")
-                if len(dump) > 600 and not hits:
-                    block.append("  NOTE: no value in the FULL result matches the claim's numbers "
-                                 "(this is a real miss, not a display truncation).")
-                parts.append("\n".join(block))
+                body = json.dumps(res, default=str, indent=1)[:4000] if good else "ERROR — did not re-execute"
+                parts.append(f"[{ant}] {label} (re-executed):\n{body}")
             else:
                 found, val = self.data.navigate(ant)
-                parts.append(f"[{ant}] = {json.dumps(val, default=str)[:300] if found else 'NOT FOUND'}")
-        return "\n".join(parts)
+                parts.append(f"[{ant}] (data path) = "
+                             + (json.dumps(val, default=str)[:1500] if found else "NOT FOUND"))
+        return "\n\n".join(parts) or "(no antecedents cited)"
 
-    async def _reconcile_claim(self, claim, comp_cache: dict) -> dict:
-        """Model adjudication of a claim against its re-executed evidence. Only
-        invoked on a deterministic miss. Returns
-        ``{verdict, reasoning, unsupported}`` — ``unsupported`` being the claim
-        numbers the auditor could not back, which is what makes a PARTIAL claim
-        salvageable rather than binary-dead (#48)."""
-        user = (f"CLAIM: {claim['statement']}\nCLAIMED VALUE: {claim['value']}\n\n"
-                f"INDEPENDENT EVIDENCE (re-executed from raw data):\n{self._evidence_for(claim, comp_cache)}")
+    async def _judge(self, system: str, user: str, model: str) -> dict:
+        """One adjudication. Returns ``{verdict, contradicted, reasoning}``."""
         resp = await self.llm.chat(
-            [{"role": "system", "content": RECONCILE_SYSTEM}, {"role": "user", "content": user}],
-            model=self.verify_model, max_tokens=4000, temperature=0.0)
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            model=model, max_tokens=4000, temperature=0.0)
         text = _strip_think(resp.choices[0].message.content or "")
-        m = re.search(r"VERDICT:\s*(SUPPORTED|PARTIAL|UNSUPPORTED)", text.upper())
-        u = re.search(r"UNSUPPORTED:\s*(.+)", text, re.IGNORECASE)
-        bad = _nums(u.group(1)) if u and "none" not in u.group(1).lower()[:8] else []
-        return {"verdict": m.group(1).lower() if m else "unsupported",
-                "reasoning": text.strip()[:400], "unsupported": bad}
+        m = re.search(r"VERDICT:\s*(SUPPORTED|PARTIAL|UNSUPPORTED|UNVERIFIABLE|AGREES|DIFFERS|INCONCLUSIVE)",
+                      text.upper())
+        cm = re.search(r"CONTRADICTED:\s*(.+)", text, re.IGNORECASE)
+        bad = ([t.strip() for t in cm.group(1).split(",") if t.strip()]
+               if cm and "none" not in cm.group(1).lower()[:8] else [])
+        return {"verdict": (m.group(1).lower() if m else "unverifiable"),
+                "contradicted": bad, "reasoning": text.strip()[:400], "by": model}
 
     async def verify(self) -> None:
-        """Re-derive each claim from its antecedents (data re-read; computations
-        re-EXECUTED via the same executor). Deterministic first; a true claim is
-        never marked refuted for a representation mismatch. When ``reconcile`` is on,
-        a deterministic MISS escalates to a skeptical model reconciliation against
-        the SAME re-executed evidence — labelled so judgment-backed claims are visible.
+        """Re-derive each claim's evidence, then have the verifier JUDGE it.
 
-        Each distinct computation is re-executed AT MOST ONCE per ``verify()`` call
-        (cached) — the deterministic pass and any reconciliation share the result,
-        which also bounds ``docker exec`` load in the container backend."""
+        The mechanics stay deterministic — every cited computation is re-executed
+        (once, cached) and every data path re-read, so the evidence a verdict rests
+        on is reproducible. The judgment is the model's, because every failure the
+        numeric matcher produced was semantic: it could not tell a finding from a
+        parameter (a 999-permutation count, a >=50%% threshold, an n=44), nor
+        silence from contradiction, nor see that ``bacteria_F: 14.61`` IS the F the
+        claim asserts. Two independent models once reproduced a claim exactly and
+        the matcher graded it overturned."""
         comp_cache: dict[str, tuple[bool, Any]] = {}
 
         async def _rerun(cid: str) -> tuple[bool, Any]:
@@ -1273,54 +1184,44 @@ class Autoresearcher:
             return comp_cache[cid]
 
         for c in self.ledger:
-            c["antecedents"] = _norm_antecedents(c["antecedents"])  # tolerate string-form ledgers
-            claim_nums = _claim_nums(c["value"])
-            candidates: list[float] = []
-            strvals: list[str] = []
-            checked: list[str] = []
+            c["antecedents"] = _norm_antecedents(c["antecedents"])
+            checked, have_evidence = [], False
             for ant in c["antecedents"]:
                 if ant in self.computations:
-                    good, res = await _rerun(ant)  # re-execute stored code (cached)
-                    if good:
-                        _flatten_numbers(res, candidates)
+                    good, _ = await _rerun(ant)
+                    have_evidence = have_evidence or good
                     checked.append(f"{ant}:{'run' if good else 'err'}")
-                else:  # data path
-                    found, actual = self.data.navigate(ant)
-                    if found:
-                        _flatten_numbers(actual, candidates)
-                        strvals.append(str(actual))
+                else:
+                    found, _ = self.data.navigate(ant)
+                    have_evidence = have_evidence or found
                     checked.append(f"{ant}:{'ok' if found else 'nopath'}")
-
-            have_evidence = bool(candidates or strvals)
-            if claim_nums:
-                methods = [_match_num(x, candidates) for x in claim_nums]
-                ok = all(methods) if candidates else None
-                c["method"] = ",".join(m for m in methods if m) or None
-            else:  # non-numeric claim (e.g. a database name)
-                ok = any(c["value"].strip().lower() in s.lower() for s in strvals) if strvals else None
-            c["verdict"] = "verified" if ok else ("unverifiable" if (ok is None or not have_evidence) else "refuted")
             c["checked"] = checked
-            # Round 1's own outcome, kept separate from the running verdict: later
-            # rounds change the verdict, and resolving them needs to know whether the
-            # claim ever came back out of its OWN cited antecedents.
+
+            if not have_evidence:
+                c["verdict"] = "unverifiable"
+            elif self.llm.client is None:
+                # No model: the evidence is still re-derived (that half stays
+                # deterministic), but nothing can judge it. Leave the prior grade
+                # rather than inventing one.
+                c["method"] = "evidence-only"
+                await self._emit("verify", {"claim": c["id"], "verdict": "not judged"})
+                continue
+            else:
+                j = await self._judge(
+                    JUDGE_SYSTEM,
+                    f"CLAIM: {c['statement']}\nCLAIMED VALUE: {c['value']}\n\n"
+                    f"INDEPENDENT EVIDENCE (re-executed from the raw data):\n"
+                    f"{self._evidence_for(c, comp_cache)}",
+                    self.verify_model)
+                c["judgment"] = j
+                c["verdict"] = {"supported": "verified", "partial": "partial",
+                                "unsupported": "refuted"}.get(j["verdict"], "unverifiable")
+                if c["verdict"] == "partial":
+                    c["unsupported_numbers"] = j["contradicted"]
+            c["method"] = "judged"
             c["reproduced"] = c["verdict"] == "verified"
-            c["verdict_round1"] = c["verdict"]   # the grade before any independent round
-            # Escalate deterministic misses to a skeptical model reconciliation against
-            # the SAME re-executed evidence (labelled, so judgment-backed claims are visible).
-            if c["verdict"] != "verified" and self.reconcile and have_evidence:
-                rec = await self._reconcile_claim(c, comp_cache)
-                rec["by"] = self.verify_model            # model that adjudicated
-                c["reconcile"] = rec
-                if rec["verdict"] == "supported":
-                    c["verdict"], c["method"] = "verified", "reconciled"
-                    c["reconciled_by"] = self.verify_model
-                    c["reproduced"] = True
-                elif rec["verdict"] == "partial":
-                    # Mostly-right claims used to die whole. Keep the grade AND the
-                    # numbers that failed, so the writer can salvage the rest (#48).
-                    c["verdict"], c["method"] = "partial", "reconciled"
-                    c["reconciled_by"] = self.verify_model
-                    c["unsupported_numbers"] = rec.get("unsupported") or []
+            c["verdict_round1"] = c["verdict"]
+            await self._emit("verify", {"claim": c["id"], "verdict": c["verdict"]})
 
     # -- clean-room replication -------------------------------------------------
     def _replication_candidates(self) -> list[dict]:
@@ -1333,8 +1234,7 @@ class Autoresearcher:
         rank = {"anomaly": 0, "pattern": 1, "quality_caveat": 2, "observation": 3}
         eligible = [c for c in self.ledger
                     if c.get("verdict") in ("verified", "partial")
-                    and any(a in self.computations for a in c.get("antecedents", []))
-                    and _claim_nums(c.get("value", ""))]
+                    and any(a in self.computations for a in c.get("antecedents", []))]
         return sorted(eligible, key=lambda c: rank.get(c.get("kind"), 9))
 
     async def _replicate_claim(self, claim: dict, max_attempts: int = 3,
@@ -1394,20 +1294,27 @@ class Autoresearcher:
             m = re.search(r"SUPPORTS:\s*(YES|NO|INCONCLUSIVE)", text.upper())
             analyst = {"YES": "supports", "NO": "contradicts"}.get(
                 m.group(1) if m else "", "inconclusive")
-            found: list[float] = []
-            _flatten_numbers(res, found)
-            claim_nums = _claim_nums(claim["value"])
-            matched = [_match_num(x, found) for x in claim_nums]
+            # The verdict is a judgment over the analyst's LABELLED result, not a
+            # digit hunt: an independent analyst reports its findings, not the
+            # claim's parameters, and only a different VALUE for the same quantity
+            # is disagreement.
+            j = await self._judge(
+                REPLICATE_JUDGE_SYSTEM,
+                f"CLAIM: {claim['statement']}\nCLAIMED VALUE: {claim['value']}\n\n"
+                f"THE INDEPENDENT ANALYST'S RESULT:\n"
+                f"{json.dumps(_jsonify(res, cap=MODEL_VIEW_CAP), default=str, indent=1)[:4000]}\n\n"
+                f"Its own summary: {analyst}",
+                self.verify_model)
             rep.update({
                 "code": code, "result": _jsonify(res, cap=MODEL_VIEW_CAP), "usable": True,
-                "numbers_match": bool(claim_nums) and all(matched),
-                "matched": [m for m in matched],
+                "agrees": j["verdict"] == "agrees",
+                "judgment": j,
                 "analyst": analyst,
                 "reasoning": re.sub(r"```.*?```", "", text, flags=re.DOTALL).strip()[:400],
                 "error": None,
             })
             return rep
-        rep["numbers_match"] = False
+        rep["agrees"] = False
         rep["analyst"] = "inconclusive"
         return rep
 
@@ -1454,7 +1361,7 @@ class Autoresearcher:
                 if r.get("usable", bool(r.get("code")))]
         if not reps:
             return claim["verdict"]                 # no independent evidence yet
-        agree = [r for r in reps if r.get("numbers_match")]
+        agree = [r for r in reps if r.get("agrees")]
         consensus = self._consensus_numbers(reps)
         if consensus:
             claim["consensus_numbers"] = consensus
@@ -1504,7 +1411,7 @@ class Autoresearcher:
                                           temperature=temperature)
         claim.setdefault("replications", []).append(rep)
         await self._emit("replicate", {"claim": claim["id"], "round": round_no,
-                                       "agrees": rep.get("numbers_match"),
+                                       "agrees": rep.get("agrees"),
                                        "analyst": rep.get("analyst")})
         return rep
 
@@ -1559,7 +1466,6 @@ class Autoresearcher:
         is the finding."""
         return [c for c in self.ledger
                 if c.get("verdict") in ("disputed", "refuted")
-                and _claim_nums(c.get("value", ""))
                 and any(a in self.computations for a in c.get("antecedents", []))]
 
     async def adjudicate(self, max_claims: int = 12) -> int:
@@ -1652,12 +1558,13 @@ class Autoresearcher:
     def run_summary(self, completed: bool | None = None) -> dict:
         """The ``run`` block (completed + investigation counts + the roster of models
         that contributed) for the snapshot/ledger. ``models`` is every distinct model
-        that recorded a claim, wrote a computation, reconciled, or wrote the prose —
+        that recorded a claim, wrote a computation, judged one, or wrote the prose —
         so a run continued ("keep digging") by a different model attributes truthfully."""
         done = sum(a["status"] == "done" for a in self.agenda)
         if completed is None:
             completed = bool(self.agenda) and all(a["status"] == "done" for a in self.agenda)
-        models = {c.get("by") for c in self.ledger} | {c.get("reconciled_by") for c in self.ledger}
+        models = {c.get("by") for c in self.ledger}
+        models |= {(c.get("judgment") or {}).get("by") for c in self.ledger}
         models |= {c.get("by") for c in self.computations.values()}
         models.add(self.results_prose_by)
         replicated = [c for c in self.ledger if c.get("replications")]
@@ -1717,11 +1624,11 @@ class Autoresearcher:
                 "correlated_analysts": c.get("correlated_analysts", False),
                 "reproduced": c.get("reproduced"),
                 # Per-artifact attribution: the model that recorded the claim, and
-                # (when applicable) the model that reconciled it into "verified".
-                "by": c.get("by"), "reconciled_by": c.get("reconciled_by"),
+                # and the model that judged it.
+                "by": c.get("by"), "judged_by": (c.get("judgment") or {}).get("by"),
             }
-            if c.get("reconcile"):
-                entry["reconcile"] = c["reconcile"]
+            if c.get("judgment"):
+                entry["judgment"] = c["judgment"]
             if resolve:
                 entry["resolved"] = [_resolve(a) for a in c["antecedents"]]
             claims.append(entry)
