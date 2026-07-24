@@ -110,3 +110,32 @@ def test_no_metadata_still_warns_against_inventing_a_study():
     # forensic "thanatomicrobiome" study.
     text = _format_study(build_study_facts(_Sub()))
     assert "do NOT guess the subject matter" in text
+
+
+# ── prompts have a size budget ────────────────────────────────────────────────
+#
+# Review json.dumps these facts straight into its prompt. sample_metadata also
+# carries bulk per-sample payloads, so passing them through turned a
+# 62-character config into ~1.8M tokens on real submissions.
+
+def test_bulk_per_sample_containers_are_summarised_not_inlined():
+    import json
+    big = [{"run": f"SRR{i}", "blurb": "x" * 200} for i in range(200)]
+    facts = build_study_facts(_Sub(sample_metadata={"title": "T", "sample_records": big}))
+
+    assert facts["sample_records"]["n"] == 200
+    assert "too large for a prompt" in facts["sample_records"]["omitted"]
+    assert len(json.dumps(facts, default=str)) < 2000, "facts blob must stay prompt-sized"
+
+
+def test_small_containers_are_kept_intact():
+    facts = build_study_facts(_Sub(sample_metadata={"breakdown": {"16S": 44, "18S": 40}}))
+    assert facts["breakdown"] == {"16S": 44, "18S": 40}
+
+
+def test_long_strings_are_not_truncated():
+    # A study abstract is the subject matter the model needs, and unlike a
+    # per-sample collection it doesn't grow with sample count.
+    abstract = "Frost flowers " * 500
+    facts = build_study_facts(_Sub(sample_metadata={"description": abstract}))
+    assert facts["description"] == abstract
