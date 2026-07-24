@@ -475,6 +475,24 @@ def _format_study(study_metadata: dict | None) -> str:
         ("Abstract/Description", study_metadata.get("description")),
     ]
     lines = [f"{k}: {v}" for k, v in fields if v]
+
+    # Assay design, when study_facts supplied it. Named ordering above is kept
+    # because those fields set the scene and should lead; this is appended
+    # rather than whitelisted so a new fact from build_study_facts reaches the
+    # prompt without editing this function again (issue #56).
+    amplicon = study_metadata.get("amplicon")
+    if amplicon and amplicon.get("designs"):
+        rendered = "; ".join(
+            " ".join(str(d[k]) for k in ("forward", "reverse", "region") if d.get(k))
+            for d in amplicon["designs"]
+        )
+        qualifier = (
+            "confirmed per sample" if amplicon.get("confirmed_per_sample")
+            else f"{amplicon.get('source', 'inferred')}, NOT confirmed per sample — "
+                 "describe the assay, do not assert which sample used which primer"
+        )
+        lines.append(f"Amplicon design: {rendered} ({qualifier})")
+
     return "\n".join(lines) if lines else (
         "(No study metadata available — do NOT guess the subject matter.)"
     )

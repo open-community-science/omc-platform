@@ -17,6 +17,7 @@ from .config import get_settings
 from .database import get_db, async_session, Submission, User
 from .auth import require_user
 from .run_registry import Run, registry, stream_run, status_payload, sse_response
+from .study_facts import build_study_facts
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 settings = get_settings()
@@ -136,10 +137,10 @@ async def run_reviews(
     except Exception as e:
         logger.warning(f"Pipeline output parsing failed for {submission.slug}: {e}")
 
-    pipeline_config = {
-        "pipeline": submission.pipeline.value,
-        "accession": submission.bioproject_accession,
-    }
+    # Everything we know about the study, not just {pipeline, accession} — a
+    # reviewer has to be able to check a Methods claim about the assay against
+    # what was actually run (issue #56).
+    pipeline_config = build_study_facts(submission)
 
     llm = await _get_llm_config(user.id)
     reviews = await run_all_reviews(
@@ -195,7 +196,7 @@ async def run_reviews(
                 manuscript,
                 reviews=reviews,
                 results_data=pipeline_outputs,
-                study_metadata=dict(submission.sample_metadata or {}),
+                study_metadata=build_study_facts(submission),
                 base_url=llm["base_url"],
                 api_key=llm["api_key"],
                 model=settings.role_model("draft", llm["model"]),
@@ -435,7 +436,7 @@ async def generate_manuscript(
         interview_data=interview_data,
         pipeline_type=submission.pipeline.value,
         bioproject_accession=submission.bioproject_accession,
-        study_metadata=dict(submission.sample_metadata or {}),
+        study_metadata=build_study_facts(submission),
         base_url=llm["base_url"],
         api_key=llm["api_key"],
         model=settings.role_model("draft", llm["model"]),
@@ -491,7 +492,8 @@ async def generate_manuscript_stream(
     sub_accession = submission.bioproject_accession
     sub_interview = dict(submission.interview_data or {})
     # Grounds the paper's subject matter — without it the model invents a study system.
-    sub_study_meta = dict(submission.sample_metadata or {})
+    # Snapshotted inside the db session; the drafting task runs after it closes.
+    sub_study_meta = build_study_facts(submission)
     sub_github_repo = submission.github_repo
     sub_title = submission.title
     sub_id = submission.id
