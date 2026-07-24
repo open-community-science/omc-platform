@@ -45,6 +45,58 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
+# ── in-flight run registry ────────────────────────────────────────────────────
+# A run is driven by a DETACHED background task, not by the SSE request, so that
+# navigating away can't kill it: the worker runs to completion and PERSISTS its
+# results whether or not a browser is still listening. The SSE endpoint merely
+# tails a run's event buffer; reconnecting replays the buffer and resumes live.
+class _Run:
+    """Server-side state for one autoresearch run: an append-only event buffer
+    plus terminal status, shared between the detached worker and any SSE tail."""
+    def __init__(self):
+        self.events: list[dict] = []
+        self.updated = asyncio.Event()
+        self.done = False
+        self.status = "running"           # running | complete | error
+        self.result_url: str | None = None
+
+    def push(self, ev: dict) -> None:
+        self.events.append(ev)
+        self.updated.set()
+
+    def emit(self, event: str, detail) -> None:
+        self.push({"event": event, "detail": detail})
+
+    def finish(self, status: str, result_url: str | None = None) -> None:
+        self.status = status
+        self.result_url = result_url
+        self.done = True
+        self.updated.set()
+
+
+# slug -> the current/most-recent run. Retained after completion so a returning
+# client sees the terminal status; overwritten when a new run starts.
+_RUNS: dict[str, _Run] = {}
+
+
+async def _stream_run(run: _Run):
+    """SSE generator that tails a run's event buffer from the start (so a reconnect
+    replays history), then follows live until the run finishes. Cancelling this on
+    client disconnect does NOT stop the run — only stops this listener."""
+    i = 0
+    while True:
+        run.updated.clear()
+        while i < len(run.events):
+            yield f"data: {json.dumps(run.events[i], default=str)}\n\n"
+            i += 1
+        if run.done:
+            break
+        try:
+            await asyncio.wait_for(run.updated.wait(), timeout=15)
+        except asyncio.TimeoutError:
+            yield ": keepalive\n\n"   # heartbeat so proxies keep the stream open
+
+
 # ── helpers (mirrors reviews.py) ──────────────────────────────────────────────
 async def _get_llm_config(user_id: int) -> dict:
     """Resolve the LLM config for a user's chosen backend (local / shared-admin /
@@ -188,148 +240,149 @@ async def run_autoresearch_stream(
     prior_snapshot = sub_interview.get("_autoresearch") if resume else None
     resuming = bool(prior_snapshot)
 
-    result_holder: dict = {}
+    # Already running for this submission? Attach to it (reconnect) rather than
+    # starting a second run — this is what makes navigating back resume the view.
+    existing = _RUNS.get(sub_slug)
+    if existing and not existing.done:
+        return StreamingResponse(_stream_run(existing), media_type="text/event-stream")
 
-    async def event_stream():
+    run = _Run()
+    _RUNS[sub_slug] = run
+
+    async def worker():
+        """Detached: runs to completion and PERSISTS regardless of any listener."""
         from openai import AsyncOpenAI
         from ai.autoresearch import Autoresearcher, LLMClient
 
-        progress_queue: asyncio.Queue = asyncio.Queue()
-        await progress_queue.put({"event": "start", "detail": f"Using {llm['label']}"})
-
         async def on_progress(event, detail):
-            await progress_queue.put({"event": event, "detail": detail})
+            run.emit(event, detail)
 
-        async def run():
+        snapshot = None
+        try:
+            run.emit("start", f"Using {llm['label']}")
+            # 1. Session container must be running — model code runs in the sandbox.
+            run.emit("session", "starting session container")
             try:
-                # 1. Session container must be running — model code runs in the sandbox.
-                await progress_queue.put({"event": "session", "detail": "starting session container"})
+                await ensure_session_running(sub_slug, session_metadata, user_id)
+            except Exception as e:
+                run.emit("error", f"Could not start session container: {e}")
+                run.finish("error"); return
+            run.emit("session", "container ready")
+
+            # 2. Data source (server-side re-reads) + container executor (sandbox).
+            data = await _build_data_source(sub_slug, sub_study_meta)
+            # Pre-warm cached datasets off the event loop (large taxonomy JSON).
+            await asyncio.to_thread(data.datasets)
+            from .autoresearch_executor import ContainerExecutor
+            try:
+                executor = ContainerExecutor(
+                    sub_slug, default_timeout=settings.autoresearch_max_analysis_s)
+            except TypeError:
+                executor = ContainerExecutor(sub_slug)
+
+            # 3. LLM client (server-side; tool-calling passes straight through).
+            llm_client = LLMClient(
+                AsyncOpenAI(base_url=llm["base_url"], api_key=llm["api_key"]),
+                model=llm["model"])
+
+            ar_kwargs = dict(
+                explore_model=settings.role_model("explore", llm["model"]),
+                verify_model=settings.role_model("verify", llm["model"]),
+                max_steps=max_steps,
+                max_followups=settings.autoresearch_max_followups,
+                reconcile=settings.autoresearch_reconcile_enabled,
+                on_progress=on_progress)
+            if resuming:
+                run.emit("session", f"resuming from {len(prior_snapshot.get('claims', []))} prior claims")
+                ar = Autoresearcher.from_snapshot(
+                    prior_snapshot, data, llm_client, executor, **ar_kwargs)
+            else:
+                ar = Autoresearcher(data, llm_client, executor, **ar_kwargs)
+
+            # 4. Explore (time-budgeted) → verify → write prose → snapshot.
+            completed = await asyncio.wait_for(
+                ar.explore(resume=resuming), timeout=settings.autoresearch_time_budget_s)
+            run.emit("verify", "re-executing claims for verification")
+            await ar.verify()
+            run.emit("write", "writing Results prose")
+            await ar.write_results()
+            snapshot = ar.snapshot(resolve=True, completed=completed)
+        except asyncio.TimeoutError:
+            run.emit("error", "Autoresearch exceeded its time budget.")
+            run.finish("error"); return
+        except Exception as e:
+            logger.exception(f"Autoresearch run failed for {sub_slug}")
+            run.emit("error", str(e))
+            run.finish("error"); return
+
+        # Persist in a FRESH session — ALWAYS, even if no client is still connected.
+        run.emit("start", "Saving autoresearch results...")
+        try:
+            interview_data = dict(sub_interview)
+            interview_data["_autoresearch"] = snapshot
+            # Provenance (#16). Per-artifact attribution lives on each claim/computation
+            # (snapshot .by / .reconciled_by); here we keep the LATEST run's label plus
+            # the accumulated ROSTER of every backend·model that has contributed — so
+            # "keep digging" with a different model never erases who produced earlier claims.
+            interview_data["_autoresearch_model"] = llm.get("label")
+            interview_data["_autoresearch_backend"] = llm.get("backend")
+            roster = list(sub_interview.get("_autoresearch_models") or [])
+            if llm.get("label") and llm["label"] not in roster:
+                roster.append(llm["label"])
+            interview_data["_autoresearch_models"] = roster
+
+            async with async_session() as save_db:
+                save_result = await save_db.execute(
+                    select(Submission).where(Submission.id == sub_id))
+                sub = save_result.scalar_one()
+                sub.interview_data = interview_data
+                attributes.flag_modified(sub, "interview_data")
+                await save_db.commit()
+        except Exception as e:
+            logger.exception(f"Autoresearch save failed for {sub_slug}")
+            run.emit("error", f"Save failed: {e}")
+            run.finish("error"); return
+
+        # Optional: commit the Results prose to the paper repo's .omc/ via a PR.
+        if settings.autoresearch_commit_enabled and sub_github_repo:
+            results_md = snapshot.get("results_prose") or ""
+            if results_md.strip():
                 try:
-                    await ensure_session_running(sub_slug, session_metadata, user_id)
+                    from .github_integration import create_review_pr
+                    repo_full_name = "/".join(sub_github_repo.rstrip("/").split("/")[-2:])
+                    pr_url = await create_review_pr(
+                        repo_full_name, [{"body": results_md}], "autoresearch")
+                    run.emit("commit", pr_url)
                 except Exception as e:
-                    await progress_queue.put({"event": "error",
-                                              "detail": f"Could not start session container: {e}"})
-                    return
-                await progress_queue.put({"event": "session", "detail": "container ready"})
+                    logger.warning(f"Autoresearch .omc commit failed for {sub_slug}: {e}")
+                    run.emit("commit", f"commit skipped: {e}")
 
-                # 2. Data source (server-side re-reads) + container executor (sandbox).
-                data = await _build_data_source(sub_slug, sub_study_meta)
-                # Pre-warm the cached datasets off the event loop — the first read
-                # parses renorm/samples/taxonomy/provenance JSON and would otherwise
-                # block every other in-flight request inline (large taxonomy files).
-                await asyncio.to_thread(data.datasets)
-                from .autoresearch_executor import ContainerExecutor  # Task B (portal-side)
-                try:
-                    executor = ContainerExecutor(
-                        sub_slug, default_timeout=settings.autoresearch_max_analysis_s)
-                except TypeError:
-                    # Forward-compatible with the design's ContainerExecutor(slug)
-                    # signature; per-exec timeout then falls to the executor default.
-                    executor = ContainerExecutor(sub_slug)
+        url = f"/autoresearch/{sub_slug}/findings"
+        run.push({"event": "complete",
+                  "detail": "Autoresearch complete — view the findings", "ledger_url": url})
+        run.finish("complete", result_url=url)
 
-                # 3. LLM client (server-side; tool-calling passes straight through).
-                llm_client = LLMClient(
-                    AsyncOpenAI(base_url=llm["base_url"], api_key=llm["api_key"]),
-                    model=llm["model"])
+    asyncio.create_task(worker())
+    return StreamingResponse(_stream_run(run), media_type="text/event-stream")
 
-                ar_kwargs = dict(
-                    explore_model=settings.role_model("explore", llm["model"]),
-                    verify_model=settings.role_model("verify", llm["model"]),
-                    max_steps=max_steps,
-                    max_followups=settings.autoresearch_max_followups,
-                    reconcile=settings.autoresearch_reconcile_enabled,
-                    on_progress=on_progress)
-                if resuming:
-                    await progress_queue.put({"event": "session",
-                                              "detail": f"resuming from {len(prior_snapshot.get('claims', []))} prior claims"})
-                    ar = Autoresearcher.from_snapshot(
-                        prior_snapshot, data, llm_client, executor, **ar_kwargs)
-                else:
-                    ar = Autoresearcher(data, llm_client, executor, **ar_kwargs)
 
-                # 4. Explore (time-budgeted) → verify → write prose → snapshot.
-                completed = await asyncio.wait_for(
-                    ar.explore(resume=resuming), timeout=settings.autoresearch_time_budget_s)
-                await progress_queue.put({"event": "verify",
-                                          "detail": "re-executing claims for verification"})
-                await ar.verify()
-                await progress_queue.put({"event": "write", "detail": "writing Results prose"})
-                await ar.write_results()
-                result_holder["snapshot"] = ar.snapshot(resolve=True, completed=completed)
-            except asyncio.TimeoutError:
-                result_holder["error"] = "time budget exceeded"
-                await progress_queue.put({"event": "error",
-                                          "detail": "Autoresearch exceeded its time budget."})
-            except Exception as e:
-                result_holder["error"] = str(e)
-                logger.exception(f"Autoresearch run failed for {sub_slug}")
-                await progress_queue.put({"event": "error", "detail": str(e)})
-            finally:
-                await progress_queue.put(None)
-
-        asyncio.create_task(run())
-
-        while True:
-            msg = await progress_queue.get()
-            if msg is None:
-                break
-            yield f"data: {json.dumps(msg, default=str)}\n\n"
-
-        # Persist the snapshot in a FRESH session (the request db is out of scope).
-        if "snapshot" in result_holder:
-            snapshot = result_holder["snapshot"]
-            yield f"data: {json.dumps({'event': 'start', 'detail': 'Saving autoresearch results...'})}\n\n"
-            try:
-                interview_data = dict(sub_interview)
-                interview_data["_autoresearch"] = snapshot
-                # Provenance (#16 idiom). Per-artifact attribution lives on each claim/
-                # computation (snapshot .by / .reconciled_by); here we keep the LATEST
-                # run's label plus the accumulated ROSTER of every backend·model that has
-                # contributed — so "keep digging" with a different model never erases who
-                # produced the earlier claims.
-                interview_data["_autoresearch_model"] = llm.get("label")
-                interview_data["_autoresearch_backend"] = llm.get("backend")
-                roster = list(sub_interview.get("_autoresearch_models") or [])
-                if llm.get("label") and llm["label"] not in roster:
-                    roster.append(llm["label"])
-                interview_data["_autoresearch_models"] = roster
-
-                async with async_session() as save_db:
-                    save_result = await save_db.execute(
-                        select(Submission).where(Submission.id == sub_id))
-                    sub = save_result.scalar_one()
-                    sub.interview_data = interview_data
-                    # flag_modified is mandatory — JSON mutation isn't autodetected.
-                    attributes.flag_modified(sub, "interview_data")
-                    await save_db.commit()
-            except Exception as e:
-                yield f"data: {json.dumps({'event': 'error', 'detail': f'Save failed: {e}'})}\n\n"
-                return
-
-            # Optional: commit the Results prose to the paper repo's .omc/ via a PR.
-            if settings.autoresearch_commit_enabled and sub_github_repo:
-                results_md = snapshot.get("results_prose") or ""
-                if results_md.strip():
-                    try:
-                        from .github_integration import create_review_pr
-                        # "https://github.com/org/micro-0001" → "org/micro-0001"
-                        repo_full_name = "/".join(
-                            sub_github_repo.rstrip("/").split("/")[-2:])
-                        pr_url = await create_review_pr(
-                            repo_full_name, [{"body": results_md}], "autoresearch")
-                        yield f"data: {json.dumps({'event': 'commit', 'detail': pr_url})}\n\n"
-                    except Exception as e:
-                        logger.warning(f"Autoresearch .omc commit failed for {sub_slug}: {e}")
-                        yield f"data: {json.dumps({'event': 'commit', 'detail': f'commit skipped: {e}'})}\n\n"
-
-            complete = {
-                "event": "complete",
-                "detail": "Autoresearch complete — view the findings",
-                "ledger_url": f"/autoresearch/{sub_slug}/findings",
-            }
-            yield f"data: {json.dumps(complete)}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+@router.get("/{slug}/status")
+async def run_status(
+    slug: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Is a run in flight for this submission? Lets the page reconnect to a live
+    run (or show its terminal state) after a navigation, instead of losing it."""
+    user = await get_current_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    run = _RUNS.get(slug)
+    if run and not run.done:
+        return {"running": True, "n_events": len(run.events)}
+    if run and run.done:
+        return {"running": False, "status": run.status, "result_url": run.result_url}
+    return {"running": False, "status": "idle"}
 
 
 # ── findings viewer ───────────────────────────────────────────────────────────
