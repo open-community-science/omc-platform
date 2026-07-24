@@ -119,6 +119,24 @@ def test_a_running_submission_is_unaffected_by_the_new_branch(monkeypatch):
     assert sub.status == SubmissionStatus.RESULTS_READY
 
 
+def test_post_processing_failure_is_not_undone_by_the_transfer_that_preceded_it(monkeypatch):
+    """The most dangerous case for this change.
+
+    pipeline_processing marks a submission FAILED when repo creation / drafting
+    blows up — which happens *after* the pipeline succeeded, so the status file
+    legitimately reads "transferred" and its job id matches. That is a real
+    failure of a later stage, not a superseded one, and must survive polling.
+    """
+    sub = _sub(status=SubmissionStatus.FAILED, slurm_job_id="1000",
+               completed_at=None,  # that path doesn't stamp it
+               error_message="Post-processing failed: boom")
+
+    _poll(monkeypatch, sub, {"phase": "transferred", "job_id": "1000"}, mtime=LATER)
+
+    assert sub.status == SubmissionStatus.FAILED
+    assert sub.error_message == "Post-processing failed: boom"
+
+
 def test_marking_failed_stamps_completed_at(monkeypatch):
     # Without this the mtime arm of the guard has nothing to compare against,
     # which is why every pre-existing failure had completed_at = None.
