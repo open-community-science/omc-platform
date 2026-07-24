@@ -282,9 +282,17 @@ async def run_autoresearch_stream(
             try:
                 interview_data = dict(sub_interview)
                 interview_data["_autoresearch"] = snapshot
-                # Provenance: name the backend/model that produced this run (#16 idiom).
+                # Provenance (#16 idiom). Per-artifact attribution lives on each claim/
+                # computation (snapshot .by / .reconciled_by); here we keep the LATEST
+                # run's label plus the accumulated ROSTER of every backend·model that has
+                # contributed — so "keep digging" with a different model never erases who
+                # produced the earlier claims.
                 interview_data["_autoresearch_model"] = llm.get("label")
                 interview_data["_autoresearch_backend"] = llm.get("backend")
+                roster = list(sub_interview.get("_autoresearch_models") or [])
+                if llm.get("label") and llm["label"] not in roster:
+                    roster.append(llm["label"])
+                interview_data["_autoresearch_models"] = roster
 
                 async with async_session() as save_db:
                     save_result = await save_db.execute(
@@ -371,5 +379,7 @@ async def findings_viewer(
                           .replace("&", "\\u0026").replace("\u2028", "\\u2028")
                           .replace("\u2029", "\\u2029")),
             "model_label": interview_data.get("_autoresearch_model"),
+            "model_roster": interview_data.get("_autoresearch_models") or (
+                [interview_data["_autoresearch_model"]] if interview_data.get("_autoresearch_model") else []),
         },
     )

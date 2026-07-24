@@ -638,6 +638,7 @@ class Autoresearcher:
         self.ledger: list[dict] = []              # claim dicts
         self.agenda: list[dict] = []              # {id, question, rationale, status, parent}
         self.results_prose: str | None = None     # last write_results() output (for snapshot)
+        self.results_prose_by: str | None = None  # model that wrote the prose
 
     # -- progress ---------------------------------------------------------------
     async def _emit(self, event: str, detail: Any) -> None:
@@ -700,14 +701,16 @@ class Autoresearcher:
                 return {"ok": False, "error": res}
             cid = f"c{len(self.computations) + 1}"
             self.computations[cid] = {"label": args.get("label", cid),
-                                      "code": args.get("code", ""), "result": res}
+                                      "code": args.get("code", ""), "result": res,
+                                      "by": self.explore_model}  # model that wrote it
             return {"ok": True, "computation_id": cid, "result": res}
         if name == "record_claim":
             claim = {"id": f"k{len(self.ledger) + 1}", "statement": args.get("statement", ""),
                      "value": str(args.get("value", "")),
                      "antecedents": _norm_antecedents(args.get("antecedents")),
                      "kind": args.get("kind", "observation"),
-                     "investigation": self._current_investigation()}
+                     "investigation": self._current_investigation(),
+                     "by": self.explore_model}  # model that recorded this claim
             self.ledger.append(claim)
             return {"recorded": True, "claim_id": claim["id"], "n_claims": len(self.ledger)}
         return {"error": f"unknown tool {name}"}
@@ -868,9 +871,11 @@ class Autoresearcher:
             # the SAME re-executed evidence (labelled, so judgment-backed claims are visible).
             if c["verdict"] != "verified" and self.reconcile and have_evidence:
                 rec = await self._reconcile_claim(c, comp_cache)
+                rec["by"] = self.verify_model            # model that adjudicated
                 c["reconcile"] = rec
                 if rec["verdict"] == "supported":
                     c["verdict"], c["method"] = "verified", "reconciled"
+                    c["reconciled_by"] = self.verify_model
 
     # -- DAG --------------------------------------------------------------------
     def build_dag(self) -> dict:
@@ -899,16 +904,24 @@ class Autoresearcher:
             if content.strip():
                 break
         self.results_prose = content
+        self.results_prose_by = self.explore_model     # stamp the writer
         return content
 
     # -- run summary ------------------------------------------------------------
     def run_summary(self, completed: bool | None = None) -> dict:
-        """The ``run`` block (completed + investigation counts) for the snapshot/ledger."""
+        """The ``run`` block (completed + investigation counts + the roster of models
+        that contributed) for the snapshot/ledger. ``models`` is every distinct model
+        that recorded a claim, wrote a computation, reconciled, or wrote the prose —
+        so a run continued ("keep digging") by a different model attributes truthfully."""
         done = sum(a["status"] == "done" for a in self.agenda)
         if completed is None:
             completed = bool(self.agenda) and all(a["status"] == "done" for a in self.agenda)
+        models = {c.get("by") for c in self.ledger} | {c.get("reconciled_by") for c in self.ledger}
+        models |= {c.get("by") for c in self.computations.values()}
+        models.add(self.results_prose_by)
         return {"completed": completed, "investigations_done": done,
-                "investigations_total": len(self.agenda)}
+                "investigations_total": len(self.agenda),
+                "models": sorted(m for m in models if m)}
 
     # -- snapshot ---------------------------------------------------------------
     def snapshot(self, resolve: bool = True, completed: bool | None = None,
@@ -936,6 +949,9 @@ class Autoresearcher:
                 "id": c["id"], "statement": c["statement"], "value": c["value"],
                 "verdict": c.get("verdict", "unverifiable"), "kind": c.get("kind", "observation"),
                 "method": c.get("method"), "antecedents": c["antecedents"],
+                # Per-artifact attribution: the model that recorded the claim, and
+                # (when applicable) the model that reconciled it into "verified".
+                "by": c.get("by"), "reconciled_by": c.get("reconciled_by"),
             }
             if c.get("reconcile"):
                 entry["reconcile"] = c["reconcile"]
@@ -948,6 +964,7 @@ class Autoresearcher:
             "agenda": self.agenda,
             "dag": self.build_dag(),
             "results_prose": results_prose,
+            "results_prose_by": self.results_prose_by,
             "run": self.run_summary(completed),
         }
 

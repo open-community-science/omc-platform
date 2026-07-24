@@ -170,6 +170,9 @@ const RUN = DATA.run || {};
 const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const fmt = v => (typeof v === 'string' ? v : JSON.stringify(v));
 const trunc = (v, n) => { const s = (v == null ? '' : fmt(v)); return s.length > n ? s.slice(0, n) : s; };
+// Compact model id for a per-artifact attribution stamp: drop the provider prefix
+// ("anthropic/claude-sonnet-5" → "claude-sonnet-5"), keep it short but identifying.
+const shortModel = m => !m ? '' : String(m).split('/').pop();
 
 // Preliminary banner when exploration stopped before completing the agenda.
 if (RUN && RUN.completed === false) {
@@ -197,6 +200,14 @@ document.getElementById('stats').innerHTML = [
   ['computations', S.computations, '']
 ].map(([l,n,c]) => `<div class="stat ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
 
+// Model roster: every model that contributed to this run (claims may span several
+// after "keep digging"). Per-claim attribution is on each claim below.
+const MODELS = (RUN.models || []).map(shortModel).filter(Boolean);
+if (MODELS.length) {
+  const sub = document.getElementById('study');
+  if (sub) sub.innerHTML += ` · <span title="models that produced these findings">by ${MODELS.map(esc).join(', ')}</span>`;
+}
+
 const KIND = {quality_caveat:['caveat','caveat'], anomaly:['anomaly','anomaly'], pattern:['pattern','pattern']};
 
 const list = document.getElementById('list');
@@ -213,8 +224,12 @@ CLAIMS.forEach((c,i) => {
     ? `<span class="chip">${nd.map(x=>chipMap[x]||x).join(' · ')}</span>` : '';
   const k = KIND[c.kind];
   const kindChip = k ? `<span class="kind ${k[1]}">${k[0]}</span>` : '';
+  // Only show a per-claim model chip when the run spans >1 model (otherwise the
+  // roster in the header already says it, and the chip is just noise).
+  const byChip = (MODELS.length > 1 && c.by)
+    ? `<span class="chip" title="recorded by ${esc(c.by)}">${esc(shortModel(c.by))}</span>` : '';
   b.innerHTML = `<span class="dot ${c.verdict}"></span><span class="txt">`
-    + `<span class="cid">${esc(c.id)}</span>` + kindChip + chip
+    + `<span class="cid">${esc(c.id)}</span>` + kindChip + chip + byChip
     + `<br>${esc(c.statement)}</span>`;
   b.onclick = () => select(i);
   list.appendChild(b);
@@ -269,6 +284,8 @@ function select(i){
     + (dk ? `<span class="kind ${dk[1]}" style="margin-left:8px">${dk[0]}</span>` : '')
     + `<h2>${esc(c.statement)}</h2>`
     + `<div class="kv"><span class="k">value</span><span class="v">${esc(c.value)}</span></div>`
+    + (c.by ? `<div class="kv"><span class="k">recorded by</span><span class="v">${esc(shortModel(c.by))}</span></div>` : '')
+    + (c.reconciled_by ? `<div class="kv"><span class="k">reconciled by</span><span class="v">${esc(shortModel(c.reconciled_by))}</span></div>` : '')
     + `<div class="reverify">${reverify}</div>`
     + (c.reconcile ? `<div class="reconcile"><b>Model adjudication:</b> ${esc((c.reconcile.reasoning||'').replace(/^VERDICT:[^\n]*\n?/i,''))}</div>` : '')
     + `<p class="prov-h">Antecedents (${antCount})</p>${ants}`;
