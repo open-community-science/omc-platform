@@ -486,16 +486,7 @@ def _format_study(study_metadata: dict | None) -> str:
             " ".join(str(d[k]) for k in ("forward", "reverse", "region") if d.get(k))
             for d in amplicon["designs"]
         )
-        # The caveat is unconditional because the only amplicon data we have is
-        # design-level inference. A study with two designs would otherwise invite
-        # "samples were amplified with 341F/805R", which for PRJNA1473294 is wrong
-        # for 40 of 84 samples. When per-sample truth lands (#55) this text should
-        # change with it rather than being toggled by a flag.
-        lines.append(
-            f"Amplicon design: {rendered} "
-            f"({amplicon.get('source', 'inferred')}, not confirmed per sample — "
-            "describe the assay, do not assert which sample used which primer)"
-        )
+        lines.append(f"Amplicon design: {rendered}")
 
     return "\n".join(lines) if lines else (
         "(No study metadata available — do NOT guess the subject matter.)"

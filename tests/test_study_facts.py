@@ -95,9 +95,9 @@ def test_manuscript_prompt_gains_the_amplicon_design():
     text = _format_study(build_study_facts(_Sub(sample_metadata=META, primers=PRIMERS)))
     assert "Amplicon design:" in text
     assert "341F" in text and "A-528F" in text
-    # and must not let the model assert per-sample assignment it doesn't have
-    assert "not confirmed per sample" in text
-    assert "do not assert which sample used which primer" in text
+    # facts only — the study block states what the assay is, it does not carry
+    # instructions to the model
+    assert "do not assert" not in text
 
 
 def test_manuscript_prompt_unchanged_when_there_are_no_primers():
