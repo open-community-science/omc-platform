@@ -304,8 +304,8 @@ function select(i){
   const reverify = c.verdict==='verified'
     ? `Re-derived from the antecedents below${via} — <b>verified</b>.`
     : (c.verdict==='refuted'
-        ? 'The cited antecedents contradicted this value — <b style="color:var(--refuted)">refuted</b>, excluded from the manuscript.'
-        : 'No checkable antecedent — <b style="color:var(--unverifiable)">unverifiable</b>, excluded from the manuscript.');
+        ? 'Re-execution did not reproduce this value — <b style="color:var(--refuted)">refuted</b>. This can still be meaningful (e.g. an unconfirmable or refuted negative result); the writer decides whether and how to report it.'
+        : 'No checkable antecedent to re-derive — <b style="color:var(--unverifiable)">unverifiable</b>. Left for the writer to judge, not dropped automatically.');
   const dk = KIND[c.kind];
   document.getElementById('detail').innerHTML =
     `<span class="badge ${c.verdict}">${esc(c.verdict||'unverifiable')}</span>` + methodBadge

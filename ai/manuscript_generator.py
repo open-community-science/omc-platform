@@ -214,17 +214,20 @@ Be specific about tools and versions where inferable."""
 
 
 def _format_autoresearch_findings(interview_data: dict) -> str:
-    """Verified autoresearch claims as grounding for the write-up, with background
-    on how they were produced. An autonomous agent explored the data, ran its own
-    analysis code, and recorded claims; each below was independently re-executed and
-    verified, so the numbers are trustworthy. Returns '' when no run exists."""
+    """Autoresearch claims as grounding for the write-up, with background on how they
+    were produced. An autonomous agent explored the data, ran its own analysis code,
+    and recorded claims; a verification pass re-executed each. VERIFIED claims are the
+    trustworthy numbers; the rest are provided too (labeled) for the writer to judge —
+    they are NOT pre-excluded. Returns '' when no run exists."""
     ar = (interview_data or {}).get("_autoresearch") or {}
-    claims = [c for c in ar.get("claims", []) if c.get("verdict") == "verified"]
+    all_claims = ar.get("claims", [])
+    verified = [c for c in all_claims if c.get("verdict") == "verified"]
+    other = [c for c in all_claims if c.get("verdict") != "verified"]
     assumptions = ar.get("assumptions", [])
-    if not claims and not assumptions:
+    if not all_claims and not assumptions:
         return ""
     lines = []
-    for c in claims:
+    for c in verified:
         kind = c.get("kind", "observation")
         stmt = (c.get("statement") or "").strip()
         val = str(c.get("value", "")).strip()
@@ -236,7 +239,7 @@ def _format_autoresearch_findings(interview_data: dict) -> str:
         "INDEPENDENTLY VERIFIED by re-executing its computation (or reconciled against the\n"
         "re-run evidence), so these numbers are trustworthy and reproducible. Items marked\n"
         "[quality_caveat] are real limitations to report honestly.\n\n"
-        + "\n".join(lines) +
+        + ("\n".join(lines) if lines else "(none fully verified)") +
         "\n\nThese are the most reliable numbers you have. You have NO computational ability\n"
         "of your own, so do not compute, re-derive, round, or estimate — when you report a\n"
         "quantitative result, use the values above verbatim. You need not report every\n"
@@ -246,6 +249,27 @@ def _format_autoresearch_findings(interview_data: dict) -> str:
         "quirks are secondary support. Lead with the biology and give the rest proportionate\n"
         "weight."
     )
+    if other:
+        olines = []
+        for c in other:
+            verdict = c.get("verdict", "unverifiable")
+            stmt = (c.get("statement") or "").strip()
+            val = str(c.get("value", "")).strip()
+            rec = (c.get("reconcile") or {}).get("reasoning", "").strip()
+            line = f"- [{verdict}] {stmt}" + (f"  — claimed value: {val}" if val else "")
+            if rec:
+                line += f"  [re-check: {rec[:200]}]"
+            olines.append(line)
+        block += (
+            "\n\nOTHER FINDINGS THE ANALYSIS FLAGGED (did NOT cleanly reproduce on independent\n"
+            "re-execution — verdict and any re-check note shown). These are NOT pre-excluded:\n"
+            "YOU decide whether and how to use each. Two common, genuinely useful cases live\n"
+            "here — a NEGATIVE result that couldn't be positively confirmed (e.g. 'no significant\n"
+            "effect of X'), and a result the re-check only PARTIALLY confirmed. Don't state their\n"
+            "specific numbers as established fact, but don't silently drop them either: report\n"
+            "what's warranted, honestly hedged (e.g. as a non-significant or unconfirmed result).\n\n"
+            + "\n".join(olines)
+        )
     if assumptions:
         alines = []
         for a in assumptions:
