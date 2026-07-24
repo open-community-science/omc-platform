@@ -262,12 +262,11 @@ def _format_autoresearch_findings(interview_data: dict) -> str:
             olines.append(line)
         block += (
             "\n\nOTHER FINDINGS THE ANALYSIS FLAGGED (did NOT cleanly reproduce on independent\n"
-            "re-execution — verdict and any re-check note shown). These are NOT pre-excluded:\n"
-            "YOU decide whether and how to use each. Two common, genuinely useful cases live\n"
-            "here — a NEGATIVE result that couldn't be positively confirmed (e.g. 'no significant\n"
-            "effect of X'), and a result the re-check only PARTIALLY confirmed. Don't state their\n"
-            "specific numbers as established fact, but don't silently drop them either: report\n"
-            "what's warranted, honestly hedged (e.g. as a non-significant or unconfirmed result).\n\n"
+            "re-execution — verdict and any re-check note shown). You may draw on any of these\n"
+            "if warranted, but only with honest hedging (e.g. as a non-significant or unconfirmed\n"
+            "result) — do not state their specific numbers as established fact. A refuted negative\n"
+            "('no significant effect of X') or a partially-confirmed result can still merit a\n"
+            "hedged mention; that is your judgment to make.\n\n"
             + "\n".join(olines)
         )
     if assumptions:
