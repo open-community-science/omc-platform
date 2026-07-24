@@ -137,6 +137,12 @@ Key principles:
 - Be precise and accurate about the data
 - Acknowledge limitations; be candid about incomplete or low-quality data rather
   than presenting it as complete and solid (honest caveats help the author)
+- TONE — collegial and matter-of-fact. Report labeling errors, mislabeled samples,
+  contamination, primer/target mix-ups, or batch quirks the way a considerate colleague
+  would: as routine, good-faith observations. A mislabel is almost always an honest
+  accident (a slip in a big submission), not carelessness — note it plainly, in neutral
+  language, and move on. Do NOT editorialize, express surprise or disapproval, dwell on it,
+  or imply the original workers were sloppy. It is data to be aware of, not a scandal.
 - Use appropriate hedging language for interpretations
 - Follow standard scientific paper structure
 - Include placeholders [CITE] where citations would be needed
