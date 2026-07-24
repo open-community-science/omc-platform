@@ -7,7 +7,7 @@ with structured comments, matching OMC's git-native review model.
 import asyncio
 import json
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes
@@ -16,10 +16,15 @@ from sqlalchemy import select
 from .config import get_settings
 from .database import get_db, async_session, Submission, User
 from .auth import require_user
+from .run_registry import Run, registry, stream_run, status_payload
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+# Detached, disconnect-surviving runs (see run_registry). slug -> Run.
+_MS_RUNS = registry("manuscript")     # manuscript drafting
+_REVIEW_RUNS = registry("reviews")    # AI review generation
 
 
 async def _get_llm_config(user_id: int) -> dict:
@@ -214,6 +219,155 @@ async def run_reviews(
     }
 
 
+@router.post("/{slug}/run-stream")
+async def run_reviews_stream(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Run AI reviews with SSE progress — as a DETACHED, disconnect-surviving run.
+
+    Same work as ``/run`` (review agents → PRs → optional revise → persist) but the
+    worker owns the run: it completes and saves whether or not the browser stays,
+    so navigating away no longer loses the reviews (and no more 'Do not close this
+    page')."""
+    from ai.review_agents import run_all_reviews
+    from ai.pipeline_parser import parse_pipeline_outputs
+    from .github_integration import create_review_pr
+    from pathlib import Path
+
+    stmt = select(Submission).where(Submission.slug == slug, Submission.user_id == user.id)
+    submission = (await db.execute(stmt)).scalar_one_or_none()
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    manuscript = (submission.interview_data or {}).get("_manuscript")
+    if not manuscript:
+        raise HTTPException(status_code=400, detail="No manuscript found. Generate manuscript first.")
+
+    # Capture submission fields to locals — the worker outlives this request scope.
+    sub_slug = submission.slug
+    sub_id = submission.id
+    sub_pipeline = submission.pipeline.value
+    sub_accession = submission.bioproject_accession
+    sub_github_repo = submission.github_repo
+    sub_sample_meta = dict(submission.sample_metadata or {})
+    has_github_repo = bool(sub_github_repo)
+
+    # Parse pipeline outputs for the statistical reviewer (request scope; mount sqsh).
+    pipeline_outputs = {}
+    try:
+        from .staging import get_results_path
+        from .sessions import _sqsh_mount, SQSH_MOUNT_BASE
+        sqsh_mount = SQSH_MOUNT_BASE / sub_slug
+        sqsh_path = get_results_path(sub_slug)
+        if sqsh_path and not _dir_has_content(sqsh_mount):
+            try:
+                sqsh_mount = await _sqsh_mount(sub_slug, sqsh_path)
+            except Exception as e:
+                logger.warning(f"Could not mount sqsh for {sub_slug}: {e}")
+        for base in [sqsh_mount, Path(settings.local_download_path) / sub_slug]:
+            if _dir_has_content(base):
+                pipeline_outputs = parse_pipeline_outputs(sub_pipeline, base)
+                break
+    except Exception as e:
+        logger.warning(f"Pipeline output parsing failed for {sub_slug}: {e}")
+    pipeline_config = {"pipeline": sub_pipeline, "accession": sub_accession}
+    llm = await _get_llm_config(user.id)
+
+    existing = _REVIEW_RUNS.get(sub_slug)
+    if existing and not existing.done:
+        return StreamingResponse(stream_run(existing), media_type="text/event-stream")
+    run = Run()
+    _REVIEW_RUNS[sub_slug] = run
+
+    async def worker():
+        run.emit("start", f"Using {llm['label']}")
+        try:
+            run.emit("review", "running AI review agents")
+            reviews = await run_all_reviews(
+                manuscript, pipeline_outputs, pipeline_config,
+                base_url=llm["base_url"], api_key=llm["api_key"],
+                model=settings.role_model("review", llm["model"]))
+
+            pr_urls = []
+            if has_github_repo:
+                repo_full_name = "/".join(sub_github_repo.rstrip("/").split("/")[-2:])
+                for review in reviews:
+                    rt = review.get("review_type", "general")
+                    run.emit("review", f"posting {rt} review PR")
+                    try:
+                        pr_url = await create_review_pr(
+                            repo_full_name, [{"body": _format_review_as_markdown(review)}], rt)
+                        pr_urls.append({"review_type": rt, "pr_url": pr_url})
+                    except Exception as e:
+                        logger.error(f"Failed to create {rt} review PR: {e}")
+                        pr_urls.append({"review_type": rt, "error": str(e)})
+
+            revised, revise_log = None, None
+            if settings.manuscript_revise_enabled:
+                run.emit("review", "revising manuscript from review findings")
+                try:
+                    from ai.manuscript_generator import revise_manuscript
+                    revised, revise_log = await revise_manuscript(
+                        manuscript, reviews=reviews, results_data=pipeline_outputs,
+                        study_metadata=sub_sample_meta,
+                        base_url=llm["base_url"], api_key=llm["api_key"],
+                        model=settings.role_model("draft", llm["model"]),
+                        max_passes=settings.manuscript_revise_max_passes)
+                except Exception as e:
+                    logger.warning(f"Revise pass failed for {sub_slug} (reviews preserved): {e}")
+        except Exception as e:
+            logger.exception(f"Reviews failed for {sub_slug}")
+            run.emit("error", str(e))
+            run.finish("error"); return
+
+        # Persist — ALWAYS. Re-read interview_data in a fresh session and merge.
+        run.emit("start", "Saving reviews...")
+        try:
+            async with async_session() as save_db:
+                sub = (await save_db.execute(
+                    select(Submission).where(Submission.id == sub_id))).scalar_one()
+                idata = dict(sub.interview_data or {})
+                idata["_reviews"] = reviews
+                idata["_review_prs"] = pr_urls
+                idata["_review_model"] = llm.get("label")
+                idata["_review_backend"] = llm.get("backend")
+                idata["_review_models"] = {"review": settings.role_model("review", llm["model"])}
+                if revised is not None:
+                    idata["_manuscript_revised"] = revised
+                    idata["_revise_log"] = revise_log
+                    idata["_manuscript_revised_model"] = settings.role_model("draft", llm["model"])
+                sub.interview_data = idata
+                attributes.flag_modified(sub, "interview_data")
+                await save_db.commit()
+        except Exception as e:
+            logger.exception(f"Reviews save failed for {sub_slug}")
+            run.emit("error", f"Save failed: {e}")
+            run.finish("error"); return
+
+        n_pr = len([p for p in pr_urls if p.get("pr_url")])
+        run.push({"event": "complete",
+                  "detail": f"Reviews complete — {len(reviews)} reviews, {n_pr} PRs", "reload": True})
+        run.finish("complete")
+
+    asyncio.create_task(worker())
+    return StreamingResponse(stream_run(run), media_type="text/event-stream")
+
+
+@router.get("/{slug}/run-status")
+async def reviews_status(
+    slug: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Is a review run in flight? Lets the page reconnect after a navigation."""
+    from .auth import get_current_user
+    user = await get_current_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return status_payload(_REVIEW_RUNS.get(slug))
+
+
 @router.post("/{slug}/generate")
 async def generate_manuscript(
     slug: str,
@@ -367,78 +521,88 @@ async def generate_manuscript_stream(
     except Exception:
         pass
 
-    result_holder = {}
+    # Already generating for this submission? Attach (reconnect) instead of starting
+    # a second run — so navigating back resumes the live progress.
+    existing = _MS_RUNS.get(sub_slug)
+    if existing and not existing.done:
+        return StreamingResponse(stream_run(existing), media_type="text/event-stream")
 
-    async def event_stream():
-        progress_queue = asyncio.Queue()
+    run = Run()
+    _MS_RUNS[sub_slug] = run
 
-        # Announce which backend we're using
-        await progress_queue.put({"event": "start", "detail": f"Using {llm['label']}"})
-
+    async def worker():
+        """Detached: drafts the manuscript and PERSISTS regardless of any listener,
+        so navigating away no longer discards the draft."""
         async def on_progress(event, detail):
-            await progress_queue.put({"event": event, "detail": detail})
+            run.emit(event, detail)
 
-        async def run_generation():
-            try:
-                sections = await generate_manuscript_draft(
-                    pipeline_outputs=pipeline_outputs,
-                    interview_data=sub_interview,
-                    pipeline_type=sub_pipeline,
-                    bioproject_accession=sub_accession,
-                    study_metadata=sub_study_meta,
-                    base_url=llm["base_url"],
-                    api_key=llm["api_key"],
-                    model=settings.role_model("draft", llm["model"]),
-                    cite_model=settings.role_model("cite", llm["model"]),
-                    outline_first=settings.manuscript_outline_first,
-                    on_progress=on_progress,
-                )
-                result_holder["sections"] = sections
-            except Exception as e:
-                result_holder["error"] = str(e)
-                await progress_queue.put({"event": "error", "detail": str(e)})
-            finally:
-                await progress_queue.put(None)
+        run.emit("start", f"Using {llm['label']}")
+        try:
+            sections = await generate_manuscript_draft(
+                pipeline_outputs=pipeline_outputs,
+                interview_data=sub_interview,
+                pipeline_type=sub_pipeline,
+                bioproject_accession=sub_accession,
+                study_metadata=sub_study_meta,
+                base_url=llm["base_url"],
+                api_key=llm["api_key"],
+                model=settings.role_model("draft", llm["model"]),
+                cite_model=settings.role_model("cite", llm["model"]),
+                outline_first=settings.manuscript_outline_first,
+                on_progress=on_progress,
+            )
+        except Exception as e:
+            logger.exception(f"Manuscript generation failed for {sub_slug}")
+            run.emit("error", str(e))
+            run.finish("error"); return
 
-        asyncio.create_task(run_generation())
+        # Persist — ALWAYS, even if no client is still connected.
+        run.emit("start", "Saving manuscript...")
+        try:
+            interview_data = dict(sub_interview)
+            interview_data["_manuscript"] = sections
+            # Provenance (#16): backend label PLUS the per-role model map (drafting
+            # and citation resolution can use different models).
+            interview_data["_manuscript_model"] = llm.get("label")
+            interview_data["_manuscript_backend"] = llm.get("backend")
+            interview_data["_manuscript_models"] = {
+                "draft": settings.role_model("draft", llm["model"]),
+                "cite": settings.role_model("cite", llm["model"]),
+            }
+            async with async_session() as save_db:
+                save_stmt = select(Submission).where(Submission.id == sub_id)
+                save_result = await save_db.execute(save_stmt)
+                sub = save_result.scalar_one()
+                sub.interview_data = interview_data
+                attributes.flag_modified(sub, "interview_data")
+                await save_db.commit()
+        except Exception as e:
+            logger.exception(f"Manuscript save failed for {sub_slug}")
+            run.emit("error", f"Save failed: {e}")
+            run.finish("error"); return
 
-        while True:
-            msg = await progress_queue.get()
-            if msg is None:
-                break
-            yield f"data: {json.dumps(msg)}\n\n"
+        preview_url = f"/submissions/{sub_slug}/manuscript"
+        run.push({"event": "complete",
+                  "detail": "Manuscript saved — redirecting to preview", "preview_url": preview_url})
+        run.finish("complete", result_url=preview_url)
 
-        # Save results to DB
-        if "sections" in result_holder:
-            sections = result_holder["sections"]
-            yield f"data: {json.dumps({'event': 'start', 'detail': 'Saving manuscript...'})}\n\n"
+    asyncio.create_task(worker())
+    return StreamingResponse(stream_run(run), media_type="text/event-stream")
 
-            try:
-                interview_data = dict(sub_interview)
-                interview_data["_manuscript"] = sections
-                # Provenance (#16): backend label PLUS the per-role model map (drafting
-                # and citation resolution can use different models).
-                interview_data["_manuscript_model"] = llm.get("label")
-                interview_data["_manuscript_backend"] = llm.get("backend")
-                interview_data["_manuscript_models"] = {
-                    "draft": settings.role_model("draft", llm["model"]),
-                    "cite": settings.role_model("cite", llm["model"]),
-                }
 
-                async with async_session() as save_db:
-                    save_stmt = select(Submission).where(Submission.id == sub_id)
-                    save_result = await save_db.execute(save_stmt)
-                    sub = save_result.scalar_one()
-                    sub.interview_data = interview_data
-                    attributes.flag_modified(sub, "interview_data")
-                    await save_db.commit()
-
-                preview_url = f"/submissions/{sub_slug}/manuscript"
-                yield f"data: {json.dumps({'event': 'complete', 'detail': 'Manuscript saved — redirecting to preview', 'preview_url': preview_url})}\n\n"
-            except Exception as e:
-                yield f"data: {json.dumps({'event': 'error', 'detail': f'Save failed: {e}'})}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+@router.get("/{slug}/generate-status")
+async def manuscript_status(
+    slug: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Is a manuscript generation in flight? Lets the page reconnect after a
+    navigation instead of losing it."""
+    from .auth import get_current_user
+    user = await get_current_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return status_payload(_MS_RUNS.get(slug))
 
 
 @router.post("/{slug}/publish")
