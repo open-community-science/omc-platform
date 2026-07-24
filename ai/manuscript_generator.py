@@ -186,13 +186,50 @@ Write a Methods section covering:
 Be specific about tools and versions where inferable."""
 
 
+def _format_autoresearch_findings(interview_data: dict) -> str:
+    """Verified autoresearch claims as grounding for the write-up, with background
+    on how they were produced. An autonomous agent explored the data, ran its own
+    analysis code, and recorded claims; each below was independently re-executed and
+    verified, so the numbers are trustworthy. Returns '' when no run exists."""
+    ar = (interview_data or {}).get("_autoresearch") or {}
+    claims = [c for c in ar.get("claims", []) if c.get("verdict") == "verified"]
+    if not claims:
+        return ""
+    lines = []
+    for c in claims:
+        kind = c.get("kind", "observation")
+        stmt = (c.get("statement") or "").strip()
+        val = str(c.get("value", "")).strip()
+        lines.append(f"- [{kind}] {stmt}" + (f"  — value: {val}" if val else ""))
+    return (
+        "VERIFIED FINDINGS FROM AUTONOMOUS ANALYSIS (autoresearch):\n"
+        "An analysis agent explored this dataset — it proposed a research agenda, wrote and\n"
+        "ran its own analysis code, and recorded claims. EACH claim below was then\n"
+        "INDEPENDENTLY VERIFIED by re-executing its computation (or reconciled against the\n"
+        "re-run evidence), so these numbers are trustworthy and reproducible. Items marked\n"
+        "[quality_caveat] are real limitations to report honestly.\n\n"
+        + "\n".join(lines) +
+        "\n\nThese are the most reliable numbers you have. You have NO computational ability\n"
+        "of your own, so do not compute, re-derive, round, or estimate — when you report a\n"
+        "quantitative result, use the values above verbatim. You need not report every\n"
+        "finding: decide which are the most interesting and important and weave them into a\n"
+        "coherent narrative."
+    )
+
+
 def build_results_prompt(study_context: str, pipeline_outputs: dict, interview_data: dict) -> str:
     """User prompt for the Results section."""
+    findings = _format_autoresearch_findings(interview_data)
+    findings_block = (findings + "\n\n") if findings else ""
+    outputs_label = (
+        "RAW PIPELINE OUTPUTS (supporting detail — for any number, prefer the verified findings above):"
+        if findings else "PIPELINE OUTPUTS:")
     return f"""Generate a Results section based on these pipeline outputs:
 
 STUDY (authoritative — the paper is about THIS and nothing else):
 {study_context}
 
+{findings_block}{outputs_label}
 {json.dumps(pipeline_outputs, indent=2, default=str) if pipeline_outputs else 'No pipeline outputs available yet.'}
 
 RESEARCH QUESTION:
@@ -201,8 +238,10 @@ RESEARCH QUESTION:
 Write a Results section that:
 1. Reports findings objectively without interpretation
 2. References figures and tables (Figure 1, Table 1, etc.)
-3. Includes key statistics and quantitative findings
+3. Includes key quantitative findings — for any number you report, use the exact
+   values from the material above verbatim (you cannot compute your own)
 4. Follows a logical flow from overview to specific findings
+5. Reports any quality caveats plainly and honestly
 
 Do not interpret results - save that for Discussion."""
 
