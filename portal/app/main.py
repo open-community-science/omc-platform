@@ -644,6 +644,9 @@ async def manuscript_preview(
             "submission": submission,
             "manuscript": manuscript,
             "manuscript_html": manuscript_html,
+            # Attribution: the backend label + per-role model map (draft/cite may differ).
+            "model_label": interview_data.get("_manuscript_model"),
+            "model_roles": interview_data.get("_manuscript_models") or {},
         },
     )
 
