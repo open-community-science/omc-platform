@@ -396,6 +396,33 @@ class LLMClient:
 _UNASSIGNED = {"", "na", "unclassified", "unassigned", "incertae sedis", "none"}
 
 
+def _primers_summary(primers: dict | None) -> Optional[dict]:
+    """Compact INFERRED-primer view for the `study` dataset: which amplicon design(s)
+    the submission appears to use. When more than one design is present, a domain split
+    across samples is the expected consequence of a multi-amplicon study (e.g. paired
+    16S + 18S), not a mislabel to re-derive. Per-sample assignment is not yet available
+    (see issue #37); this is design-level context only."""
+    if not primers:
+        return None
+    sets = primers.get("sets") or [primers]
+    designs = [{
+        "region": s.get("region"),
+        "fwd": s.get("fwd_name") or s.get("fwd"),
+        "rev": s.get("rev_name") or s.get("rev"),
+        "confidence": s.get("confidence"),
+        "example_runs": (s.get("runs") or [])[:6],
+        "n_runs_mapped": s.get("n_runs") or len(s.get("runs") or []),
+    } for s in sets]
+    return {
+        "source": primers.get("source", "inferred"),
+        "designs": designs,
+        "note": ("INFERRED amplicon design (not confirmed, not fully mapped per sample). "
+                 "Multiple designs mean a deliberate multi-amplicon study, so a domain split "
+                 "across samples is EXPECTED by design — treat it as the assay structure, not "
+                 "a mislabel to flag. Confirm specifics against tax Domain where it matters."),
+    }
+
+
 class DirDataSource:
     """A ``DataSource`` backed by a directory of viz JSON files. Used by BOTH the
     offline bench (over ``OMC_BENCH_DATA``) and the portal route (over the
@@ -495,8 +522,12 @@ class DirDataSource:
                 "platform": sg.get("platform"),
                 "taxonomy_database": fx.get("taxonomy_summary", {}).get("database"),
                 "pipeline_stages": [s.get("id") for s in prov.get("stages", [])],
+                # Inferred amplicon design (when available) — so a domain split reads as
+                # the expected multi-amplicon structure, not a mislabel to re-derive.
+                "amplicon_primers": _primers_summary(sg.get("primers")),
                 "caveat": ("stated_target_label is the SRA-metadata amplicon label and can be "
-                           "wrong (18S runs are commonly mislabeled '16S'); confirm against tax Domain."),
+                           "wrong (18S runs are commonly mislabeled '16S'). See amplicon_primers "
+                           "for the inferred assay design; confirm against tax Domain."),
             },
             "renorm_stats": self.read_json("renorm_stats") or fx.get("renorm", {}),
             "provenance": {"total": prov.get("total", {}),

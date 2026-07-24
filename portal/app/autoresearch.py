@@ -168,6 +168,11 @@ async def run_autoresearch_stream(
     sub_pipeline = submission.pipeline.value
     sub_title = submission.title or ""
     sub_study_meta = dict(submission.sample_metadata or {})
+    # Inferred amplicon primers (fwd/rev, region, per-set) — tells the agent the assay
+    # design so a 16S/18S domain split reads as an expected dual-amplicon study rather
+    # than a mystery to re-derive. Confirmed per-sample primers will arrive via #37.
+    if submission.primers:
+        sub_study_meta["primers"] = submission.primers
     sub_interview = dict(submission.interview_data or {})
     sub_github_repo = submission.github_repo
     sub_selected_runs = submission.selected_runs or []
