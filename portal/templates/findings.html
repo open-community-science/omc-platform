@@ -132,6 +132,14 @@
     <h1>Every number traces to data or the code that produced it</h1>
     <p class="sub" id="study">{% if submission %}{{ submission.title or submission.slug }} · agenda-driven autoresearch{% endif %}</p>
     <div class="stats" id="stats"></div>
+    {% if submission %}
+    <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <button id="dig-btn" class="btn btn-primary" onclick="digDeeper()"
+        title="Continue the investigation from here and record more findings">Dig deeper</button>
+      <span id="dig-status" style="opacity:.75;font-size:.85rem"></span>
+    </div>
+    <pre id="dig-log" style="display:none;margin-top:12px;background:#0a0a0a;color:#4ade80;padding:12px 14px;border-radius:8px;font-size:.78rem;line-height:1.6;max-height:300px;overflow-y:auto;white-space:pre-wrap"></pre>
+    {% endif %}
   </header>
 
   <div class="lede">
@@ -291,5 +299,67 @@ function select(i){
     + `<p class="prov-h">Antecedents (${antCount})</p>${ants}`;
 }
 if (CLAIMS.length) select(0);
+
+// ── Dig deeper: continue the investigation from this page ────────────────────
+{% if submission %}
+const SLUG = {{ submission.slug | tojson }};
+const digBtn = document.getElementById('dig-btn');
+const digLog = document.getElementById('dig-log');
+const digStat = document.getElementById('dig-status');
+
+function digAppend(t, color){
+  digLog.style.display = '';
+  const line = document.createElement('div');
+  if (color) line.style.color = color;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${t}`;
+  digLog.appendChild(line);
+  digLog.scrollTop = digLog.scrollHeight;
+}
+
+// Consume the SSE run stream. `resume` starts a fresh continue; when a run is
+// already live the server attaches instead (so this doubles as reconnect).
+async function digConsume(resume){
+  digBtn.disabled = true;
+  digStat.textContent = 'running — safe to leave this page; it keeps going and saves on its own.';
+  try {
+    const resp = await fetch(`/autoresearch/${SLUG}/run-stream${resume ? '?resume=true' : ''}`,
+      {method:'POST', credentials:'same-origin'});
+    if (!resp.ok){ digAppend(`ERROR: ${resp.status} ${resp.statusText}`, '#ef4444'); digBtn.disabled=false; return; }
+    const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    while (true){
+      const {done, value} = await reader.read(); if (done) break;
+      buf += dec.decode(value, {stream:true});
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const ln of lines){
+        if (!ln.startsWith('data: ')) continue;
+        let msg; try { msg = JSON.parse(ln.slice(6)); } catch(e){ continue; }
+        const d = (msg.detail == null) ? '' : (typeof msg.detail === 'string' ? msg.detail
+                   : (msg.detail.statement || msg.detail.question || msg.detail.label || JSON.stringify(msg.detail)));
+        if (msg.event === 'record_claim') digAppend(`claim: ${d}`, '#4ade80');
+        else if (msg.event === 'run_analysis') digAppend(`analysis: ${d}`, '#facc15');
+        else if (msg.event === 'error'){ digAppend(`ERROR: ${d}`, '#ef4444'); digStat.textContent='error'; }
+        else if (msg.event === 'complete'){
+          digAppend('Complete — reloading findings...', '#22c55e');
+          digStat.textContent = 'complete';
+          setTimeout(() => location.reload(), 1500);
+        } else if (d) digAppend(`${msg.event}: ${d}`);
+      }
+    }
+  } catch(e){ digAppend(`ERROR: ${e.message}`, '#ef4444'); }
+  digBtn.disabled = false;
+}
+
+function digDeeper(){ digConsume(true); }
+
+// Reconnect if a run for this submission is already in flight (e.g. started from
+// the submission page, or still running after a navigation).
+(async function(){
+  try {
+    const s = await fetch(`/autoresearch/${SLUG}/status`, {credentials:'same-origin'})
+      .then(r => r.ok ? r.json() : {running:false});
+    if (s.running){ digAppend('Reconnecting to a run already in progress...'); digConsume(false); }
+  } catch(e){}
+})();
+{% endif %}
 </script>
 {% endblock %}

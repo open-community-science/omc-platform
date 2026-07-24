@@ -31,7 +31,7 @@
     {% if has_autoresearch %}
     <button class="btn btn-primary" onclick="runAutoresearch(true)"
         title="Continue the investigation from where it left off and dig deeper">
-        Keep digging
+        Dig deeper
     </button>
     <a href="/autoresearch/{{ submission.slug }}/findings" class="btn btn-secondary">View Findings</a>
     {% endif %}
@@ -45,13 +45,14 @@
 </div>
 
 <script>
-async function runAutoresearch(resume = false) {
+async function runAutoresearch(resume = false, attach = false) {
     const progressDiv = document.getElementById('ar-progress');
     const logDiv = document.getElementById('ar-log');
     progressDiv.style.display = '';
     logDiv.innerHTML = '';
     if (typeof showPersistentStatus === 'function')
-        showPersistentStatus(resume ? 'Digging deeper...' : 'Running autoresearch...');
+        showPersistentStatus(attach ? 'Reconnecting to running analysis...'
+                             : (resume ? 'Digging deeper...' : 'Running autoresearch...'));
 
     function scrollLog() {
         const term = document.getElementById('ar-terminal');
@@ -80,10 +81,14 @@ async function runAutoresearch(resume = false) {
         }
     }
 
-    appendLog(resume ? 'Resuming — digging deeper from where it left off...'
-                     : 'Starting claim-grounded autoresearch...');
+    appendLog(attach ? 'Reconnecting to a run already in progress...'
+              : (resume ? 'Resuming — digging deeper from where it left off...'
+                        : 'Starting claim-grounded autoresearch...'));
 
     try {
+        // A run started elsewhere (or before you navigated away) keeps going on the
+        // server; POSTing here ATTACHES to it and replays its progress. resume/attach
+        // only affect a fresh start — the server ignores them if a run is already live.
         const resp = await fetch(`/autoresearch/${subId}/run-stream${resume ? '?resume=true' : ''}`, {
             method: 'POST', credentials: 'same-origin',
         });
@@ -159,5 +164,16 @@ async function runAutoresearch(resume = false) {
         if (typeof showStatus === 'function') showStatus(`Error: ${e.message}`);
     }
 }
+
+// On load, reconnect to a run that's already in flight for this submission — a run
+// keeps going server-side even if you navigate away, so returning re-attaches to
+// its live progress instead of showing an empty page.
+(async function reconnectIfRunning() {
+    try {
+        const s = await fetch(`/autoresearch/${subId}/status`, {credentials: 'same-origin'})
+            .then(r => r.ok ? r.json() : {running: false});
+        if (s.running) runAutoresearch(false, true);   // attach to the live run
+    } catch (e) { /* status unavailable — leave buttons as-is */ }
+})();
 </script>
 {% endif %}
