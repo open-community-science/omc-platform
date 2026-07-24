@@ -49,6 +49,9 @@ from run_bench import _unload_all, _lms_load
 BASE_URL = os.environ.get("EXPLORER_BASE_URL", "http://localhost:1234/v1")
 MODEL = os.environ.get("EXPLORER_MODEL", "qwen/qwen3.6-35b-a3b")
 # The clean-room analyst. Deliberately its own env var: independence is the point.
+# The judge. Defaults AWAY from the explorer: a claimant grading its own claims is
+# not verification, and with a model doing the judging that conflict is real.
+VERIFY_MODEL = os.environ.get("VERIFY_MODEL", os.environ.get("REPLICATE_MODEL", MODEL))
 REPLICATE_MODEL = os.environ.get("REPLICATE_MODEL", MODEL)
 # Round 3's casting vote. A third distinct model is ideal — the tiebreak should not
 # share a lineage with either of the first two.
@@ -139,7 +142,7 @@ def _executor() -> SubprocessExecutor:
 
 def _make_researcher(llm: LLMClient) -> Autoresearcher:
     return Autoresearcher(_data_source(), llm, _executor(),
-                          explore_model=MODEL, verify_model=MODEL,
+                          explore_model=MODEL, verify_model=VERIFY_MODEL,
                           replicate_model=REPLICATE_MODEL,
                           adjudicate_model=ADJUDICATE_MODEL)
 
@@ -187,9 +190,10 @@ async def _reverify_async(llm):
     deterministic miss escalates to skeptical model reconciliation."""
     saved = json.loads((OUT / "claims_ledger.json").read_text())
     ar = Autoresearcher.from_snapshot(saved, _data_source(), llm or LLMClient(None, MODEL),
-                                      _executor(), explore_model=MODEL, verify_model=MODEL,
+                                      _executor(), explore_model=MODEL, verify_model=VERIFY_MODEL,
                                       replicate_model=REPLICATE_MODEL,
                                       adjudicate_model=ADJUDICATE_MODEL)
+    _switch_model(VERIFY_MODEL)
     await ar.verify()
     # Re-grade a SAVED ledger through the independent rounds without re-exploring —
     # the cheap way to ask "how many of these claims survive a clean-room check?".
@@ -232,7 +236,9 @@ async def _main_async(llm: LLMClient):
     t0 = time.time()
     ar = _make_researcher(llm)
     completed = await ar.explore()
-    await ar.verify()  # deterministic first; escalate misses to skeptical model reconciliation
+    print(f"\n=== VERIFY (judged by {VERIFY_MODEL}) ===", flush=True)
+    _switch_model(VERIFY_MODEL)
+    await ar.verify()
     if "--replicate" in sys.argv:
         await _run_independent_rounds(ar)
     done = sum(a["status"] == "done" for a in ar.agenda)
