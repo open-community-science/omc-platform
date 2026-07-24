@@ -13,6 +13,7 @@ import time
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from .config import get_settings
 from .crypto import decrypt_value
@@ -114,10 +115,21 @@ async def free_default_model(api_key: str) -> str | None:
 
 
 async def get_site_config(key: str) -> str | None:
-    """Read a single site_config value."""
-    async with async_session() as db:
-        row = (await db.execute(select(SiteConfig).where(SiteConfig.key == key))).scalar_one_or_none()
-        return row.value if row else None
+    """Read a single site_config value, or None if it isn't set or readable.
+
+    Every site_config entry is an *optional* admin preference, and resolve_llm()
+    is on the path of every AI call. A DB that can't answer — a fresh install
+    whose migrations haven't created `site_config` yet, or a test harness with a
+    bare schema — must therefore read as "unset" and let the normal fallback
+    chain take over, not raise and take down LLM resolution entirely.
+    """
+    try:
+        async with async_session() as db:
+            row = (await db.execute(select(SiteConfig).where(SiteConfig.key == key))).scalar_one_or_none()
+            return row.value if row else None
+    except SQLAlchemyError as e:
+        logger.debug("site_config[%s] unavailable, treating as unset: %s", key, e)
+        return None
 
 
 async def set_site_config(key: str, value: str | None) -> None:

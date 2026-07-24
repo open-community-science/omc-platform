@@ -1,8 +1,15 @@
 """Test citation resolution using PubMed search."""
+import asyncio
 import sys
 import pytest
+from pathlib import Path
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# Unreachable address (port 9 = discard): LLM-dependent steps fail fast and take
+# their deterministic fallback, so these stay offline. Same idiom as
+# tests/test_codex_review_fixes.py.
+NO_LLM = "http://127.0.0.1:9/v1"
 
 
 def test_find_cite_contexts():
@@ -33,7 +40,12 @@ CheckM2 has become the standard for MAG quality assessment [CITE: Parks et al 20
 GTDB-Tk provides genome-based taxonomy for prokaryotes [CITE]."""
 
     contexts = find_cite_contexts(text)
-    queries = generate_search_queries(contexts, pipeline_type="nanopore_mag")
+    # generate_search_queries is async (it asks an LLM, falling back to keyword
+    # extraction when none is reachable). Either path must yield exactly one
+    # query per placeholder — that invariant is what this asserts.
+    queries = asyncio.run(
+        generate_search_queries(contexts, pipeline_type="nanopore_mag", base_url=NO_LLM)
+    )
     assert len(queries) == 3
     print(f"\nGenerated {len(queries)} search queries:")
     for i, q in enumerate(queries):
