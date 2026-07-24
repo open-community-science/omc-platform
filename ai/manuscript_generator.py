@@ -282,21 +282,26 @@ STUDY (authoritative — the paper is about THIS and nothing else):
 RESEARCH QUESTION:
 {interview_data.get('research_question', 'Not specified')}
 
-Write it as a microbial-ecology Results narrative — NOT a QC report. Perspective matters:
+Write it as a microbial-ecology Results narrative — NOT a QC report. Perspective and concision matter:
 
-1. LEAD WITH THE BIG PICTURE. Open with the community's biological identity and its
-   headline story: what the community IS, what DOMINATES it (name the dominant and
-   characteristic taxa and their abundances), and the main ecological pattern. A reader
-   should grasp the central biological finding in the first paragraph.
-2. PROPORTIONATE WEIGHT. The findings mix big-picture biology with fine technical detail
-   (methodological confounds, sequencing-depth artifacts, metadata quirks, per-rank
-   classification counts). Foreground the ecologically important results; use minor or
-   technical points only as brief support, and place genuine caveats/limitations near the
-   END. Do not let a single striking anomaly or QC statistic crowd out the main story.
-3. Do NOT open with ASV totals, per-rank classification counts, or read-retention rates as
-   if they were a result — a clause of context at most.
-4. For every number, use the verified findings verbatim (you cannot compute your own).
-5. Reference figures/tables where natural; report real quality caveats plainly and honestly.
+1. LEAD WITH THE BIG PICTURE. Open with the community's biological identity and headline
+   story: what the community IS, what DOMINATES it (name the dominant/characteristic taxa and
+   their abundances), and the main ecological pattern. A reader should grasp the central
+   biological finding in the first paragraph.
+2. STRUCTURAL / METHODOLOGICAL FEATURES ARE FRAMING, NOT THE STORY. Dataset structure — an
+   assay or batch design, paired/mixed runs, sequencing-depth artifacts, metadata
+   inconsistencies — is context to state ONCE, briefly (a sentence or two), early, then move
+   on. Do NOT organize the Results around such a feature, re-litigate it, or let any single
+   anomaly or QC point consume more than a small fraction of the section. The biology is the
+   story; a structural quirk is a caveat, not the headline.
+3. BE CONCISE AND SELECTIVE. Do NOT catalogue every finding. Choose the most important, state
+   each once, and build a tight, well-organized narrative — a few clear paragraphs (community
+   & dominant taxa → main ecological patterns → key caveats), not an exhaustive or repetitive
+   enumeration. A focused Results beats a comprehensive one.
+4. Do NOT open with ASV totals, per-rank classification counts, or read-retention rates as if
+   they were a result — a clause of context at most.
+5. For every number, use the verified findings verbatim (you cannot compute your own).
+6. Reference figures/tables where natural; report genuine quality caveats plainly, near the end.
 
 Report, don't interpret — save interpretation for Discussion."""
 
