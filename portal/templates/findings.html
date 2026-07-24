@@ -16,7 +16,7 @@
   Self-contained: no external assets beyond what base.html already loads.
 #}
 
-{% block title %}Claim Provenance — {{ submission.title or submission.slug if submission else 'Autoresearch' }} - OMC{% endblock %}
+{% block title %}Findings — {{ submission.title or submission.slug if submission else 'Autoresearch' }} - OMC{% endblock %}
 
 {% block head %}
 <style>
@@ -147,8 +147,8 @@
       <ul class="claims" id="list"></ul>
     </section>
     <aside>
-      <p class="col-h">Provenance</p>
-      <div class="detail" id="detail"><p class="empty">Select a claim to inspect its provenance.</p></div>
+      <p class="col-h">Evidence</p>
+      <div class="detail" id="detail"><p class="empty">Select a claim to inspect its evidence.</p></div>
     </aside>
   </div>
 

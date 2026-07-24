@@ -713,14 +713,47 @@ class Autoresearcher:
         return {"error": f"unknown tool {name}"}
 
     # -- explore ----------------------------------------------------------------
-    async def explore(self) -> bool:
+    def _resume_briefing(self) -> str:
+        """User message that re-orients the model when CONTINUING a prior run: what
+        it already found (so it doesn't repeat claims) and where it left off (so it
+        digs deeper). Keeps the agenda/ledger as the shared state, not the chat."""
+        agenda_lines = "\n".join(
+            f"  [{a['status']}] {a['id']}: {a['question']}"
+            + (f"  (follow-up of {a['parent']})" if a.get("parent") else "")
+            for a in self.agenda) or "  (none)"
+        claim_lines = "\n".join(
+            f"  {c['id']} [{c.get('kind', 'observation')}] {c['statement']}"
+            for c in self.ledger) or "  (none)"
+        return (
+            "You are RESUMING your own earlier investigation of this dataset — keep "
+            "digging DEEPER, don't restart.\n\n"
+            f"Agenda so far (statuses):\n{agenda_lines}\n\n"
+            f"Claims you already recorded — do NOT repeat these; build beyond them:\n{claim_lines}\n\n"
+            "Work any pending/interrupted items, then add_followup on the most promising "
+            "or surprising leads and pursue them (a cluster → its driver taxa → are they "
+            "contamination?). Record new claims for what you find. Reply DONE only when "
+            "you judge the investigation has gone deep enough.")
+
+    async def explore(self, resume: bool = False) -> bool:
         """Run the agenda-driven tool-calling loop. Returns True only when the
         agenda (including follow-ups) was actually worked through; on a step-cap
-        exit the in-progress item is marked ``interrupted`` (never faked done)."""
-        messages = [
-            {"role": "system", "content": EXPLORE_SYSTEM},
-            {"role": "user", "content": "Propose your agenda of microbial-ecology tests, "
-             "then work through it, recursing where it gets interesting."}]
+        exit the in-progress item is marked ``interrupted`` (never faked done).
+
+        With ``resume=True`` this CONTINUES a run reconstructed from a snapshot:
+        interrupted items are reactivated and the model is re-briefed with what it
+        already found so it goes deeper instead of proposing a fresh agenda."""
+        if resume:
+            for a in self.agenda:            # reactivate work parked at the last stop
+                if a["status"] == "interrupted":
+                    a["status"] = "pending"
+            messages = [
+                {"role": "system", "content": EXPLORE_SYSTEM},
+                {"role": "user", "content": self._resume_briefing()}]
+        else:
+            messages = [
+                {"role": "system", "content": EXPLORE_SYSTEM},
+                {"role": "user", "content": "Propose your agenda of microbial-ecology tests, "
+                 "then work through it, recursing where it gets interesting."}]
         for step in range(self.max_steps):
             r = await self.llm.chat(messages, model=self.explore_model, tools=TOOLS,
                                     tool_choice="auto", temperature=0.25, max_tokens=2500)
