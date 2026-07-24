@@ -132,6 +132,17 @@
     <h1>Every number traces to data or the code that produced it</h1>
     <p class="sub" id="study">{% if submission %}{{ submission.title or submission.slug }} · agenda-driven autoresearch{% endif %}</p>
     <div class="stats" id="stats"></div>
+    {% if runs %}
+    <div class="runlog" style="margin-top:18px">
+      <p style="font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;opacity:.55;margin:0 0 7px">
+        Run history · {{ runs|length }} rep{{ '' if runs|length == 1 else 's' }}</p>
+      {% for r in runs %}
+      <div style="font-size:.82rem;opacity:.9;line-height:1.75;font-family:var(--font-mono,ui-monospace,monospace)">
+        {{ r.at }} · <b>{{ r.model }}</b> · +{{ r.new_claims }} claim{{ '' if r.new_claims == 1 else 's' }}{% if r.total_claims is not none %} <span style="opacity:.55">({{ r.total_claims }} total)</span>{% endif %}{% if r.resumed %} <span style="opacity:.55">· dig deeper</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
     {% if submission %}
     <div style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <button id="dig-btn" class="btn btn-primary" onclick="digDeeper()"
@@ -208,13 +219,10 @@ document.getElementById('stats').innerHTML = [
   ['computations', S.computations, '']
 ].map(([l,n,c]) => `<div class="stat ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
 
-// Model roster: every model that contributed to this run (claims may span several
-// after "keep digging"). Per-claim attribution is on each claim below.
+// Distinct models that contributed (claims may span several after "keep digging").
+// The per-run "Run history" in the header (server-rendered) shows the timeline;
+// this set only drives the per-claim model chip below when a run spans >1 model.
 const MODELS = (RUN.models || []).map(shortModel).filter(Boolean);
-if (MODELS.length) {
-  const sub = document.getElementById('study');
-  if (sub) sub.innerHTML += ` · <span title="models that produced these findings">by ${MODELS.map(esc).join(', ')}</span>`;
-}
 
 const KIND = {quality_caveat:['caveat','caveat'], anomaly:['anomaly','anomaly'], pattern:['pattern','pattern']};
 

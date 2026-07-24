@@ -284,6 +284,21 @@ async def run_autoresearch_stream(
                 roster.append(llm["label"])
             interview_data["_autoresearch_models"] = roster
 
+            # Per-run log so the author can see how many reps ("dig deeper") have
+            # happened and what each added: timestamp, model, and NEW claims that run.
+            prior_n = len(prior_snapshot.get("claims", [])) if resuming else 0
+            new_total = len(snapshot.get("claims", []))
+            runs = list(sub_interview.get("_autoresearch_runs") or [])
+            runs.append({
+                "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "model": settings.role_model("explore", llm["model"]),
+                "label": llm.get("label"),
+                "new_claims": max(0, new_total - prior_n),
+                "total_claims": new_total,
+                "resumed": resuming,
+            })
+            interview_data["_autoresearch_runs"] = runs
+
             async with async_session() as save_db:
                 save_result = await save_db.execute(
                     select(Submission).where(Submission.id == sub_id))
@@ -366,6 +381,35 @@ async def findings_viewer(
     if not snapshot:
         return RedirectResponse(f"/submissions/{slug}", status_code=303)
 
+    # Per-run history (one row per initial run + each "dig deeper"), formatted for
+    # display so the author can count reps and see what each model added.
+    runs_display = []
+    for r in (interview_data.get("_autoresearch_runs") or []):
+        at = r.get("at") or ""
+        try:
+            at_disp = datetime.fromisoformat(at).strftime("%Y-%m-%d %H:%M UTC")
+        except (ValueError, TypeError):
+            at_disp = at
+        model = r.get("model") or r.get("label") or "—"
+        runs_display.append({
+            "at": at_disp,
+            "model": str(model).split("/")[-1],
+            "new_claims": r.get("new_claims", 0),
+            "total_claims": r.get("total_claims"),
+            "resumed": r.get("resumed", False),
+        })
+    # Fallback for runs recorded before per-run history existed: synthesize one row
+    # from the snapshot + the stored model label so the author still sees it.
+    if not runs_display and snapshot.get("claims"):
+        label = interview_data.get("_autoresearch_model") or "—"
+        runs_display.append({
+            "at": "(earlier run)",
+            "model": str(label).split("·")[-1].split("(")[0].strip().split("/")[-1] or label,
+            "new_claims": len(snapshot["claims"]),
+            "total_claims": len(snapshot["claims"]),
+            "resumed": False,
+        })
+
     return templates.TemplateResponse(
         "findings.html",
         {
@@ -382,5 +426,6 @@ async def findings_viewer(
             "model_label": interview_data.get("_autoresearch_model"),
             "model_roster": interview_data.get("_autoresearch_models") or (
                 [interview_data["_autoresearch_model"]] if interview_data.get("_autoresearch_model") else []),
+            "runs": runs_display,
         },
     )
