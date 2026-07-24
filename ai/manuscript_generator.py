@@ -186,9 +186,47 @@ Write 2-3 paragraphs that:
 Use [CITE] placeholders where literature citations would go."""
 
 
+_MICROSCAPE_WORKFLOW = (
+    "primer removal → quality filtering → DADA2 denoising → read merging → chimera removal → "
+    "ASV inference → taxonomic classification against SILVA → phylogenetic tree → "
+    "renormalization (taxonomic read partitioning) → co-occurrence network")
+
+
+def _format_methods_context(pipeline_type: str, interview_data: dict, pipeline_outputs: dict) -> str:
+    """What IS reliably knowable for Methods — the workflow, the taxonomy database, and the
+    analyses the autoresearch actually ran — so the model states these instead of 'not
+    specified'. It stays honest about the genuine gap (tool versions + exact per-step
+    parameters aren't recorded in the current outputs)."""
+    parts = []
+    if pipeline_type == "microscape":
+        parts.append("PIPELINE WORKFLOW (microscape-nf, Illumina amplicon / DADA2): " + _MICROSCAPE_WORKFLOW)
+        parts.append("NOTE — the 'renormalized' step is a TAXONOMIC read-partition/cleanup "
+                     "(chloroplast & mitochondrial reads removed, prokaryote vs eukaryote split), "
+                     "NOT a diversity rarefaction. Do not describe rarefaction unless the data show it.")
+    db = (pipeline_outputs.get("taxonomy_summary") or {}).get("database")
+    if db:
+        parts.append(f"TAXONOMY DATABASE: {db.upper()} (release version is not recorded in the "
+                     f"outputs — name the database without a version).")
+    comps = ((interview_data or {}).get("_autoresearch") or {}).get("computations") or {}
+    labels = list(dict.fromkeys(c.get("label") for c in comps.values() if c.get("label")))
+    if labels:
+        parts.append("ANALYSES ACTUALLY PERFORMED on this dataset (from the autoresearch run — use "
+                     "these to describe the statistical approach truthfully; you need not list every "
+                     "one, and the available stats toolkit was Bray-Curtis/Jaccard distances, PCA, "
+                     "Spearman/Pearson correlation, Kruskal-Wallis, Mann-Whitney, Shannon/Simpson/"
+                     "Pielou diversity):\n  - " + "\n  - ".join(labels[:30]))
+    parts.append("TOOL VERSIONS and EXACT per-step PARAMETERS (filter thresholds, chimera method, "
+                 "clustering distance/linkage, tree-building method, network cutoff) are NOT recorded "
+                 "in the current pipeline outputs. Name the workflow and tools, state plainly that "
+                 "specific versions and parameters were not available in the outputs, and do not invent them.")
+    return "\n\n".join(parts)
+
+
 def build_methods_prompt(pipeline_type: str, study_context: str, bioproject_accession: str,
-                         interview_data: dict, results_summary: str) -> str:
+                         interview_data: dict, results_summary: str,
+                         pipeline_outputs: dict | None = None) -> str:
     """User prompt for the Methods section."""
+    methods_context = _format_methods_context(pipeline_type, interview_data, pipeline_outputs or {})
     return f"""Generate a Methods section for this analysis:
 
 Pipeline: {pipeline_type}
@@ -201,16 +239,20 @@ AUTHOR CONTEXT ON SAMPLES:
 {interview_data.get('study_context', 'Not provided')}
 {interview_data.get('sample_info', 'Not provided')}
 
+WHAT IS KNOWN ABOUT THE PIPELINE & ANALYSES (ground the Methods in this):
+{methods_context}
+
 PIPELINE OUTPUTS:
 {results_summary}
 
 Write a Methods section covering:
 1. Data acquisition (SRA/BioProject)
-2. Sequence processing pipeline
-3. Analysis parameters (inferred from outputs)
-4. Statistical approaches used
+2. Sequence processing pipeline (name the workflow steps above)
+3. Analysis parameters — state what is known; where versions/parameters are not recorded,
+   say so briefly as a limitation rather than omitting the step or inventing values
+4. Statistical approaches actually used (from the analyses listed above)
 
-Be specific about tools and versions where inferable."""
+Name tools and the workflow; do not invent versions or parameters that aren't provided."""
 
 
 def _format_autoresearch_findings(interview_data: dict) -> str:
@@ -471,7 +513,7 @@ async def generate_manuscript_draft(
     await emit("start", "Generating Methods...")
     log.info("Generating methods...")
     sections["methods"] = await _draft_section(client, SYSTEM_PROMPT,
-        build_methods_prompt(pipeline_type, study_context, bioproject_accession, interview_data, results_summary),
+        build_methods_prompt(pipeline_type, study_context, bioproject_accession, interview_data, results_summary, pipeline_outputs),
         model=model, max_tokens=20000, on_token=stream_tokens, outline_first=outline_first)
 
     await emit("done", f"Methods complete ({len(sections['methods'])} chars)")
