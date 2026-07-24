@@ -140,8 +140,23 @@ async def _reverify_async(llm):
     reconcile = llm is not None
     ar = Autoresearcher.from_snapshot(saved, _data_source(), llm or LLMClient(None, MODEL),
                                       _executor(), explore_model=MODEL, verify_model=MODEL,
-                                      reconcile=reconcile)
+                                      replicate_model=REPLICATE_MODEL,
+                                      adjudicate_model=ADJUDICATE_MODEL, reconcile=reconcile)
     await ar.verify()
+    # Re-grade a SAVED ledger through the independent rounds without re-exploring —
+    # the cheap way to ask "how many of these claims survive a clean-room check?".
+    if llm is not None and "--replicate" in sys.argv:
+        print(f"\n=== ROUND 2: CLEAN-ROOM REPLICATION ({REPLICATE_MODEL}) ===", flush=True)
+        print(f"  {await ar.replicate()} claims independently re-derived", flush=True)
+        print(f"\n=== ROUND 3: ADJUDICATION ({ADJUDICATE_MODEL}) ===", flush=True)
+        print(f"  {await ar.adjudicate()} stand-offs given a casting vote", flush=True)
+        for c in ar.ledger:
+            reps = c.get("replications") or []
+            if reps:
+                marks = " ".join("r%d:%s" % (r.get("round", 2),
+                                             "agree" if r.get("numbers_match") else "differ")
+                                 for r in reps)
+                print(f"    [{c['verdict']:11}] {c['id']} {marks:26} {c['statement'][:44]}", flush=True)
     done = sum(a["status"] == "done" for a in ar.agenda)
     completed = bool(ar.agenda) and all(a["status"] == "done" for a in ar.agenda)
     _write_ledger(ar, completed)

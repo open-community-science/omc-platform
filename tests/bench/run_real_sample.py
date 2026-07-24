@@ -67,6 +67,8 @@ if "--reverify" in flags:
         client = R._client()
     R.reverify_saved(client)
 else:
-    sys.argv = [sys.argv[0]]  # fresh run: don't let R.main() see our flags
+    # Fresh run: hide OUR flags from R.main(), but pass through the ones it owns
+    # (--replicate). Blanket-stripping silently disabled replication here.
+    sys.argv = [sys.argv[0]] + [f for f in _args if f in ("--replicate",)]
     R.main()
 print(f"\noutputs in {R.OUT}")
