@@ -733,10 +733,29 @@ PARSERS = {
 }
 
 
+def _read_run_manifest(results_dir: Path) -> dict | None:
+    """Read run_manifest.json if the pipeline emitted one — tool versions (container
+    images), resolved parameters, and reference DBs. microscape-nf writes it to
+    ``viz/``, danaSeq to the results root (see microscape-nf #5 / danaSeq #24)."""
+    import json
+    for cand in (results_dir / "run_manifest.json", results_dir / "viz" / "run_manifest.json"):
+        try:
+            if cand.exists():
+                return json.loads(cand.read_text())
+        except Exception as e:
+            log.warning(f"Could not read run manifest {cand}: {e}")
+    return None
+
+
 def parse_pipeline_outputs(pipeline_type: str, results_dir: str | Path) -> dict:
     """Parse outputs for any supported pipeline type."""
     parser = PARSERS.get(pipeline_type)
     if not parser:
         log.warning(f"No parser for pipeline type: {pipeline_type}")
         return {}
-    return parser(Path(results_dir))
+    results_dir = Path(results_dir)
+    outputs = parser(results_dir)
+    manifest = _read_run_manifest(results_dir)
+    if manifest:
+        outputs["run_manifest"] = manifest
+    return outputs

@@ -215,10 +215,33 @@ def _format_methods_context(pipeline_type: str, interview_data: dict, pipeline_o
                      "one, and the available stats toolkit was Bray-Curtis/Jaccard distances, PCA, "
                      "Spearman/Pearson correlation, Kruskal-Wallis, Mann-Whitney, Shannon/Simpson/"
                      "Pielou diversity):\n  - " + "\n  - ".join(labels[:30]))
-    parts.append("TOOL VERSIONS and EXACT per-step PARAMETERS (filter thresholds, chimera method, "
-                 "clustering distance/linkage, tree-building method, network cutoff) are NOT recorded "
-                 "in the current pipeline outputs. Name the workflow and tools, state plainly that "
-                 "specific versions and parameters were not available in the outputs, and do not invent them.")
+
+    # Run manifest (microscape-nf #5 / danaSeq #24) — when the pipeline recorded it, the
+    # real versions/parameters ARE available; use them instead of the honest fallback note.
+    manifest = pipeline_outputs.get("run_manifest") if pipeline_outputs else None
+    if manifest:
+        mparts = []
+        if manifest.get("pipeline"):
+            mparts.append(f"pipeline: {manifest['pipeline']}"
+                          + (f" (revision {manifest['revision']})" if manifest.get("revision") else ""))
+        if manifest.get("reference_databases"):
+            mparts.append(f"reference database(s): {manifest['reference_databases']}")
+        containers = manifest.get("containers") or {}
+        if containers:
+            imgs = sorted(set(str(v) for v in containers.values() if v))
+            mparts.append("tool container images (versions are in the image tags): " + "; ".join(imgs[:20]))
+        pms = manifest.get("parameters") or {}
+        if pms:
+            mparts.append("resolved parameters: "
+                          + ", ".join(f"{k}={v}" for k, v in pms.items() if v is not None))
+        parts.append("PIPELINE RUN MANIFEST (authoritative — the pipeline recorded these; report the "
+                     "tools/versions/parameters from here, don't say they're unavailable):\n  - "
+                     + "\n  - ".join(mparts))
+    else:
+        parts.append("TOOL VERSIONS and EXACT per-step PARAMETERS (filter thresholds, chimera method, "
+                     "clustering distance/linkage, tree-building method, network cutoff) are NOT recorded "
+                     "in this run's outputs (no run manifest). Name the workflow and tools, state plainly "
+                     "that specific versions and parameters were not available, and do not invent them.")
     return "\n\n".join(parts)
 
 
