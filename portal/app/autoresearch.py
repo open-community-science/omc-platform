@@ -40,61 +40,14 @@ from .database import get_db, async_session, Submission, User
 from .auth import require_user, get_current_user
 from .templating import templates
 
+from .run_registry import Run as _Run, registry, stream_run as _stream_run, status_payload
+
 router = APIRouter(prefix="/autoresearch", tags=["autoresearch"])
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-
-# ── in-flight run registry ────────────────────────────────────────────────────
-# A run is driven by a DETACHED background task, not by the SSE request, so that
-# navigating away can't kill it: the worker runs to completion and PERSISTS its
-# results whether or not a browser is still listening. The SSE endpoint merely
-# tails a run's event buffer; reconnecting replays the buffer and resumes live.
-class _Run:
-    """Server-side state for one autoresearch run: an append-only event buffer
-    plus terminal status, shared between the detached worker and any SSE tail."""
-    def __init__(self):
-        self.events: list[dict] = []
-        self.updated = asyncio.Event()
-        self.done = False
-        self.status = "running"           # running | complete | error
-        self.result_url: str | None = None
-
-    def push(self, ev: dict) -> None:
-        self.events.append(ev)
-        self.updated.set()
-
-    def emit(self, event: str, detail) -> None:
-        self.push({"event": event, "detail": detail})
-
-    def finish(self, status: str, result_url: str | None = None) -> None:
-        self.status = status
-        self.result_url = result_url
-        self.done = True
-        self.updated.set()
-
-
-# slug -> the current/most-recent run. Retained after completion so a returning
-# client sees the terminal status; overwritten when a new run starts.
-_RUNS: dict[str, _Run] = {}
-
-
-async def _stream_run(run: _Run):
-    """SSE generator that tails a run's event buffer from the start (so a reconnect
-    replays history), then follows live until the run finishes. Cancelling this on
-    client disconnect does NOT stop the run — only stops this listener."""
-    i = 0
-    while True:
-        run.updated.clear()
-        while i < len(run.events):
-            yield f"data: {json.dumps(run.events[i], default=str)}\n\n"
-            i += 1
-        if run.done:
-            break
-        try:
-            await asyncio.wait_for(run.updated.wait(), timeout=15)
-        except asyncio.TimeoutError:
-            yield ": keepalive\n\n"   # heartbeat so proxies keep the stream open
+# Detached, disconnect-surviving runs (see run_registry). slug -> Run.
+_RUNS = registry("autoresearch")
 
 
 # ── helpers (mirrors reviews.py) ──────────────────────────────────────────────
@@ -377,12 +330,7 @@ async def run_status(
     user = await get_current_user(request, db)
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    run = _RUNS.get(slug)
-    if run and not run.done:
-        return {"running": True, "n_events": len(run.events)}
-    if run and run.done:
-        return {"running": False, "status": run.status, "result_url": run.result_url}
-    return {"running": False, "status": "idle"}
+    return status_payload(_RUNS.get(slug))
 
 
 # ── findings viewer ───────────────────────────────────────────────────────────

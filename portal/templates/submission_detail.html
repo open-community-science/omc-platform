@@ -1333,12 +1333,13 @@ async function launchSession() {
     }
 }
 
-async function generateManuscript() {
+async function generateManuscript(attach = false) {
     const progressDiv = document.getElementById('gen-progress');
     const logDiv = document.getElementById('gen-log');
     progressDiv.style.display = '';
     logDiv.innerHTML = '';
-    showPersistentStatus('Generating manuscript...');
+    showPersistentStatus(attach ? 'Reconnecting to manuscript generation...'
+        : 'Generating manuscript… safe to leave this page — it keeps going and saves on its own.');
 
     let currentTokenSpan = null;
 
@@ -1367,9 +1368,12 @@ async function generateManuscript() {
         term.scrollTop = term.scrollHeight;
     }
 
-    appendLog('Starting manuscript generation...');
+    appendLog(attach ? 'Reconnecting to a generation already in progress...'
+                     : 'Starting manuscript generation...');
 
     try {
+        // A generation started earlier keeps running server-side; POSTing here
+        // ATTACHES to it and replays progress (the server won't start a second run).
         const resp = await fetch(`/reviews/${subId}/generate-stream`, {
             method: 'POST', credentials: 'same-origin',
         });
@@ -1426,21 +1430,63 @@ async function generateManuscript() {
     }
 }
 
-async function runReviews() {
-    showPersistentStatus('Running AI reviews... this takes a few minutes. Do not close this page.');
+async function runReviews(attach = false) {
+    // Reviews now run as a detached, disconnect-surviving job (see /run-stream):
+    // safe to leave the page — they finish and save on their own, and returning
+    // reconnects to live progress.
+    showPersistentStatus(attach ? 'Reconnecting to running reviews...'
+        : 'Running AI reviews… safe to leave this page — they keep going and save on their own.');
     try {
-        const resp = await fetch(`/reviews/${subId}/run`, { method: 'POST', credentials: 'same-origin' });
-        const data = await resp.json();
-        const prs = (data.pull_requests || []).filter(p => p.pr_url);
-        if (prs.length) {
-            showStatus(`Reviews complete. ${prs.length} PR(s) created.`);
-        } else {
-            showStatus(`Reviews complete (${(data.reviews || []).length} reviews).`);
+        const resp = await fetch(`/reviews/${subId}/run-stream`, { method: 'POST', credentials: 'same-origin' });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            showStatus(`Error: ${err.detail || resp.statusText}`);
+            return;
         }
-        setTimeout(() => location.reload(), 2000);
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                let msg;
+                try { msg = JSON.parse(line.slice(6)); } catch (e) { continue; }
+                if (msg.event === 'complete') {
+                    showStatus(msg.detail || 'Reviews complete.');
+                    setTimeout(() => location.reload(), 1800);
+                } else if (msg.event === 'error') {
+                    showStatus(`Error: ${msg.detail}`);
+                } else if (msg.detail) {
+                    showPersistentStatus(msg.detail);
+                }
+            }
+        }
     } catch (e) {
         showStatus(`Error: ${e.message}`);
     }
 }
+
+// On load, reconnect to any manuscript/review job already in flight for this
+// submission (they survive navigation server-side), so returning shows live
+// progress instead of a stale page.
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        if (document.getElementById('gen-progress')) {
+            const s = await fetch(`/reviews/${subId}/generate-status`, {credentials: 'same-origin'})
+                .then(r => r.ok ? r.json() : {running: false});
+            if (s.running) generateManuscript(true);
+        }
+    } catch (e) {}
+    try {
+        const r = await fetch(`/reviews/${subId}/run-status`, {credentials: 'same-origin'})
+            .then(r => r.ok ? r.json() : {running: false});
+        if (r.running) runReviews(true);
+    } catch (e) {}
+});
 </script>
 {% endblock %}
