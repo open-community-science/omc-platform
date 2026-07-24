@@ -31,10 +31,9 @@ _PASSTHROUGH_DOC = (
 def _amplicon_design(primers: dict | None) -> dict | None:
     """Design-level amplicon summary: which primer pair(s) this study appears to use.
 
-    Deliberately design-level, not per-sample. Per-sample assignment is the
-    ground truth from the pipeline's own cutadapt logs and arrives via #55; until
-    then this is an inference from OMC's own detection and is labelled as such,
-    so nothing downstream reports it as confirmed.
+    Design-level only — this is OMC's own inference, and it carries no per-sample
+    mapping, so consumers must not report which sample used which primer. The
+    ground truth is per-sample and lives in the pipeline's cutadapt logs; see #55.
     """
     if not primers:
         return None
@@ -54,7 +53,6 @@ def _amplicon_design(primers: dict | None) -> dict | None:
         return None
     return {
         "source": primers.get("source", "inferred"),
-        "confirmed_per_sample": False,
         "designs": designs,
     }
 

@@ -74,7 +74,6 @@ def test_sample_metadata_accession_is_not_overwritten():
 
 def test_amplicon_design_summarises_every_set():
     d = _amplicon_design(PRIMERS)
-    assert d["confirmed_per_sample"] is False   # ground truth arrives via #55
     assert [x["region"] for x in d["designs"]] == ["16S V3-V4", "18S V4"]
     assert d["designs"][0]["forward"] == "341F"
 
@@ -97,7 +96,8 @@ def test_manuscript_prompt_gains_the_amplicon_design():
     assert "Amplicon design:" in text
     assert "341F" in text and "A-528F" in text
     # and must not let the model assert per-sample assignment it doesn't have
-    assert "NOT confirmed per sample" in text
+    assert "not confirmed per sample" in text
+    assert "do not assert which sample used which primer" in text
 
 
 def test_manuscript_prompt_unchanged_when_there_are_no_primers():
