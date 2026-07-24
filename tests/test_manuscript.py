@@ -1,8 +1,9 @@
 """Test manuscript generation with LM Studio — full pipeline."""
+from pathlib import Path
 import sys
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from ai.manuscript_generator import generate_manuscript_draft
 
 pytestmark = pytest.mark.ai

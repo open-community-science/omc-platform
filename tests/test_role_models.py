@@ -3,10 +3,11 @@
 Verifies the config-level override resolution and that the citation model is
 threaded independently of the drafting model through generate_manuscript_draft.
 """
+from pathlib import Path
 import sys
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 NO_LLM = "http://127.0.0.1:9/v1"
 

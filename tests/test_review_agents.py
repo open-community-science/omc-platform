@@ -1,8 +1,9 @@
 """Test AI review agents with LM Studio."""
+from pathlib import Path
 import sys
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from ai.review_agents import (
     statistical_review, methodological_review, clarity_review,
     completeness_review, biological_plausibility_review, citation_review,

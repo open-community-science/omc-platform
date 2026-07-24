@@ -1,12 +1,14 @@
 """Test PubMed search and citation resolution end-to-end."""
+from pathlib import Path
 import sys
 import asyncio
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 @pytest.mark.asyncio
+@pytest.mark.network
 @pytest.mark.timeout(30)
 async def test_pubmed_search():
     """Direct PubMed E-utilities search returns structured metadata."""

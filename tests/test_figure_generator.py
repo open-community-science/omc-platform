@@ -1,8 +1,9 @@
 """Test figure generation from pipeline outputs."""
+from pathlib import Path
 import sys
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def test_mag_quality_figure():

@@ -4,10 +4,11 @@ The check tests are pure. The revise tests are made deterministic either by
 monkeypatching the LLM call with a canned rewrite, or by pointing it at a
 fast-fail address to exercise graceful degradation — no live LLM/network.
 """
+from pathlib import Path
 import sys
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 NO_LLM = "http://127.0.0.1:9/v1"
 

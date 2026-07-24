@@ -9,7 +9,7 @@ import json
 import pytest
 from pathlib import Path
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 pytestmark = pytest.mark.ai
 
