@@ -327,5 +327,103 @@ def test_unparseable_tool_args_are_reported_not_silently_executed():
     assert ar.ledger == []          # nothing empty recorded
 
 
+# ── statistical hygiene helpers in the sandbox (issue #49) ────────────────────
+def _sandbox_eval(code, tmp_path):
+    """Run a snippet in the real subprocess sandbox. No data dir is needed — these
+    helpers are pure numpy, which is the point: no new dependency, no image rebuild."""
+    from ai.autoresearch import SubprocessExecutor
+    return asyncio.run(SubprocessExecutor(tmp_path).run(code, timeout=60))
+
+
+class TestStatHelpers:
+    def test_fdr_matches_benjamini_hochberg_by_hand(self, tmp_path):
+        ok, r = _sandbox_eval(
+            "result = fdr([0.001, 0.008, 0.039, 0.041, 0.042, 0.06, 0.074, 0.205, 0.212, 0.216])",
+            tmp_path)
+        assert ok, r
+        assert r["n_tests"] == 10
+        assert r["p_adj"][0] == pytest.approx(0.01)      # 0.001 * 10/1
+        assert r["p_adj"][-1] == pytest.approx(0.216)    # 0.216 * 10/10
+        assert r["n_sig"] == 2                           # only the first two survive
+        assert r["p_adj"] == sorted(r["p_adj"])          # monotone after step-up
+
+    def test_fdr_handles_an_empty_family(self, tmp_path):
+        ok, r = _sandbox_eval("result = fdr([])", tmp_path)
+        assert ok and r["n_tests"] == 0 and r["n_sig"] == 0
+
+    def test_clr_shrinks_the_closure_artifact_on_a_synthetic_case(self, tmp_path):
+        """Two independent taxa correlate spuriously once counts are closed to
+        proportions — the k15 failure mode. This pins that the helper behaves as a
+        compositional control on a clean synthetic case; it is NOT a claim that CLR
+        is reliable on real data (it is sensitive to the pseudocount, and with few
+        parts the sum-to-zero constraint manufactures negative correlation itself)."""
+        ok, r = _sandbox_eval("""
+# Realistic shape: two INDEPENDENT minor taxa, one dominant taxon swinging wildly
+# between samples (this is what drives the closure), plus a tail of rare taxa.
+rng = np.random.default_rng(0); n = 60
+a = rng.integers(20, 60, n); b = rng.integers(20, 60, n)
+dom = rng.integers(200, 20000, n)
+tail = rng.integers(1, 40, (n, 48))
+df = pd.DataFrame(np.column_stack([a, b, dom, tail]))
+df.columns = ['a', 'b', 'dom'] + [f't{i}' for i in range(48)]
+prop = df.div(df.sum(1), axis=0); Z = clr(df)
+result = {'true': float(spearmanr(a, b)[0]),
+          'closed': float(spearmanr(prop.a, prop.b)[0]),
+          'clr': float(spearmanr(Z.a, Z.b)[0])}
+""", tmp_path)
+        assert ok, r
+        assert abs(r["true"]) < 0.2                   # the taxa really are independent
+        assert r["closed"] > 0.6                      # yet closure manufactures a "guild"
+        assert abs(r["clr"]) < r["closed"] / 3        # CLR removes most of the artifact
+
+    def test_clr_manufactures_negative_correlation_when_parts_are_few(self, tmp_path):
+        """The documented failure mode, pinned so nobody 'fixes' the docstring away:
+        with 3 parts the CLR values sum to zero, so two independent taxa come out
+        anti-correlated. This is why the prompt treats CLR as one control, not the
+        answer."""
+        ok, r = _sandbox_eval("""
+rng = np.random.default_rng(0)
+a = rng.integers(5, 50, 40); b = rng.integers(5, 50, 40)
+dom = rng.integers(500, 8000, 40)
+df = pd.DataFrame({'a': a, 'b': b, 'dom': dom})
+Z = clr(df)
+result = {'true': float(spearmanr(a, b)[0]), 'clr': float(spearmanr(Z.a, Z.b)[0])}
+""", tmp_path)
+        assert ok, r
+        assert abs(r["true"]) < 0.2      # independent by construction
+        assert r["clr"] < -0.3           # yet CLR reports mutual exclusion
+
+    def test_clr_preserves_labels(self, tmp_path):
+        ok, r = _sandbox_eval(
+            "df = pd.DataFrame([[1,2],[3,4]], index=['s1','s2'], columns=['x','y']);"
+            " z = clr(df); result = {'idx': list(z.index), 'cols': list(z.columns)}", tmp_path)
+        assert ok and r["idx"] == ["s1", "s2"] and r["cols"] == ["x", "y"]
+
+    def test_rarefy_is_common_depth_and_seeded(self, tmp_path):
+        """Seeded so the claim re-executes identically at verification time (#39)."""
+        ok, r = _sandbox_eval("""
+rng = np.random.default_rng(1)
+df = pd.DataFrame(rng.integers(0, 60, (6, 12)), index=[f's{i}' for i in range(6)])
+r1, dropped = rarefy(df, depth=100, seed=7)
+r2, _ = rarefy(df, depth=100, seed=7)
+r3, _ = rarefy(df, depth=100, seed=8)
+result = {'depths': sorted(set(r1.sum(1).tolist())), 'kept': list(r1.index),
+          'dropped': dropped, 'same_seed_identical': bool((r1.values == r2.values).all()),
+          'other_seed_differs': bool((r1.values != r3.values).any())}
+""", tmp_path)
+        assert ok, r
+        assert r["depths"] == [100]                   # every sample at a common depth
+        assert r["same_seed_identical"]
+        assert r["other_seed_differs"]
+        assert len(r["kept"]) + len(r["dropped"]) == 6
+
+    def test_rarefy_drops_samples_below_the_depth(self, tmp_path):
+        ok, r = _sandbox_eval(
+            "df = pd.DataFrame([[100,100],[2,1]], index=['deep','shallow']);"
+            " kept, dropped = rarefy(df, depth=50, seed=0);"
+            " result = {'kept': list(kept.index), 'dropped': dropped}", tmp_path)
+        assert ok and r["kept"] == ["deep"] and r["dropped"] == ["shallow"]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

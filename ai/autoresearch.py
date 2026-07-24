@@ -75,6 +75,26 @@ Work systematically and recursively:
    what your findings depend on. Expect to record several across a run — if you've recorded
    none, you haven't looked hard enough.
 
+THREE PROPERTIES OF THIS DATA TYPE DECIDE WHETHER AN ANALYSIS IS VALID. Getting these
+wrong produces confident numbers that a reviewer will reject, so handle them explicitly:
+- COMPOSITIONAL. Counts carry only relative information, so proportions are not independent:
+  when one dominant taxon swings between samples, every other taxon's proportion moves with
+  it, manufacturing "co-occurring guilds" and "mutual exclusion" out of nothing. So a
+  correlation between relative abundances is PROVISIONAL. Before reporting one, check whether
+  it survives a control — is it driven by a dominant taxon's swing, or by depth? `clr(...)`
+  is one available control, though it is no cure-all (it is sensitive to the pseudocount and
+  behaves badly when few taxa are involved), so treat agreement between approaches as the
+  evidence, not any single transform. Say which controls you ran, and record a quality_caveat
+  when a co-occurrence pattern rests on raw proportions alone.
+- MULTIPLE-TESTED. A per-taxon test across taxa, or a sweep of pairwise correlations, is a
+  FAMILY of tests: run `fdr(pvals)` and report adjusted p-values and how many tests were in
+  the family. An uncorrected "significant" result from a sweep is not a finding.
+- DEPTH-CONFOUNDED. Richness and detection rise with sequencing depth. Before comparing
+  richness or presence/absence across samples, either `rarefy(...)` to a common depth or
+  test the depth-vs-metric relationship and report it as a caveat.
+When you cannot satisfy one of these (too few samples to rarefy, a test with no p-value
+family), say so in the claim or a quality_caveat rather than proceeding silently.
+
 KNOW WHAT THE FIELDS MEAN, then think critically about the data:
 - `meta['x']`/`meta['y']` are PRECOMPUTED ORDINATION coordinates, not geographic lat/lon.
 - `meta['collection_date']` is often a database record-creation date, not a verified sampling
@@ -169,7 +189,10 @@ TOOLS = [
                         "counts to work at taxon level or split Bacteria/Archaea vs Eukaryota), `meta` "
                         "(per-sample metadata incl. library_name, collection_date, x/y). Helpers: np, "
                         "pd, pdist, squareform, braycurtis, entropy, pearsonr, spearmanr, kruskal, "
-                        "mannwhitneyu, PCA. Code MUST assign to `result`. Compute before you claim."),
+                        "mannwhitneyu, PCA — plus `fdr(pvals)` (Benjamini-Hochberg, for any family of "
+                        "tests), `clr(df)` (centred log-ratio, for correlating taxa), and "
+                        "`rarefy(df, depth, seed)` (common-depth subsampling, seeded). "
+                        "Code MUST assign to `result`. Compute before you claim."),
         "parameters": {"type": "object", "properties": {
             "label": {"type": "string"}, "code": {"type": "string", "description": "Python that sets `result`"}},
             "required": ["label", "code"]}}},
@@ -672,6 +695,44 @@ import socket
 def _no_net(*a, **k):
     raise OSError("network disabled in analysis sandbox")
 socket.socket = _no_net; socket.create_connection = _no_net; socket.getaddrinfo = _no_net
+# ── statistical hygiene helpers (#49) ────────────────────────────────────────
+# Amplicon data is COMPOSITIONAL and these analyses are MULTIPLE-TESTED. Without
+# a correction function and a log-ratio transform in scope, an agent cannot do
+# the right thing even when it knows it should. Pure numpy — no new dependency,
+# so this works in the existing session image.
+def fdr(pvals, alpha=0.05):
+    """Benjamini-Hochberg across a family of tests -> adjusted p-values."""
+    p = np.asarray(list(pvals), dtype=float); n = p.size
+    if n == 0: return {"p_adj": [], "reject": [], "n_sig": 0, "n_tests": 0}
+    order = np.argsort(p)
+    q = np.clip(np.minimum.accumulate((p[order] * n / np.arange(1, n + 1))[::-1])[::-1], 0, 1)
+    out = np.empty(n); out[order] = q
+    return {"p_adj": out.tolist(), "reject": (out <= alpha).tolist(),
+            "n_sig": int((out <= alpha).sum()), "n_tests": int(n), "alpha": alpha}
+def clr(df, pseudocount=0.5):
+    """Centred log-ratio (rows = samples) — ONE compositional control, not a cure.
+    It is sensitive to the pseudocount, and with few parts the sum-to-zero constraint
+    induces negative correlation on its own (with 3 taxa it will invent mutual
+    exclusion). Use it to check whether a proportion-based pattern survives, not as
+    the authoritative answer."""
+    X = np.asarray(df, dtype=float) + pseudocount
+    L = np.log(X)
+    Z = L - L.mean(axis=1, keepdims=True)
+    return pd.DataFrame(Z, index=getattr(df, "index", None), columns=getattr(df, "columns", None))
+def rarefy(df, depth=None, seed=0):
+    """Subsample every sample to a common depth without replacement (seeded, so
+    the result re-executes identically at verification time). Rows below `depth`
+    are dropped — returns (rarefied_df, dropped_sample_ids)."""
+    M = np.asarray(df, dtype=float).round().astype(np.int64)
+    sums = M.sum(axis=1)
+    d = int(depth if depth is not None else sums[sums > 0].min())
+    rng = np.random.default_rng(seed)
+    keep = sums >= d
+    rows = [rng.multivariate_hypergeometric(M[i], d) for i in np.where(keep)[0]]
+    idx = getattr(df, "index", None)
+    kept_idx = (idx[keep] if idx is not None else None)
+    dropped = [str(x) for x in (idx[~keep] if idx is not None else [])]
+    return pd.DataFrame(rows, index=kept_idx, columns=getattr(df, "columns", None)), dropped
 # Items kept per container/list. The RESULT is what verification re-derives from,
 # so it keeps more than the model is shown (the parent re-caps for context economy).
 _CAP = int(os.environ.get("EXPLORER_RESULT_CAP", "200"))
@@ -686,7 +747,8 @@ def _j(v, d=0):
     return v
 _ns = dict(np=np, pd=pd, counts=counts, tax=tax, meta=meta, pdist=pdist, squareform=squareform,
            braycurtis=braycurtis, entropy=entropy, pearsonr=pearsonr, spearmanr=spearmanr,
-           kruskal=kruskal, mannwhitneyu=mannwhitneyu, PCA=PCA)
+           kruskal=kruskal, mannwhitneyu=mannwhitneyu, PCA=PCA,
+           fdr=fdr, clr=clr, rarefy=rarefy)
 try:
     exec(sys.stdin.read(), _ns)
     print(json.dumps({"__ok__": _j(_ns["result"])} if "result" in _ns
