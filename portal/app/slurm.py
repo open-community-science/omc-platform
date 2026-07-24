@@ -832,6 +832,44 @@ async def cancel_job(job_id: str) -> bool:
     return False
 
 
+# Phases that mean the cluster is doing something, as opposed to reporting a
+# failure or saying nothing at all.
+_FORWARD_PHASES = ("queued", "running", "archiving", "completed", "transferred")
+
+
+def _failure_superseded(sub, hpc: dict, status_mtime) -> bool:
+    """Has the cluster made progress *since* we recorded this failure?
+
+    A FAILED submission is normally terminal, but operational recovery — killing
+    a hung job and resubmitting, a cluster failover, a manual sbatch after a fix —
+    produces exactly this: a real, finished run whose results the portal would
+    otherwise never show (issue #53).
+
+    The risk in re-reading FAILED submissions is the mirror image: a stale status
+    file resurrecting a run that genuinely failed. So this only returns True when
+    the pushed status is demonstrably *newer* than the failure, judged by
+    whichever evidence exists:
+
+    - a different SLURM job id than the one recorded — some other job has since
+      run, which is precisely the resubmit case; or
+    - a status file written after we recorded the failure.
+
+    With neither (an old submission whose failure predates `completed_at` being
+    recorded at all), it stays failed rather than guessing.
+    """
+    if hpc.get("phase", "") not in _FORWARD_PHASES:
+        return False  # still failed, or nothing meaningful pushed
+
+    job_id = str(hpc.get("job_id") or "")
+    if job_id and job_id != (sub.slurm_job_id or ""):
+        return True
+
+    if sub.completed_at and status_mtime:
+        return status_mtime > sub.completed_at
+
+    return False
+
+
 async def poll_all_running_jobs(db_session) -> list:
     """Poll for completed submissions using pushed HPC status.
 
@@ -839,13 +877,17 @@ async def poll_all_running_jobs(db_session) -> list:
     """
     from sqlalchemy import select
     from .database import Submission, SubmissionStatus
-    from .staging import get_hpc_status
+    from .staging import get_hpc_status, get_hpc_status_mtime
 
     # Include PROCESSING so a job that reported "completed"/"archiving" first is
     # still upgraded to RESULTS_READY once its results reach arbutus (transferred).
+    # FAILED is included so a *later* successful run can undo it — see
+    # _failure_superseded. Without that, cancelling a hung job and resubmitting
+    # left the portal permanently showing a failure whose results were on disk.
     stmt = select(Submission).where(
         Submission.status.in_([
             SubmissionStatus.QUEUED, SubmissionStatus.RUNNING, SubmissionStatus.PROCESSING,
+            SubmissionStatus.FAILED,
         ])
     )
     result = await db_session.execute(stmt)
@@ -859,6 +901,16 @@ async def poll_all_running_jobs(db_session) -> list:
 
         phase = hpc.get("phase", "")
         job_id = hpc.get("job_id")
+
+        if sub.status == SubmissionStatus.FAILED:
+            if not _failure_superseded(sub, hpc, get_hpc_status_mtime(sub.slug)):
+                continue
+            logger.info(
+                "Submission %s: cluster reports phase=%r (job %s) after a recorded "
+                "failure — recovering", sub.slug, phase, job_id or "?",
+            )
+            sub.error_message = None
+            sub.completed_at = None
 
         # Update job ID if we got a real one
         if job_id and sub.slurm_job_id != job_id:
@@ -923,6 +975,9 @@ async def poll_all_running_jobs(db_session) -> list:
         elif phase == "failed":
             sub.status = SubmissionStatus.FAILED
             sub.error_message = hpc.get("reason", f"Exit code {hpc.get('exit_code', '?')}")
+            # Stamp when we gave up, so a later push can be compared against it
+            # and recognised as newer (_failure_superseded).
+            sub.completed_at = datetime.utcnow()
             logger.warning(f"Submission {sub.slug} failed: {sub.error_message}")
             completed.append(sub.slug)
         elif phase == "queued" and sub.status != SubmissionStatus.QUEUED:
