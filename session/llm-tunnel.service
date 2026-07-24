@@ -1,8 +1,22 @@
-# Reverse SSH tunnel: concentration → arbutus
-# Forwards arbutus localhost:1234 to LM Studio at 10.151.49.182:1234
-# Install on concentration (the machine running LM Studio's network):
+# Reverse SSH tunnel: concentration → arbutus (LM Studio)
+#
+# Arbutus cannot reach in — it is a cloud VM and the LLM host sits behind a VPN —
+# so the LLM host dials OUT and holds a reverse forward open. The portal on
+# arbutus then talks to plain http://localhost:1234/v1 (LLM_BASE_URL) and the
+# traffic comes back down this tunnel.
+#
+# Forwards arbutus localhost:1234 -> concentration localhost:1234.
+# It MUST be localhost, not a LAN address: LM Studio binds loopback-only
+# (127.0.0.1:1234), so a LAN target would connect to nothing. Keeping it loopback
+# is deliberate — LM Studio has no authentication, and the tunnel is the only way in.
+#
+# Install on concentration (the machine running LM Studio):
 #   sudo cp llm-tunnel.service /etc/systemd/system/
 #   sudo systemctl enable --now llm-tunnel
+#
+# See ollama-tunnel.service for the equivalent ollama forward. It is deliberately
+# a SEPARATE unit: ExitOnForwardFailure=yes means a single unavailable port would
+# otherwise take every forward in the same command down with it.
 
 [Unit]
 Description=Reverse SSH tunnel to arbutus for LLM access
@@ -12,7 +26,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=cryomics
-ExecStart=/usr/bin/ssh -N -R 1234:10.151.49.182:1234 arbutus -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=no
+ExecStart=/usr/bin/ssh -N -R 1234:localhost:1234 arbutus -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=no
 Restart=always
 RestartSec=10
 

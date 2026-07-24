@@ -1,0 +1,45 @@
+# Reverse SSH tunnel: concentration → arbutus (ollama)
+#
+# Same shape as llm-tunnel.service, for the ollama server on the LLM host.
+# Forwards arbutus localhost:11434 -> concentration localhost:11434, so the
+# portal can point LLM_BASE_URL at http://localhost:11434/v1 (ollama serves an
+# OpenAI-compatible API there) without ollama ever listening on a network
+# interface.
+#
+# That loopback binding is the security boundary and should stay: ollama has NO
+# authentication, so anything that can reach the port can run inference on the
+# GPU and pull, list, or delete models. Exposing it with OLLAMA_HOST=0.0.0.0
+# would hand that to the whole network; this tunnel gives arbutus access without
+# giving anyone else any.
+#
+# Kept as its own unit rather than a second -R on llm-tunnel: with
+# ExitOnForwardFailure=yes, one port already bound on arbutus would take the
+# LM Studio forward down too, and losing manuscript generation because an ollama
+# port was stale is a bad trade.
+#
+# Install on concentration (the machine running ollama):
+#   sudo cp ollama-tunnel.service /etc/systemd/system/
+#   sudo systemctl enable --now ollama-tunnel
+#
+# Verify from arbutus:
+#   curl -s http://localhost:11434/api/tags | head
+#
+# NOTE on Gemma 4 via ollama's OpenAI-compatible endpoint: thinking is on by
+# default and eats the whole max_tokens, returning empty `content`. Pass
+# `think: false` in the request body (the OpenAI SDK's extra_body) for any role
+# that needs an actual answer rather than reasoning.
+
+[Unit]
+Description=Reverse SSH tunnel to arbutus for ollama access
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cryomics
+ExecStart=/usr/bin/ssh -N -R 11434:localhost:11434 arbutus -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=no
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

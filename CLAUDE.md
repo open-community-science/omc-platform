@@ -100,7 +100,7 @@ All settings via environment or `.env` (see `portal/app/config.py`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_BASE_URL` | `http://10.151.49.182:1234/v1` | OpenAI-compatible API |
+| `LLM_BASE_URL` | `http://10.151.49.182:1234/v1` | OpenAI-compatible API. In production this is `http://localhost:1234/v1` — the reverse tunnel's arbutus end (see LLM Access below) |
 | `LLM_MODEL` | `qwen/qwen3.5-35b-a3b` | Model for AI features |
 | `LLM_MODEL_DRAFT` | (falls back to `LLM_MODEL`) | Model for manuscript drafting + revise |
 | `LLM_MODEL_CITE` | (falls back to `LLM_MODEL`) | Model for citation resolution (high-volume; use a cheap/local model) |
@@ -422,20 +422,36 @@ The LLM (LM Studio) runs on the local network behind a VPN. Arbutus can't initia
 
 ```
 concentration (local) → SSH → arbutus
-  localhost:1234 on arbutus → 10.151.49.182:1234 (LM Studio)
+  localhost:1234  on arbutus → concentration localhost:1234   (LM Studio)
+  localhost:11434 on arbutus → concentration localhost:11434  (ollama, optional)
 ```
 
-**Setup on concentration** (the machine that can reach LM Studio):
+Both ends are **localhost**, not a LAN address: LM Studio and ollama each bind
+loopback-only (`127.0.0.1`), so a LAN target would connect to nothing. That is
+deliberate — neither server has any authentication, and the tunnel is the only
+path in. Do not "fix" this by setting `OLLAMA_HOST=0.0.0.0` or enabling LM
+Studio's network serving; that exposes GPU inference and model management to
+anyone who can reach the port.
+
+**Setup on concentration** (the machine running LM Studio / ollama):
 ```bash
-# Install the systemd service for persistence
+# Install the systemd services for persistence
 sudo cp session/llm-tunnel.service /etc/systemd/system/
 sudo systemctl enable --now llm-tunnel
 
+# ollama, if the portal should be able to reach it too
+sudo cp session/ollama-tunnel.service /etc/systemd/system/
+sudo systemctl enable --now ollama-tunnel
+
 # Or manually:
-ssh -R 1234:10.151.49.182:1234 arbutus -N -o ServerAliveInterval=30 -f
+ssh -R 1234:localhost:1234 arbutus -N -o ServerAliveInterval=30 -f
 ```
 
-The portal's `.env` on arbutus sets `LLM_BASE_URL=http://localhost:1234/v1`. Session containers never see the tunnel — they go through the LLM proxy at `172.30.0.1:8002/api/llm`.
+They are separate units on purpose: `ExitOnForwardFailure=yes` means bundling
+both forwards into one command would let a single stale port on arbutus take
+LM Studio's forward down with it.
+
+The portal's `.env` on arbutus sets `LLM_BASE_URL=http://localhost:1234/v1` (or `http://localhost:11434/v1` to drive ollama instead — it serves an OpenAI-compatible API. Gemma 4 there needs `think: false` in the request body, or thinking consumes the whole `max_tokens` and `content` comes back empty). Session containers never see the tunnel — they go through the LLM proxy at `172.30.0.1:8002/api/llm`.
 
 ### Environment File (`/opt/omc-platform/portal/.env`)
 
