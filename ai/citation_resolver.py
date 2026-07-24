@@ -276,6 +276,74 @@ NONE if none of them genuinely support this specific claim.""",
     return candidates[0]
 
 
+VERIFIED = "supported"
+UNSUPPORTED = "unsupported"
+UNVERIFIABLE = "unknown"
+
+
+async def verify_claim_in_abstract(
+    context: dict,
+    article: dict,
+    abstract: str,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    model: str | None = None,
+) -> str:
+    """Check whether an article's abstract actually supports the cited claim.
+
+    Returns one of :data:`VERIFIED`, :data:`UNSUPPORTED`, :data:`UNVERIFIABLE`.
+
+    Selection (:func:`select_citation`) only ever sees titles, authors and
+    journals, because esummary carries no abstracts — so a paper can look like a
+    perfect fit and still not contain the claim. This is the gate that reads what
+    the paper actually says before its name is attached to a sentence (issue #22).
+
+    The three-way result matters: only :data:`UNSUPPORTED` means "this paper does
+    not back this claim" and should block the citation. :data:`UNVERIFIABLE`
+    covers "we could not tell" — PubMed holds no abstract, or no LLM was
+    reachable — which is not evidence against the paper, and is reported
+    separately so the caller can decide how strict to be.
+    """
+    if not abstract.strip():
+        return UNVERIFIABLE
+
+    client = get_client(base_url=base_url, api_key=api_key)
+    loop = asyncio.get_event_loop()
+    try:
+        response = await loop.run_in_executor(None, partial(chat, client,
+            "You are a meticulous scientific fact-checker. You judge only what a "
+            "paper's abstract states, never what is plausible or what you already "
+            "believe about the topic.",
+            f"""Does this paper's abstract support the specific claim below?
+
+CLAIM (from the manuscript):
+"{context.get('sentence', '')}"
+
+PAPER: {article.get('title', '')} ({article.get('year', '')})
+ABSTRACT:
+{abstract[:4000]}
+
+Answer YES only if the abstract states, measures, or directly evidences this
+claim. General topical overlap is NOT support — a paper about the same organism
+or method does not support a claim it never makes. If the abstract is about a
+different question, or is too general to bear on the claim, answer NO.
+
+Reply with ONLY the word YES or NO.""",
+            model=model, max_tokens=5, temperature=0.0,
+        ))
+    except Exception as e:
+        # No LLM reachable: we learn nothing about the paper either way.
+        log.warning(f"Citation claim-verification LLM call failed: {e}")
+        return UNVERIFIABLE
+
+    text = (response or "").strip().upper()
+    if text.startswith("YES"):
+        return VERIFIED
+    if text.startswith("NO"):
+        return UNSUPPORTED
+    return UNVERIFIABLE
+
+
 class CitationLibrary:
     """Accumulates cited articles, deduplicating by DOI / PMID / title.
 
