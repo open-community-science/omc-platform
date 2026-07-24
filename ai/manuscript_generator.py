@@ -213,8 +213,11 @@ def _format_autoresearch_findings(interview_data: dict) -> str:
         "\n\nThese are the most reliable numbers you have. You have NO computational ability\n"
         "of your own, so do not compute, re-derive, round, or estimate — when you report a\n"
         "quantitative result, use the values above verbatim. You need not report every\n"
-        "finding: decide which are the most interesting and important and weave them into a\n"
-        "coherent narrative."
+        "finding, and their order here is NOT their importance: weigh them by biological\n"
+        "significance. The community's dominant/characteristic taxa and the main ecological\n"
+        "patterns are the headline; methodological confounds, depth artifacts, and metadata\n"
+        "quirks are secondary support. Lead with the biology and give the rest proportionate\n"
+        "weight."
     )
     if assumptions:
         alines = []
@@ -236,30 +239,45 @@ def _format_autoresearch_findings(interview_data: dict) -> str:
 def build_results_prompt(study_context: str, pipeline_outputs: dict, interview_data: dict) -> str:
     """User prompt for the Results section."""
     findings = _format_autoresearch_findings(interview_data)
-    findings_block = (findings + "\n\n") if findings else ""
-    outputs_label = (
-        "RAW PIPELINE OUTPUTS (supporting detail — for any number, prefer the verified findings above):"
-        if findings else "PIPELINE OUTPUTS:")
-    return f"""Generate a Results section based on these pipeline outputs:
+    if findings:
+        source_block = (
+            f"{findings}\n\n"
+            "RAW PIPELINE OUTPUTS (secondary — QC/intermediate numbers, often inconsistent "
+            "with each other; use ONLY the verified findings above for any number, and do not "
+            "quote sample/read counts from here):\n"
+            f"{json.dumps(pipeline_outputs, indent=2, default=str) if pipeline_outputs else 'None.'}")
+    else:
+        source_block = (
+            "PIPELINE OUTPUTS:\n"
+            f"{json.dumps(pipeline_outputs, indent=2, default=str) if pipeline_outputs else 'No pipeline outputs available yet.'}")
+
+    return f"""Write the Results section for this study.
 
 STUDY (authoritative — the paper is about THIS and nothing else):
 {study_context}
 
-{findings_block}{outputs_label}
-{json.dumps(pipeline_outputs, indent=2, default=str) if pipeline_outputs else 'No pipeline outputs available yet.'}
+{source_block}
 
 RESEARCH QUESTION:
 {interview_data.get('research_question', 'Not specified')}
 
-Write a Results section that:
-1. Reports findings objectively without interpretation
-2. References figures and tables (Figure 1, Table 1, etc.)
-3. Includes key quantitative findings — for any number you report, use the exact
-   values from the material above verbatim (you cannot compute your own)
-4. Follows a logical flow from overview to specific findings
-5. Reports any quality caveats plainly and honestly
+Write it as a microbial-ecology Results narrative — NOT a QC report. Perspective matters:
 
-Do not interpret results - save that for Discussion."""
+1. LEAD WITH THE BIG PICTURE. Open with the community's biological identity and its
+   headline story: what the community IS, what DOMINATES it (name the dominant and
+   characteristic taxa and their abundances), and the main ecological pattern. A reader
+   should grasp the central biological finding in the first paragraph.
+2. PROPORTIONATE WEIGHT. The findings mix big-picture biology with fine technical detail
+   (methodological confounds, sequencing-depth artifacts, metadata quirks, per-rank
+   classification counts). Foreground the ecologically important results; use minor or
+   technical points only as brief support, and place genuine caveats/limitations near the
+   END. Do not let a single striking anomaly or QC statistic crowd out the main story.
+3. Do NOT open with ASV totals, per-rank classification counts, or read-retention rates as
+   if they were a result — a clause of context at most.
+4. For every number, use the verified findings verbatim (you cannot compute your own).
+5. Reference figures/tables where natural; report real quality caveats plainly and honestly.
+
+Report, don't interpret — save interpretation for Discussion."""
 
 
 def build_discussion_prompt(study_context: str, results_text: str, interview_data: dict) -> str:
