@@ -248,6 +248,7 @@ async def run_autoresearch_stream(
                 verify_model=settings.role_model("verify", llm["model"]),
                 # Prose is a drafting job — route it like every other writing surface.
                 write_model=settings.role_model("draft", llm["model"]),
+                replicate_model=settings.role_model("replicate", llm["model"]),
                 max_steps=max_steps,
                 max_followups=settings.autoresearch_max_followups,
                 reconcile=settings.autoresearch_reconcile_enabled,
@@ -280,6 +281,19 @@ async def run_autoresearch_stream(
                 await asyncio.wait_for(ar.verify(), timeout=_left(300))
             except asyncio.TimeoutError:
                 run.emit("verify", "verification hit the time budget — grading is partial")
+            # Clean-room replication (#50): a second analyst re-derives the strongest
+            # claims from the raw data without seeing the original code. Opt-in, and
+            # budgeted like the other phases — a timeout leaves the already-graded
+            # claims intact rather than losing them.
+            if settings.autoresearch_replicate_enabled:
+                run.emit("replicate", "independently re-deriving claims (clean room)")
+                try:
+                    n = await asyncio.wait_for(
+                        ar.replicate(max_claims=settings.autoresearch_replicate_max_claims),
+                        timeout=_left(600))
+                    run.emit("replicate", f"re-derived {n} claims independently")
+                except asyncio.TimeoutError:
+                    run.emit("replicate", "replication hit the time budget — partial")
             run.emit("write", "writing Results prose")
             try:
                 await asyncio.wait_for(ar.write_results(), timeout=_left(180))

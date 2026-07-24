@@ -327,6 +327,222 @@ def test_unparseable_tool_args_are_reported_not_silently_executed():
     assert ar.ledger == []          # nothing empty recorded
 
 
+# ── clean-room replication (issue #50) ────────────────────────────────────────
+def _replicating_researcher(reply, results, *, ledger, comps):
+    """An Autoresearcher whose clean-room analyst returns a fixed reply, and whose
+    sandbox returns `results` keyed by the code it is handed."""
+    seen = []
+
+    class _Chat:
+        class completions:
+            @staticmethod
+            async def create(**kw):
+                seen.append(kw)
+                class M:
+                    content = reply[len(seen) - 1] if isinstance(reply, list) else reply
+                class C:
+                    message = M()
+                class R:
+                    choices = [C()]
+                return R()
+
+    class _Client:
+        chat = _Chat()
+
+    ar = Autoresearcher(_StubData(), LLMClient(_Client(), "explorer-model"),
+                        _StubExecutor(results), replicate_model="auditor-model")
+    ar.ledger, ar.computations = ledger, comps
+    ar.seen_prompts = seen
+    return ar
+
+
+_LEDGER = [{"id": "k1", "statement": "richness tracks depth", "value": "rho=0.78",
+            "antecedents": ["c1"], "kind": "pattern", "verdict": "verified"}]
+_COMPS = {"c1": {"label": "depth vs richness", "code": "orig_code", "result": {"rho": 0.78}}}
+
+
+def test_agreement_upgrades_the_claim_to_replicated():
+    ar = _replicating_researcher(
+        "```python\nresult = {'rho': 0.7801}\n```\nSUPPORTS: YES\nSame answer my own way.",
+        {"result = {'rho': 0.7801}": {"rho": 0.7801}},
+        ledger=[dict(c) for c in _LEDGER], comps=dict(_COMPS))
+    n = asyncio.run(ar.replicate())
+    c = ar.ledger[0]
+    assert n == 1
+    assert c["verdict"] == "replicated"
+    assert c["replication"]["numbers_match"] is True
+    assert c["replication"]["by"] == "auditor-model"
+
+
+def test_disagreement_marks_the_claim_disputed_not_verified():
+    """The whole point: reproducible is not correct. A second derivation that lands
+    somewhere else must not leave the claim looking confirmed."""
+    ar = _replicating_researcher(
+        "```python\nresult = {'rho': 0.12}\n```\nSUPPORTS: NO\nI get a much weaker relationship.",
+        {"result = {'rho': 0.12}": {"rho": 0.12}},
+        ledger=[dict(c) for c in _LEDGER], comps=dict(_COMPS))
+    asyncio.run(ar.replicate())
+    c = ar.ledger[0]
+    assert c["verdict"] == "disputed"
+    assert c["replication"]["numbers_match"] is False
+    assert c["replication"]["analyst"] == "contradicts"
+
+
+def test_the_analyst_never_sees_the_original_code():
+    """Clean room means clean: the original implementation must not leak into the
+    replication prompt, or the two derivations are not independent."""
+    ar = _replicating_researcher(
+        "```python\nresult = {'rho': 0.7801}\n```\nSUPPORTS: YES",
+        {"result = {'rho': 0.7801}": {"rho": 0.7801}},
+        ledger=[dict(c) for c in _LEDGER], comps=dict(_COMPS))
+    asyncio.run(ar.replicate())
+    prompt = "\n".join(m["content"] for m in ar.seen_prompts[0]["messages"])
+    assert "richness tracks depth" in prompt      # the claim, necessarily
+    assert "orig_code" not in prompt              # the implementation, never
+    assert "depth vs richness" not in prompt      # nor the original's own label
+
+
+def test_a_failing_analysis_is_retried_with_the_error():
+    ar = _replicating_researcher(
+        ["```python\nresult = boom\n```\nSUPPORTS: YES",
+         "```python\nresult = {'rho': 0.78}\n```\nSUPPORTS: YES"],
+        {"result = {'rho': 0.78}": {"rho": 0.78}},
+        ledger=[dict(c) for c in _LEDGER], comps=dict(_COMPS))
+    asyncio.run(ar.replicate())
+    assert ar.ledger[0]["verdict"] == "replicated"
+    assert ar.ledger[0]["replication"]["attempts"] == 2
+    retry = "\n".join(m["content"] for m in ar.seen_prompts[1]["messages"])
+    assert "Your code failed" in retry
+
+
+def test_an_analyst_that_never_produces_code_leaves_the_verdict_alone():
+    ar = _replicating_researcher(
+        "I would rather not write code.",
+        {}, ledger=[dict(c) for c in _LEDGER], comps=dict(_COMPS))
+    n = asyncio.run(ar.replicate())
+    assert n == 0
+    assert ar.ledger[0]["verdict"] == "verified"      # unchanged, not punished
+
+
+def test_only_computed_surviving_claims_are_candidates_insights_first():
+    ar = _replicating_researcher("", {}, ledger=[
+        {"id": "k1", "statement": "s", "value": "1", "antecedents": ["c1"],
+         "kind": "observation", "verdict": "verified"},
+        {"id": "k2", "statement": "s", "value": "2", "antecedents": ["c1"],
+         "kind": "anomaly", "verdict": "verified"},
+        {"id": "k3", "statement": "s", "value": "3", "antecedents": ["c1"],
+         "kind": "pattern", "verdict": "refuted"},          # already dead
+        {"id": "k4", "statement": "s", "value": "4", "antecedents": ["overview.n"],
+         "kind": "pattern", "verdict": "verified"},          # data read, not computed
+    ], comps=dict(_COMPS))
+    got = [c["id"] for c in ar._replication_candidates()]
+    assert got == ["k2", "k1"]      # insight first; refuted and data-only excluded
+
+
+def test_replicated_claims_are_verified_tier_for_the_writer_and_disputed_are_not():
+    captured = {}
+
+    class _Chat:
+        class completions:
+            @staticmethod
+            async def create(**kw):
+                captured.update(kw)
+                class M:
+                    content = "prose"
+                class C:
+                    message = M()
+                class R:
+                    choices = [C()]
+                return R()
+
+    class _Client:
+        chat = _Chat()
+
+    ar = Autoresearcher(_StubData(), LLMClient(_Client(), "m"), _StubExecutor({}))
+    ar.ledger = [
+        {"id": "k1", "statement": "replicated finding", "value": "1", "kind": "pattern",
+         "antecedents": ["c1"], "verdict": "replicated"},
+        {"id": "k2", "statement": "disputed finding", "value": "2", "kind": "pattern",
+         "antecedents": ["c1"], "verdict": "disputed"},
+    ]
+    asyncio.run(ar.write_results())
+    prompt = captured["messages"][-1]["content"]
+    assert "replicated finding" in prompt
+    assert "disputed finding" not in prompt
+
+
+def test_run_summary_reports_the_clean_room_outcome():
+    ar = Autoresearcher(_StubData(), LLMClient(None, "m"), _StubExecutor({}))
+    ar.ledger = [
+        {"id": "k1", "verdict": "replicated", "replication": {"by": "auditor-model"}},
+        {"id": "k2", "verdict": "disputed", "replication": {"by": "auditor-model"}},
+        {"id": "k3", "verdict": "verified"},
+    ]
+    s = ar.run_summary(completed=True)
+    assert s["replication_attempted"] == 2
+    assert s["replication_agreed"] == 1
+    assert s["replication_disputed"] == 1
+    assert "auditor-model" in s["models"]
+
+
+def test_assumptions_reach_the_writer():
+    """The agent is made to surface what it could not confirm; dropping that at the
+    writing step is exactly where candour matters most."""
+    captured = {}
+
+    class _Chat:
+        class completions:
+            @staticmethod
+            async def create(**kw):
+                captured.update(kw)
+                class M:
+                    content = "prose"
+                class C:
+                    message = M()
+                class R:
+                    choices = [C()]
+                return R()
+
+    class _Client:
+        chat = _Chat()
+
+    ar = Autoresearcher(_StubData(), LLMClient(_Client(), "m"), _StubExecutor({}))
+    ar.ledger = [{"id": "k1", "statement": "a finding", "value": "1", "kind": "observation",
+                  "antecedents": ["c1"], "verdict": "verified"}]
+    ar.assumptions = [{"id": "as1", "statement": "Assuming counts are raw, not rarefied",
+                       "why": "no renorm_stats present"}]
+    asyncio.run(ar.write_results())
+    prompt = captured["messages"][-1]["content"]
+    assert "Assuming counts are raw, not rarefied" in prompt
+    assert "no renorm_stats present" in prompt
+    assert "not findings" in prompt          # framed so they aren't reported as results
+
+
+def test_the_dag_carries_the_research_narrative():
+    """A graph of claims alone shows what was found, not why it was looked for."""
+    from ai.autoresearch import build_dag
+
+    agenda = [{"id": "a4", "question": "Do samples cluster?", "status": "done", "parent": None},
+              {"id": "a5", "question": "Which taxa drive it?", "status": "done", "parent": "a4"}]
+    ledger = [{"id": "k7", "statement": "batches separate", "value": "1.0", "kind": "pattern",
+               "antecedents": ["c10"], "verdict": "verified", "investigation": "a4"}]
+    dag = build_dag({"c10": {"label": "bray-curtis"}}, ledger, agenda)
+    kinds = {(e["from"], e["to"]): e.get("kind") for e in dag["edges"]}
+    assert kinds[("a4", "a5")] == "followup"     # the follow-up lineage
+    assert kinds[("a4", "k7")] == "answers"      # the question the claim answers
+    assert kinds[("c10", "k7")] is None          # antecedent edges stay unlabelled
+    assert {n["id"]: n["type"] for n in dag["nodes"]}["a4"] == "investigation"
+
+
+def test_the_dag_is_unchanged_when_no_agenda_is_passed():
+    """Backward compatibility: the two-argument form still works."""
+    from ai.autoresearch import build_dag
+
+    dag = build_dag({"c1": {"label": "x"}},
+                    [{"id": "k1", "statement": "s", "antecedents": ["c1"], "kind": "observation"}])
+    assert [n["type"] for n in dag["nodes"]] == ["computation", "claim"]
+
+
 # ── statistical hygiene helpers in the sandbox (issue #49) ────────────────────
 def _sandbox_eval(code, tmp_path):
     """Run a snippet in the real subprocess sandbox. No data dir is needed — these

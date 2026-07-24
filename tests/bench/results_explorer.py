@@ -8,7 +8,13 @@ local pieces — the LM-Studio loader, a synchronous-endpoint ``AsyncOpenAI`` cl
 argparse, and file writing — so the offline eval stays reproducible:
 
     python tests/bench/results_explorer.py            # fresh model run
+    python tests/bench/results_explorer.py --replicate   # + clean-room re-derivation
     python tests/bench/results_explorer.py --reverify [--reconcile]
+
+``--replicate`` runs the clean-room pass (#50): a second analyst re-derives each
+strong claim from the raw data WITHOUT seeing the original code. Set
+``REPLICATE_MODEL`` to a different model than ``EXPLORER_MODEL`` — a model checking
+its own work shares its own blind spots, which is the failure the pass exists to catch.
 
 An agent EXPLORES the pipeline data — reading summaries AND running its own
 analysis code — and records a ledger of VERIFIABLE claims, each linked to its
@@ -42,6 +48,8 @@ from run_bench import _unload_all, _lms_load
 # model or a REMOTE OpenAI-compatible API (e.g. OpenRouter → anthropic/claude-sonnet-5).
 BASE_URL = os.environ.get("EXPLORER_BASE_URL", "http://localhost:1234/v1")
 MODEL = os.environ.get("EXPLORER_MODEL", "qwen/qwen3.6-35b-a3b")
+# The clean-room analyst. Deliberately its own env var: independence is the point.
+REPLICATE_MODEL = os.environ.get("REPLICATE_MODEL", MODEL)
 API_KEY = os.environ.get("EXPLORER_API_KEY", "lm-studio")
 REMOTE = not any(h in BASE_URL for h in ("localhost", "127.0.0.1"))  # skip lms for remote
 OUT = HERE / "writings"
@@ -79,7 +87,8 @@ def _executor() -> SubprocessExecutor:
 
 def _make_researcher(llm: LLMClient, *, reconcile: bool) -> Autoresearcher:
     return Autoresearcher(_data_source(), llm, _executor(),
-                          explore_model=MODEL, verify_model=MODEL, reconcile=reconcile)
+                          explore_model=MODEL, verify_model=MODEL,
+                          replicate_model=REPLICATE_MODEL, reconcile=reconcile)
 
 
 def _supported_results_data(computations, ledger):
@@ -94,15 +103,19 @@ def _supported_results_data(computations, ledger):
         for n in nums:
             for v in (n, n * 100):
                 forms += [round(v, 4), round(v, 2), round(v, 1)]
-    return {"pipeline": fx, "verified_claims": [c["value"] for c in ledger if c.get("verdict") == "verified"],
+    return {"pipeline": fx,
+            "verified_claims": [c["value"] for c in ledger
+                                if c.get("verdict") in ("verified", "replicated")],
             "computed_support": sorted(set(forms))}
 
 
-def _write_ledger(ar: Autoresearcher, completed: bool, done: int):
+def _write_ledger(ar: Autoresearcher, completed: bool):
+    """Ledger snapshot: claims, computations, agenda, assumptions, and the run
+    summary (which now includes the clean-room replication counts)."""
     (OUT / "claims_ledger.json").write_text(json.dumps(
         {"claims": ar.ledger, "computations": ar.computations, "agenda": ar.agenda,
-         "run": {"completed": completed, "investigations_done": done,
-                 "investigations_total": len(ar.agenda)}}, indent=2, default=str) + "\n")
+         "assumptions": ar.assumptions, "run": ar.run_summary(completed)},
+        indent=2, default=str) + "\n")
 
 
 def _write_dag(ar: Autoresearcher, verified: int, status: str):
@@ -110,8 +123,8 @@ def _write_dag(ar: Autoresearcher, verified: int, status: str):
     (OUT / "claims_dag.json").write_text(json.dumps(dag, indent=2, default=str) + "\n")
     (OUT / "claims_dag.md").write_text(
         f"# Claim provenance DAG ({MODEL}) — {status}\n\n{verified}/{len(ar.ledger)} claims verified · "
-        f"{len(ar.computations)} computations\n\nLegend: 🟩 verified · 🟧 partly supported · "
-        f"🟥 refuted · 🟨 unverifiable · "
+        f"{len(ar.computations)} computations\n\nLegend: 🟢 replicated · 🟩 verified · "
+        f"🟪 disputed · 🟧 partly supported · 🟥 refuted · 🟨 unverifiable · "
         f"🟦 computation · ⬛ data\n\n{dag_mermaid(dag)}\n")
 
 
@@ -127,8 +140,8 @@ async def _reverify_async(llm):
     await ar.verify()
     done = sum(a["status"] == "done" for a in ar.agenda)
     completed = bool(ar.agenda) and all(a["status"] == "done" for a in ar.agenda)
-    _write_ledger(ar, completed, done)
-    verified_claims = [c for c in ar.ledger if c["verdict"] == "verified"]
+    _write_ledger(ar, completed)
+    verified_claims = [c for c in ar.ledger if c["verdict"] in ("verified", "replicated")]
     verified = len(verified_claims)
     status = "complete" if completed else f"INCOMPLETE ({done}/{len(ar.agenda)} investigations)"
     _write_dag(ar, verified, status)
@@ -163,6 +176,15 @@ async def _main_async(llm: LLMClient):
     ar = _make_researcher(llm, reconcile=True)
     completed = await ar.explore()
     await ar.verify()  # deterministic first; escalate misses to skeptical model reconciliation
+    if "--replicate" in sys.argv:
+        print(f"\n=== CLEAN-ROOM REPLICATION ({REPLICATE_MODEL}) ===")
+        n = await ar.replicate()
+        for c in ar.ledger:
+            if c.get("replication"):
+                r = c["replication"]
+                mark = "agree" if r.get("numbers_match") else "DISAGREE"
+                print(f"    [{mark:8}] {c['id']} {c['statement'][:52]}")
+        print(f"  {n} claims independently re-derived")
     done = sum(a["status"] == "done" for a in ar.agenda)
     outstanding = [a for a in ar.agenda if a["status"] != "done"]
     print(f"\n  agenda ({done}/{len(ar.agenda)} investigations done"
@@ -174,14 +196,14 @@ async def _main_async(llm: LLMClient):
     for c in ar.ledger:
         print(f"    [{c.get('verdict'):12}|{c.get('kind','?')[:7]:7}] {c['statement'][:60]}  (={c['value']})")
 
-    verified = [c for c in ar.ledger if c["verdict"] == "verified"]
+    verified = [c for c in ar.ledger if c["verdict"] in ("verified", "replicated")]
     status = "complete" if completed else f"INCOMPLETE ({done}/{len(ar.agenda)} investigations)"
     banner = "" if completed else (
         f"> ⚠️ PRELIMINARY — exploration stopped with {len(outstanding)} of {len(ar.agenda)} "
         f"investigations outstanding ({', '.join(a['id'] for a in outstanding)}); "
         f"these Results are partial.\n\n")
     # One atomic snapshot: ledger, DAG, and prose written from the SAME run state.
-    _write_ledger(ar, completed, done)
+    _write_ledger(ar, completed)
     _write_dag(ar, len(verified), status)
 
     print("\n=== WRITE (verified claims only) ===")

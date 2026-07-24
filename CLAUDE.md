@@ -113,9 +113,12 @@ All settings via environment or `.env` (see `portal/app/config.py`):
 | `AUTORESEARCH_TIME_BUDGET_S` | `1800` | Wall-clock cap on the explore loop |
 | `AUTORESEARCH_MAX_ANALYSIS_S` | `60` | Per `run_analysis` exec timeout (inside the session sandbox) |
 | `AUTORESEARCH_RECONCILE_ENABLED` | `true` | Skeptical-model fallback when deterministic verify misses; grades a claim `verified`, `partial` (finding holds, some values don't), or leaves it refuted |
+| `AUTORESEARCH_REPLICATE_ENABLED` | `false` | Clean-room pass (#50): a second analyst re-derives each strong claim from the raw data without seeing the original code. Agreement → `replicated`; disagreement → `disputed` |
+| `AUTORESEARCH_REPLICATE_MAX_CLAIMS` | `12` | Cap on claims sent for independent re-derivation (insights first) |
 | `AUTORESEARCH_COMMIT_ENABLED` | `false` | PR the verified Results prose to the paper repo `.omc/` |
 | `LLM_MODEL_EXPLORE` | (falls back to `LLM_MODEL`) | Model for the autoresearch agent loop |
 | `LLM_MODEL_VERIFY` | (falls back to `LLM_MODEL`) | Model for the skeptical reconciler |
+| `LLM_MODEL_REPLICATE` | (falls back to `LLM_MODEL`) | Model for the clean-room analyst — **point this at a different model than `LLM_MODEL_EXPLORE`**; a model checking its own work shares its own blind spots |
 | `GITHUB_APP_ID` | | GitHub App numeric ID |
 | `GITHUB_APP_PRIVATE_KEY` | | PEM file path or content |
 | `GITHUB_ORG` | `open-community-science` | Org for paper repos |
@@ -448,6 +451,8 @@ LLM_MODEL=qwen/qwen3.5-35b-a3b
 # AUTORESEARCH_COMMIT_ENABLED=false        # PR the Results prose to .omc/
 # LLM_MODEL_EXPLORE=qwen/qwen3.5-35b-a3b   # agent loop model
 # LLM_MODEL_VERIFY=qwen/qwen3.5-35b-a3b    # skeptical reconciler model
+# AUTORESEARCH_REPLICATE_ENABLED=false     # clean-room independent re-derivation
+# LLM_MODEL_REPLICATE=<a DIFFERENT model>  # the clean-room analyst
 GITHUB_APP_ID=3078928
 GITHUB_APP_PRIVATE_KEY=<pem path>
 GITHUB_ORG=open-community-science

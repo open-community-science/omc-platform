@@ -133,6 +133,30 @@ then one sentence why. The UNSUPPORTED list is what lets a partly-correct claim 
 by dropping only the bad values — list the numbers themselves, not descriptions of them."""
 
 
+REPLICATE_SYSTEM = """You are an independent analyst performing a CLEAN-ROOM REPLICATION.
+
+You are given a CLAIM about an amplicon dataset and direct access to the raw data. You have
+NOT been shown the code that produced the claim, its intermediate results, or the approach
+taken — that is deliberate. Re-derive the claim's quantitative content YOUR OWN WAY. Two
+independent derivations that agree is evidence; re-running one derivation twice is not.
+
+Data in scope (identical to what the original analyst had):
+- `counts` — samples x ASV read-count DataFrame
+- `tax`    — ASV x rank taxonomy (Domain..Genus); join to counts to work at taxon level
+- `meta`   — per-sample metadata (library_name, collection_date, precomputed ordination x/y)
+Helpers: np, pd, pdist, squareform, braycurtis, entropy, pearsonr, spearmanr, kruskal,
+mannwhitneyu, PCA, fdr(pvals), clr(df), rarefy(df, depth, seed).
+
+Reply with ONE fenced python block that assigns `result` — a SMALL dict of just the key
+quantities needed to judge the claim (not a data dump; a big result makes agreement
+meaningless). Then, after the block, one line:
+SUPPORTS: YES|NO|INCONCLUSIVE
+and one sentence on what you found.
+
+Do not reverse-engineer what the original analyst probably did — solve it directly from the
+data. If the claim is too vague to test quantitatively, say INCONCLUSIVE and explain why."""
+
+
 WRITE_SYSTEM = """Scientific writing assistant for microbial ecology. Write a Results section
 using ONLY the claims provided — every number must come from a claim. Do not add findings not
 in the claims. Report quality caveats plainly and politely. Past tense, objective, no
@@ -142,7 +166,13 @@ where natural.
 Some claims are marked PARTIALLY SUPPORTED: verification backed the finding but could not back
 the specific values listed as unsupported. You may report the finding — it is real — but you
 MUST NOT state those particular numbers. Give the qualitative result instead, or use only the
-values that were backed. Never repeat a number listed as unsupported."""
+values that were backed. Never repeat a number listed as unsupported.
+
+You may also be given ASSUMPTIONS the analysis had to make and could not confirm. These are
+not findings and must not be reported as results, but where a stated finding depends on one,
+say so plainly in the same breath — "assuming counts are raw rather than rarefied, ..." — so
+a reader can see what rests on what. Do not collect them into a disclaimer paragraph, and do
+not apologise for them; an honest analysis has some."""
 
 
 # ── Tool schemas (moved verbatim from the prototype) ──────────────────────────
@@ -323,6 +353,16 @@ def _locate_numbers(v, targets, path="", out=None, cap=32):
     return out
 
 
+_CODE_RE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
+
+
+def _extract_code(text: str) -> str | None:
+    """The last fenced python block in a reply (models often narrate, then code).
+    Returns None when there is nothing runnable to extract."""
+    blocks = _CODE_RE.findall(text or "")
+    return blocks[-1].strip() if blocks else None
+
+
 def _flatten_numbers(v, acc):
     if isinstance(v, bool):
         return
@@ -372,10 +412,14 @@ def _jsonify(v, depth=0, cap=MODEL_VIEW_CAP):
     return v
 
 
-def build_dag(computations: dict, ledger: list) -> dict:
+def build_dag(computations: dict, ledger: list, agenda: list | None = None) -> dict:
     """Claim→antecedent provenance DAG. Nodes: computations (blue), claims
-    (verdict-coloured), and data paths (grey). Parameterised off the passed
-    state (was ``build_dag()`` over module globals in the prototype)."""
+    (verdict-coloured), data paths (grey), and — when ``agenda`` is passed —
+    the INVESTIGATIONS that produced the claims, with follow-up lineage.
+
+    The questions are the research narrative: a cluster in ordination led to its
+    driver taxa led to a contamination screen. A graph of claims alone shows what
+    was found but not why it was looked for (#50)."""
     nodes, edges, seen = [], [], set()
 
     def add(nid, **kw):
@@ -383,10 +427,19 @@ def build_dag(computations: dict, ledger: list) -> dict:
             seen.add(nid)
             nodes.append({"id": nid, **kw})
 
+    for a in (agenda or []):
+        add(a["id"], type="investigation", label=a.get("question", "")[:70],
+            status=a.get("status"))
+    for a in (agenda or []):        # follow-up lineage: which question led to which
+        if a.get("parent") and a["parent"] in seen:
+            edges.append({"from": a["parent"], "to": a["id"], "kind": "followup"})
     for cid, comp in computations.items():
         add(cid, type="computation", label=comp["label"])
     for c in ledger:
-        add(c["id"], type="claim", label=c["statement"][:60], verdict=c.get("verdict"), kind=c["kind"])
+        add(c["id"], type="claim", label=c["statement"][:60], verdict=c.get("verdict"),
+            kind=c.get("kind", "observation"))
+        if c.get("investigation") and c["investigation"] in seen:
+            edges.append({"from": c["investigation"], "to": c["id"], "kind": "answers"})
         for ant in c["antecedents"]:
             if ant in computations:
                 edges.append({"from": ant, "to": c["id"]})
@@ -398,14 +451,16 @@ def build_dag(computations: dict, ledger: list) -> dict:
 
 def dag_mermaid(dag):
     """Render a DAG dict as a Mermaid ```graph LR``` block (for the bench .md)."""
-    sty = {"verified": "fill:#2e7d32,color:#fff", "refuted": "fill:#c62828,color:#fff",
+    sty = {"replicated": "fill:#1b5e20,color:#fff", "disputed": "fill:#6a1b9a,color:#fff",
+           "verified": "fill:#2e7d32,color:#fff", "refuted": "fill:#c62828,color:#fff",
            "partial": "fill:#ef6c00,color:#fff", "unverifiable": "fill:#f9a825,color:#000",
-           "computation": "fill:#1565c0,color:#fff", "data": "fill:#455a64,color:#fff"}
+           "computation": "fill:#1565c0,color:#fff", "data": "fill:#455a64,color:#fff",
+           "investigation": "fill:#00695c,color:#fff"}
     lines = ["```mermaid", "graph LR"]
     for n in dag["nodes"]:
         lbl = n["label"].replace('"', "'")
-        shape = f'[["{lbl}"]]' if n["type"] == "computation" else (
-            f'("{lbl}")' if n["type"] == "data" else f'["{lbl}"]')
+        shape = ({"computation": f'[["{lbl}"]]', "data": f'("{lbl}")',
+                  "investigation": f'{{{{"{lbl}"}}}}'}.get(n["type"], f'["{lbl}"]'))
         lines.append(f'  {n["id"]}{shape}')
         cls = n.get("verdict") if n["type"] == "claim" else n["type"]
         if cls in sty:
@@ -808,7 +863,7 @@ class Autoresearcher:
 
     def __init__(self, data: DataSource, llm: LLMClient, executor: CodeExecutor, *,
                  explore_model: str | None = None, verify_model: str | None = None,
-                 write_model: str | None = None,
+                 write_model: str | None = None, replicate_model: str | None = None,
                  max_steps: int = 48, max_followups: int = 12,
                  reconcile: bool = True,
                  on_progress: Optional[Callable[[str, Any], Awaitable]] = None):
@@ -820,6 +875,10 @@ class Autoresearcher:
         # Prose is a DRAFTING role, not the agent loop — let it be pointed at the
         # drafting model like every other writing surface (falls back to explore).
         self.write_model = write_model or self.explore_model
+        # The clean-room analyst. Pointing this at a DIFFERENT model than explore is
+        # the whole point — a model re-deriving its own claim shares its own blind
+        # spots — so this is worth configuring even when the other roles are not.
+        self.replicate_model = replicate_model or self.verify_model
         self.max_steps = max_steps
         self.max_followups = max_followups
         self.reconcile = reconcile
@@ -1144,10 +1203,109 @@ class Autoresearcher:
                     c["reconciled_by"] = self.verify_model
                     c["unsupported_numbers"] = rec.get("unsupported") or []
 
+    # -- clean-room replication -------------------------------------------------
+    def _replication_candidates(self) -> list[dict]:
+        """Which claims are worth an independent re-derivation, best first.
+
+        Only claims that survived reproduction and rest on a COMPUTATION: a data-path
+        read is already trivially checkable, and re-deriving a refuted claim tells us
+        nothing we don't know. Insights (pattern/anomaly) go first because they are
+        the claims a reader will lean on and the ones most likely to be subtly wrong."""
+        rank = {"anomaly": 0, "pattern": 1, "quality_caveat": 2, "observation": 3}
+        eligible = [c for c in self.ledger
+                    if c.get("verdict") in ("verified", "partial")
+                    and any(a in self.computations for a in c.get("antecedents", []))
+                    and _nums(c.get("value", ""))]
+        return sorted(eligible, key=lambda c: rank.get(c.get("kind"), 9))
+
+    async def _replicate_claim(self, claim: dict, max_attempts: int = 3) -> dict:
+        """Have an independent analyst re-derive one claim from the raw data.
+
+        The analyst sees the claim and the data dictionary — never the original code,
+        its result, or its label. It writes its own code, which we run in the SAME
+        sandbox; a failing run comes back with the error so it can fix its own bug
+        (that is debugging its own approach, not learning the original's).
+
+        Honest about what "clean room" means here: the claim's own wording can name a
+        method ("Spearman rho between depth and richness"), and it must — you cannot
+        test a claim without knowing what it asserts. What is withheld is the
+        implementation: which columns, what filtering, how the join was done. That is
+        where the errors re-running the same code can never catch actually live."""
+        msgs = [{"role": "system", "content": REPLICATE_SYSTEM},
+                {"role": "user", "content": f"CLAIM: {claim['statement']}\n"
+                                            f"CLAIMED VALUE: {claim['value']}\n\n"
+                                            "Re-derive this independently."}]
+        rep: dict[str, Any] = {"by": self.replicate_model, "attempts": 0}
+        for attempt in range(max_attempts):
+            r = await self.llm.chat(msgs, model=self.replicate_model,
+                                    temperature=0.3, max_tokens=3000)
+            text = _strip_think(r.choices[0].message.content or "")
+            code = _extract_code(text)
+            rep["attempts"] = attempt + 1
+            if not code:
+                rep["error"] = "no code block in the analyst's reply"
+                msgs += [{"role": "assistant", "content": text},
+                         {"role": "user", "content": "Reply with ONE fenced python block "
+                                                     "that assigns `result`, then the SUPPORTS line."}]
+                continue
+            ok, res = await self.executor.run(code)
+            if not ok:
+                rep["error"] = str(res)
+                msgs += [{"role": "assistant", "content": text},
+                         {"role": "user", "content": f"Your code failed: {res}\nFix it and "
+                                                     "re-send the full block."}]
+                continue
+            m = re.search(r"SUPPORTS:\s*(YES|NO|INCONCLUSIVE)", text.upper())
+            analyst = {"YES": "supports", "NO": "contradicts"}.get(
+                m.group(1) if m else "", "inconclusive")
+            found: list[float] = []
+            _flatten_numbers(res, found)
+            claim_nums = _nums(claim["value"])
+            matched = [_match_num(x, found) for x in claim_nums]
+            rep.update({
+                "code": code, "result": _jsonify(res, cap=MODEL_VIEW_CAP),
+                "numbers_match": bool(claim_nums) and all(matched),
+                "matched": [m for m in matched],
+                "analyst": analyst,
+                "reasoning": re.sub(r"```.*?```", "", text, flags=re.DOTALL).strip()[:400],
+                "error": None,
+            })
+            return rep
+        rep["numbers_match"] = False
+        rep["analyst"] = "inconclusive"
+        return rep
+
+    async def replicate(self, max_claims: int = 12) -> int:
+        """Clean-room pass: independently re-derive the strongest claims (#50).
+
+        ``verify()`` re-runs the SAME code, so it establishes reproducibility — it
+        structurally cannot catch a wrong axis, an unnormalized comparison or a
+        misjoined table, because the bug re-appears identically. This pass answers
+        the question the ledger actually promises: can someone else, working from
+        the raw data alone, get the same number?
+
+        Verdicts are additive, so a run with replication off is unchanged:
+          * ``verified`` + independent agreement  -> ``replicated`` (the strongest grade)
+          * ``verified`` + independent DISagreement -> ``disputed`` (a finding in itself)
+        Returns the number of claims replicated."""
+        done = 0
+        for claim in self._replication_candidates()[:max_claims]:
+            rep = await self._replicate_claim(claim)
+            claim["replication"] = rep
+            await self._emit("replicate", {"claim": claim["id"], "agrees": rep.get("numbers_match"),
+                                           "analyst": rep.get("analyst")})
+            if rep.get("error") and not rep.get("code"):
+                continue                       # the analyst never produced runnable code
+            done += 1
+            if claim["verdict"] == "verified":
+                claim["verdict"] = "replicated" if rep.get("numbers_match") else "disputed"
+        return done
+
     # -- DAG --------------------------------------------------------------------
     def build_dag(self) -> dict:
-        """The claim→antecedent provenance DAG for this run's current state."""
-        return build_dag(self.computations, self.ledger)
+        """The claim→antecedent provenance DAG for this run's current state,
+        including the agenda lineage that motivated each claim."""
+        return build_dag(self.computations, self.ledger, self.agenda)
 
     # -- write ------------------------------------------------------------------
     async def write_results(self, verified: list[dict] | None = None,
@@ -1161,7 +1319,11 @@ class Autoresearcher:
         not; dropping the whole claim threw away real science, so the writer gets it
         with an explicit do-not-state list instead (#48)."""
         if verified is None:
-            verified = [c for c in self.ledger if c.get("verdict") == "verified"]
+            # "replicated" is verified PLUS an independent re-derivation — strictly
+            # stronger, so it belongs in the same block. "disputed" deliberately does
+            # not: two derivations that disagree must not be asserted as fact.
+            verified = [c for c in self.ledger
+                        if c.get("verdict") in ("verified", "replicated")]
         if partial is None:
             partial = [c for c in self.ledger if c.get("verdict") == "partial"]
         claims_txt = "\n".join(
@@ -1175,6 +1337,13 @@ class Autoresearcher:
         study = (f"Study: {sg.get('title', '(unknown)')} — {sg.get('study_name', '')} "
                  f"({sg.get('bioproject', '')}), {sg.get('platform', '')}.")
         user = f"{study}\n\nVERIFIED CLAIMS:\n{claims_txt}\n"
+        if self.assumptions:
+            # The agent is made to surface what it could not confirm; dropping that at
+            # the writing step is exactly where candour matters most (#50).
+            user += "\nASSUMPTIONS THIS ANALYSIS RESTS ON (not findings — qualify the "
+            user += "claims that depend on them):\n" + "\n".join(
+                f"- {a['statement']}" + (f" (why: {a['why']})" if a.get("why") else "")
+                for a in self.assumptions) + "\n"
         if partial_txt:
             user += ("\nPARTIALLY SUPPORTED CLAIMS (report the finding, withhold the listed "
                      f"values):\n{partial_txt}\n")
@@ -1202,8 +1371,15 @@ class Autoresearcher:
         models = {c.get("by") for c in self.ledger} | {c.get("reconciled_by") for c in self.ledger}
         models |= {c.get("by") for c in self.computations.values()}
         models.add(self.results_prose_by)
+        replicated = [c for c in self.ledger if c.get("replication")]
+        models |= {(c.get("replication") or {}).get("by") for c in self.ledger}
         return {"completed": completed, "investigations_done": done,
                 "investigations_total": len(self.agenda),
+                # Clean-room pass (#50): how many claims a second analyst re-derived
+                # from the raw data, and how many of those agreed.
+                "replication_attempted": len(replicated),
+                "replication_agreed": sum(c["verdict"] == "replicated" for c in self.ledger),
+                "replication_disputed": sum(c["verdict"] == "disputed" for c in self.ledger),
                 "models": sorted(m for m in models if m)}
 
     # -- snapshot ---------------------------------------------------------------
@@ -1235,6 +1411,9 @@ class Autoresearcher:
                 # Values a PARTIAL adjudication could not back — the viewer strikes
                 # them, and the writer is forbidden from restating them.
                 "unsupported_numbers": c.get("unsupported_numbers") or [],
+                # Clean-room re-derivation (#50): the independent analyst's own code,
+                # its result, and whether the two derivations agreed.
+                "replication": c.get("replication"),
                 # Per-artifact attribution: the model that recorded the claim, and
                 # (when applicable) the model that reconciled it into "verified".
                 "by": c.get("by"), "reconciled_by": c.get("reconciled_by"),

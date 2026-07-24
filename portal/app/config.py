@@ -72,11 +72,20 @@ class Settings(BaseSettings):
     autoresearch_time_budget_s: int = 1800    # wall-clock cap on explore()
     autoresearch_max_analysis_s: int = 60     # per run_analysis exec timeout (in-sandbox)
     autoresearch_reconcile_enabled: bool = True   # skeptical-model verify fallback
+    # Clean-room replication (#50). After verification, a SECOND analyst — shown the
+    # claim and the raw data but never the original code — writes its own analysis to
+    # re-derive it. Agreement upgrades the claim to "replicated"; disagreement marks it
+    # "disputed". Off by default: it costs a model call plus a sandbox run per claim.
+    # Point llm_model_replicate at a DIFFERENT model than explore — a model checking
+    # its own work shares its own blind spots.
+    autoresearch_replicate_enabled: bool = False
+    autoresearch_replicate_max_claims: int = 12
     autoresearch_commit_enabled: bool = False     # PR the Results prose to .omc/
     # Per-role model overrides for the two autoresearch phases (fall back to
     # llm_model, like the manuscript roles above).
     llm_model_explore: str = ""               # the agenda-driven agent loop
     llm_model_verify: str = ""                # the skeptical reconciler
+    llm_model_replicate: str = ""             # the clean-room replication analyst
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./omc.db"
@@ -148,7 +157,7 @@ class Settings(BaseSettings):
 
     def role_model(self, role: str, default: str = "") -> str:
         """Model for an AI role ('draft' | 'cite' | 'review' | 'explore' |
-        'verify'), or `default`.
+        'verify' | 'replicate'), or `default`.
 
         Returns the per-role override when configured, else `default` (the
         caller's resolved model) so per-user backend choices still apply.
@@ -159,6 +168,7 @@ class Settings(BaseSettings):
             "review": self.llm_model_review,
             "explore": self.llm_model_explore,
             "verify": self.llm_model_verify,
+            "replicate": self.llm_model_replicate,
         }.get(role, "")
         return override or default
 
