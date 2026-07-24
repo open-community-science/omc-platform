@@ -23,7 +23,7 @@
 :root{
   --bg:#f4f7f6; --panel:#ffffff; --panel2:#eef2f1; --border:#d8e0df;
   --text:#13211f; --muted:#5a6a68; --accent:#0f8a80;
-  --verified:#1f7a3d; --refuted:#c0392b; --unverifiable:#b07d15;
+  --verified:#1f7a3d; --refuted:#c0392b; --partial:#c2620d; --unverifiable:#b07d15;
   --computation:#2266b8; --data:#5a6f6c;
   --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
@@ -31,18 +31,18 @@
 @media (prefers-color-scheme:dark){:root{
   --bg:#0d1413; --panel:#131c1b; --panel2:#0f1716; --border:#243130;
   --text:#d7e1df; --muted:#899997; --accent:#34d3c3;
-  --verified:#49c96e; --refuted:#f0685c; --unverifiable:#e2b53f;
+  --verified:#49c96e; --refuted:#f0685c; --partial:#f0913f; --unverifiable:#e2b53f;
   --computation:#5aa2ee; --data:#9fb0ad;
 }}
 :root[data-theme="light"]{
   --bg:#f4f7f6; --panel:#ffffff; --panel2:#eef2f1; --border:#d8e0df;
   --text:#13211f; --muted:#5a6a68; --accent:#0f8a80;
-  --verified:#1f7a3d; --refuted:#c0392b; --unverifiable:#b07d15; --computation:#2266b8; --data:#5a6f6c;
+  --verified:#1f7a3d; --refuted:#c0392b; --partial:#c2620d; --unverifiable:#b07d15; --computation:#2266b8; --data:#5a6f6c;
 }
 :root[data-theme="dark"]{
   --bg:#0d1413; --panel:#131c1b; --panel2:#0f1716; --border:#243130;
   --text:#d7e1df; --muted:#899997; --accent:#34d3c3;
-  --verified:#49c96e; --refuted:#f0685c; --unverifiable:#e2b53f; --computation:#5aa2ee; --data:#9fb0ad;
+  --verified:#49c96e; --refuted:#f0685c; --partial:#f0913f; --unverifiable:#e2b53f; --computation:#5aa2ee; --data:#9fb0ad;
 }
 .prov-wrap *{box-sizing:border-box}
 .prov-wrap{max-width:1100px;margin:0 auto;padding:8px 4px 60px;
@@ -78,6 +78,7 @@
 .prov-wrap .dot{width:9px;height:9px;border-radius:50%;margin-top:6px;flex:0 0 auto}
 .prov-wrap .dot.verified{background:var(--verified)} .prov-wrap .dot.refuted{background:var(--refuted)}
 .prov-wrap .dot.unverifiable{background:var(--unverifiable)}
+.prov-wrap .dot.partial{background:var(--partial)}
 .prov-wrap .claim .txt{font-size:13.5px;min-width:0}
 .prov-wrap .claim .cid{font-family:var(--mono);font-size:11px;color:var(--muted)}
 .prov-wrap .kind{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.04em;
@@ -92,6 +93,11 @@
 .prov-wrap .badge.verified{background:color-mix(in srgb,var(--verified) 16%,transparent);color:var(--verified)}
 .prov-wrap .badge.refuted{background:color-mix(in srgb,var(--refuted) 16%,transparent);color:var(--refuted)}
 .prov-wrap .badge.unverifiable{background:color-mix(in srgb,var(--unverifiable) 16%,transparent);color:var(--unverifiable)}
+.prov-wrap .badge.partial{background:color-mix(in srgb,var(--partial) 16%,transparent);color:var(--partial)}
+/* Values a PARTIAL adjudication could not back: struck through, so the reader
+   sees both the salvaged finding and exactly what was withheld from it. */
+.prov-wrap .unsupported{margin-top:9px;font-size:12.5px;color:var(--partial);line-height:1.6}
+.prov-wrap .unsupported s{opacity:.85}
 .prov-wrap .badge.method{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);
   margin-left:8px;text-transform:none;letter-spacing:.02em}
 .prov-wrap .chip{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid var(--accent);
@@ -221,12 +227,14 @@ if (RUN && RUN.completed === false) {
 const S = {
   claims: CLAIMS.length,
   verified: CLAIMS.filter(c => c.verdict === 'verified').length,
+  partial: CLAIMS.filter(c => c.verdict === 'partial').length,
   insights: CLAIMS.filter(c => c.kind === 'pattern' || c.kind === 'anomaly').length,
   computations: Object.keys(COMPS).length,
   investigations: AGENDA.length,
 };
 document.getElementById('stats').innerHTML = [
   ['claims', S.claims, ''], ['verified', S.verified, 'ok'],
+  ...(S.partial ? [['partly supported', S.partial, '']] : []),
   ['insights', S.insights, ''], ['assumptions', ASSUMPTIONS.length, ''],
   ['investigations', S.investigations, ''], ['computations', S.computations, '']
 ].map(([l,n,c]) => `<div class="stat ${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
@@ -297,13 +305,15 @@ function select(i){
   const nonDirect = parts.filter(p=>p.split(':')[0] !== 'direct');
   const pick = (nonDirect.length ? nonDirect : parts);
   const mlabel = pick.map(p=>{const[b,sub]=p.split(':'); return (name[b]||b)+(sub?` (${sub})`:'');}).join(' · ');
-  const methodBadge = (c.verdict==='verified' && mlabel)
+  const methodBadge = ((c.verdict==='verified' || c.verdict==='partial') && mlabel)
     ? `<span class="badge method" title="method: ${esc(c.method)}">✓ ${esc(mlabel)}</span>` : '';
   const method = nonDirect.map(p=>p.split(':')[0])[0];
   const via = method ? ` via ${how[method]||method}` : '';
   const reverify = c.verdict==='verified'
     ? `Re-derived from the antecedents below${via} — <b>verified</b>.`
-    : (c.verdict==='refuted'
+    : (c.verdict==='partial'
+        ? 'The finding is backed by the evidence, but some of its specific values are not — <b style="color:var(--partial)">partly supported</b>. The Results prose may report the finding while withholding the values listed below.'
+        : c.verdict==='refuted'
         ? 'Re-execution did not reproduce this value — <b style="color:var(--refuted)">refuted</b>. This can still be meaningful (e.g. an unconfirmable or refuted negative result); the writer decides whether and how to report it.'
         : 'No checkable antecedent to re-derive — <b style="color:var(--unverifiable)">unverifiable</b>. Left for the writer to judge, not dropped automatically.');
   const dk = KIND[c.kind];
@@ -315,7 +325,10 @@ function select(i){
     + (c.by ? `<div class="kv"><span class="k">recorded by</span><span class="v">${esc(shortModel(c.by))}</span></div>` : '')
     + (c.reconciled_by ? `<div class="kv"><span class="k">reconciled by</span><span class="v">${esc(shortModel(c.reconciled_by))}</span></div>` : '')
     + `<div class="reverify">${reverify}</div>`
-    + (c.reconcile ? `<div class="reconcile"><b>Model adjudication:</b> ${esc((c.reconcile.reasoning||'').replace(/^VERDICT:[^\n]*\n?/i,''))}</div>` : '')
+    + ((c.unsupported_numbers || []).length
+        ? `<div class="unsupported"><b>Not backed by the evidence</b> — withheld from the prose: `
+          + c.unsupported_numbers.map(n => `<s>${esc(String(n))}</s>`).join(', ') + `</div>` : '')
+    + (c.reconcile ? `<div class="reconcile"><b>Model adjudication:</b> ${esc((c.reconcile.reasoning||'').replace(/^(VERDICT|UNSUPPORTED):[^\n]*\n?/gim,''))}</div>` : '')
     + `<p class="prov-h">Antecedents (${antCount})</p>${ants}`;
 }
 if (CLAIMS.length) select(0);

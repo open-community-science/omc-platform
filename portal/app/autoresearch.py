@@ -246,6 +246,8 @@ async def run_autoresearch_stream(
             ar_kwargs = dict(
                 explore_model=settings.role_model("explore", llm["model"]),
                 verify_model=settings.role_model("verify", llm["model"]),
+                # Prose is a drafting job — route it like every other writing surface.
+                write_model=settings.role_model("draft", llm["model"]),
                 max_steps=max_steps,
                 max_followups=settings.autoresearch_max_followups,
                 reconcile=settings.autoresearch_reconcile_enabled,
@@ -258,12 +260,31 @@ async def run_autoresearch_stream(
                 ar = Autoresearcher(data, llm_client, executor, **ar_kwargs)
 
             # 4. Explore (time-budgeted) → verify → write prose → snapshot.
-            completed = await asyncio.wait_for(
-                ar.explore(resume=resuming), timeout=settings.autoresearch_time_budget_s)
+            # The budget covers the WHOLE run, not just exploration: verify()
+            # re-executes every computation (up to autoresearch_max_analysis_s each)
+            # and may call the reconciler per claim, so an unbudgeted tail could run
+            # far past the cap. Each later phase gets what exploration left, with a
+            # floor so a budget-consuming explore still gets its claims graded — and
+            # a phase that times out degrades to a partial snapshot rather than
+            # losing the run, since claims without a verdict read as unverifiable.
+            loop = asyncio.get_running_loop()
+            t0 = loop.time()
+            budget = settings.autoresearch_time_budget_s
+            completed = await asyncio.wait_for(ar.explore(resume=resuming), timeout=budget)
+
+            def _left(floor: int) -> float:
+                return max(float(floor), budget - (loop.time() - t0))
+
             run.emit("verify", "re-executing claims for verification")
-            await ar.verify()
+            try:
+                await asyncio.wait_for(ar.verify(), timeout=_left(300))
+            except asyncio.TimeoutError:
+                run.emit("verify", "verification hit the time budget — grading is partial")
             run.emit("write", "writing Results prose")
-            await ar.write_results()
+            try:
+                await asyncio.wait_for(ar.write_results(), timeout=_left(180))
+            except asyncio.TimeoutError:
+                run.emit("write", "writing hit the time budget — no prose this run")
             snapshot = ar.snapshot(resolve=True, completed=completed)
         except asyncio.TimeoutError:
             run.emit("error", "Autoresearch exceeded its time budget.")

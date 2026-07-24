@@ -39,6 +39,7 @@ for c in claims:
         "id": c["id"], "statement": c["statement"], "value": c["value"],
         "verdict": c.get("verdict", "unverifiable"), "kind": c.get("kind", "observation"),
         "method": c.get("method"),
+        "unsupported_numbers": c.get("unsupported_numbers") or [],
         "reconcile": c.get("reconcile"),
         "antecedents": [resolve(a) for a in c.get("antecedents", [])],
     })
@@ -46,6 +47,7 @@ for c in claims:
 stats = {
     "claims": len(claims),
     "verified": sum(c.get("verdict") == "verified" for c in claims),
+    "partial": sum(c.get("verdict") == "partial" for c in claims),
     "insights": sum(c.get("kind") in ("pattern", "anomaly") for c in claims),
     "computations": len(comps),
     "investigations": len(agenda),
@@ -61,7 +63,7 @@ HTML = r'''<title>Claim Provenance — Results Autoresearch</title>
 :root{
   --bg:#f4f7f6; --panel:#ffffff; --panel2:#eef2f1; --border:#d8e0df;
   --text:#13211f; --muted:#5a6a68; --accent:#0f8a80;
-  --verified:#1f7a3d; --refuted:#c0392b; --unverifiable:#b07d15;
+  --verified:#1f7a3d; --refuted:#c0392b; --partial:#c2620d; --unverifiable:#b07d15;
   --computation:#2266b8; --data:#5a6f6c;
   --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
@@ -69,18 +71,18 @@ HTML = r'''<title>Claim Provenance — Results Autoresearch</title>
 @media (prefers-color-scheme:dark){:root{
   --bg:#0d1413; --panel:#131c1b; --panel2:#0f1716; --border:#243130;
   --text:#d7e1df; --muted:#8598956e; --muted:#899997; --accent:#34d3c3;
-  --verified:#49c96e; --refuted:#f0685c; --unverifiable:#e2b53f;
+  --verified:#49c96e; --refuted:#f0685c; --partial:#f0913f; --unverifiable:#e2b53f;
   --computation:#5aa2ee; --data:#9fb0ad;
 }}
 :root[data-theme="light"]{
   --bg:#f4f7f6; --panel:#ffffff; --panel2:#eef2f1; --border:#d8e0df;
   --text:#13211f; --muted:#5a6a68; --accent:#0f8a80;
-  --verified:#1f7a3d; --refuted:#c0392b; --unverifiable:#b07d15; --computation:#2266b8; --data:#5a6f6c;
+  --verified:#1f7a3d; --refuted:#c0392b; --partial:#c2620d; --unverifiable:#b07d15; --computation:#2266b8; --data:#5a6f6c;
 }
 :root[data-theme="dark"]{
   --bg:#0d1413; --panel:#131c1b; --panel2:#0f1716; --border:#243130;
   --text:#d7e1df; --muted:#899997; --accent:#34d3c3;
-  --verified:#49c96e; --refuted:#f0685c; --unverifiable:#e2b53f; --computation:#5aa2ee; --data:#9fb0ad;
+  --verified:#49c96e; --refuted:#f0685c; --partial:#f0913f; --unverifiable:#e2b53f; --computation:#5aa2ee; --data:#9fb0ad;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
@@ -114,7 +116,7 @@ button.claim[aria-selected="true"]{border-color:var(--accent);background:var(--p
 button.claim:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .dot{width:9px;height:9px;border-radius:50%;margin-top:6px;flex:0 0 auto}
 .dot.verified{background:var(--verified)} .dot.refuted{background:var(--refuted)}
-.dot.unverifiable{background:var(--unverifiable)}
+.dot.unverifiable{background:var(--unverifiable)} .dot.partial{background:var(--partial)}
 .claim .txt{font-size:13.5px;min-width:0}
 .claim .cid{font-family:var(--mono);font-size:11px;color:var(--muted)}
 .kind{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.04em;
@@ -129,6 +131,8 @@ button.claim:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .badge.verified{background:color-mix(in srgb,var(--verified) 16%,transparent);color:var(--verified)}
 .badge.refuted{background:color-mix(in srgb,var(--refuted) 16%,transparent);color:var(--refuted)}
 .badge.unverifiable{background:color-mix(in srgb,var(--unverifiable) 16%,transparent);color:var(--unverifiable)}
+.badge.partial{background:color-mix(in srgb,var(--partial) 16%,transparent);color:var(--partial)}
+.unsupported{margin-top:9px;font-size:12.5px;color:var(--partial);line-height:1.6}
 .badge.method{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);
   margin-left:8px;text-transform:none;letter-spacing:.02em}
 .chip{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid var(--accent);
@@ -252,11 +256,13 @@ function select(i){
   const nonDirect = parts.filter(p=>p.split(':')[0] !== 'direct');
   const pick = (nonDirect.length ? nonDirect : parts);
   const mlabel = pick.map(p=>{const[b,sub]=p.split(':'); return (name[b]||b)+(sub?` (${sub})`:'');}).join(' · ');
-  const methodBadge = (c.verdict==='verified' && mlabel)
+  const methodBadge = ((c.verdict==='verified' || c.verdict==='partial') && mlabel)
     ? `<span class="badge method" title="method: ${esc(c.method)}">✓ ${esc(mlabel)}</span>` : '';
   const method = nonDirect.map(p=>p.split(':')[0])[0];
   const via = method ? ` via ${how[method]||method}` : '';
-  const reverify = c.verdict==='verified'
+  const reverify = c.verdict==='partial'
+    ? 'The finding is backed, but some of its specific values are not — <b style="color:var(--partial)">partly supported</b>; those values are withheld from the prose.'
+    : c.verdict==='verified'
     ? `Re-derived from the antecedents below${via} — <b>verified</b>.`
     : (c.verdict==='refuted'
         ? 'The cited antecedents contradicted this value — <b style="color:var(--refuted)">refuted</b>, excluded from the manuscript.'
@@ -268,6 +274,9 @@ function select(i){
     + `<h2>${esc(c.statement)}</h2>`
     + `<div class="kv"><span class="k">value</span><span class="v">${esc(c.value)}</span></div>`
     + `<div class="reverify">${reverify}</div>`
+    + ((c.unsupported_numbers || []).length
+        ? `<div class="unsupported"><b>Not backed by the evidence</b> — withheld from the prose: `
+          + c.unsupported_numbers.map(n => `<s>${esc(String(n))}</s>`).join(', ') + `</div>` : '')
     + (c.reconcile ? `<div class="reconcile"><b>Model adjudication:</b> ${esc((c.reconcile.reasoning||'').replace(/^VERDICT:[^\n]*\n?/i,''))}</div>` : '')
     + `<p class="prov-h">Antecedents (${c.antecedents.length})</p>${ants}`;
 }

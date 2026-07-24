@@ -110,7 +110,8 @@ def _write_dag(ar: Autoresearcher, verified: int, status: str):
     (OUT / "claims_dag.json").write_text(json.dumps(dag, indent=2, default=str) + "\n")
     (OUT / "claims_dag.md").write_text(
         f"# Claim provenance DAG ({MODEL}) — {status}\n\n{verified}/{len(ar.ledger)} claims verified · "
-        f"{len(ar.computations)} computations\n\nLegend: 🟩 verified · 🟥 refuted · 🟨 unverifiable · "
+        f"{len(ar.computations)} computations\n\nLegend: 🟩 verified · 🟧 partly supported · "
+        f"🟥 refuted · 🟨 unverifiable · "
         f"🟦 computation · ⬛ data\n\n{dag_mermaid(dag)}\n")
 
 

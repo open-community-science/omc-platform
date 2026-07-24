@@ -112,7 +112,7 @@ All settings via environment or `.env` (see `portal/app/config.py`):
 | `AUTORESEARCH_MAX_FOLLOWUPS` | `12` | Cap on self-added agenda items |
 | `AUTORESEARCH_TIME_BUDGET_S` | `1800` | Wall-clock cap on the explore loop |
 | `AUTORESEARCH_MAX_ANALYSIS_S` | `60` | Per `run_analysis` exec timeout (inside the session sandbox) |
-| `AUTORESEARCH_RECONCILE_ENABLED` | `true` | Skeptical-model fallback when deterministic verify misses |
+| `AUTORESEARCH_RECONCILE_ENABLED` | `true` | Skeptical-model fallback when deterministic verify misses; grades a claim `verified`, `partial` (finding holds, some values don't), or leaves it refuted |
 | `AUTORESEARCH_COMMIT_ENABLED` | `false` | PR the verified Results prose to the paper repo `.omc/` |
 | `LLM_MODEL_EXPLORE` | (falls back to `LLM_MODEL`) | Model for the autoresearch agent loop |
 | `LLM_MODEL_VERIFY` | (falls back to `LLM_MODEL`) | Model for the skeptical reconciler |

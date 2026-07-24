@@ -100,17 +100,29 @@ values). Decide whether the evidence genuinely supports the claim's quantitative
   are a simple derivation of the evidence (e.g. a difference or ratio), and ranges.
 - IGNORE tokens that are identifiers, not quantities (sample accessions like SRR38966955).
 - If the claim packs several numbers, it is SUPPORTED only if every quantitative number is
-  backed; if some are and some aren't, say PARTIAL and list which fail.
+  backed; if some are and some aren't, say PARTIAL.
+- The evidence quotes, by path, every value that matches the claim's numbers, then the head
+  of the full result. A number absent from the quoted matches is genuinely unbacked — it is
+  not hidden by display truncation, so judge it on the evidence as shown.
 - Default to UNSUPPORTED when the evidence does not clearly back a number. Be strict.
 
-Reply with exactly one line 'VERDICT: SUPPORTED|PARTIAL|UNSUPPORTED' then one sentence why."""
+Reply with exactly two lines:
+VERDICT: SUPPORTED|PARTIAL|UNSUPPORTED
+UNSUPPORTED: <comma-separated list of the exact claim numbers that are NOT backed, or 'none'>
+then one sentence why. The UNSUPPORTED list is what lets a partly-correct claim be salvaged
+by dropping only the bad values — list the numbers themselves, not descriptions of them."""
 
 
 WRITE_SYSTEM = """Scientific writing assistant for microbial ecology. Write a Results section
-using ONLY the verified claims provided — every number must come from a claim. Do not add
-findings not in the claims. Report quality caveats plainly and politely. Past tense,
-objective, no interpretation. Synthesize into flowing prose (not a bullet list). Reference
-Figure/Table where natural."""
+using ONLY the claims provided — every number must come from a claim. Do not add findings not
+in the claims. Report quality caveats plainly and politely. Past tense, objective, no
+interpretation. Synthesize into flowing prose (not a bullet list). Reference Figure/Table
+where natural.
+
+Some claims are marked PARTIALLY SUPPORTED: verification backed the finding but could not back
+the specific values listed as unsupported. You may report the finding — it is real — but you
+MUST NOT state those particular numbers. Give the qualitative result instead, or use only the
+values that were backed. Never repeat a number listed as unsupported."""
 
 
 # ── Tool schemas (moved verbatim from the prototype) ──────────────────────────
@@ -201,13 +213,29 @@ def _norm_antecedents(x):
     return [t.strip() for t in items if t and t.strip()]
 
 
+_NUM_RE = re.compile(r"""
+    (?<![A-Za-z0-9.])           # not inside an identifier: SRR38966955, PC1, v1.2.3
+    -?                          # sign — see the range note below
+    \d[\d,]*(?:\.\d+)?          # 1  1,398,204  0.732
+    (?:[eE][+-]?\d+)?           # scientific notation: 6e-16, 1e-6, 1.4e3
+""", re.VERBOSE)
+
+
 def _nums(s):
-    """Every genuine quantity in a string. The lookbehind blocks numbers embedded in
-    an alphanumeric token — not just glued to a letter ('PC1') but mid-token digit
-    runs like 'SRR38966955' (block preceded-by letter/digit/dot) — so accession IDs
-    aren't mistaken for claimed values. Handles ranges ('19-98') and thousands commas."""
-    return [float(x.replace(",", ""))
-            for x in re.findall(r"(?<![A-Za-z0-9.])\d[\d,]*(?:\.\d+)?", str(s))]
+    """Every genuine quantity in a string.
+
+    The lookbehind blocks numbers embedded in an alphanumeric token — not just
+    glued to a letter ('PC1') but mid-token digit runs like 'SRR38966955' — so
+    accession IDs aren't mistaken for claimed values.
+
+    SIGN MATTERS: a '-' is read as a minus sign only where one can occur, i.e.
+    NOT directly after a digit. So 'rho=-0.73' yields -0.73 (and can no longer
+    verify against a POSITIVE correlation — the difference between co-occurrence
+    and mutual exclusion), while the range '19-98' still yields 19 and 98.
+
+    Scientific notation is a quantity, not two: 'p=6e-16' is 6e-16, not 6 and 16.
+    """
+    return [float(x.replace(",", "")) for x in _NUM_RE.findall(str(s))]
 
 
 def _close(x, n):
@@ -230,16 +258,46 @@ def _match_num(x, cands):
         if n and _close(x, n / 100):
             return "/100"          # claim a fraction, source in %
     if len(cands) <= 12:            # derived from a summary (e.g. 73 = 84 - 11)
-        for a in cands:
-            for b in cands:
-                if a is b:
-                    continue
+        for i, a in enumerate(cands):
+            for j, b in enumerate(cands):
+                if i == j:          # same ELEMENT (identity would be luck-dependent
+                    continue        # for duplicate floats, e.g. [84.0, 84.0])
                 for val, tag in ((a - b, "diff"), (a + b, "sum"),
                                  (100 * a / b if b else None, "pct"),
                                  (100 * (b - a) / b if b else None, "pct")):
                     if val is not None and _close(x, val):
                         return "derived:" + tag
     return None
+
+
+def _locate_numbers(v, targets, path="", out=None, cap=32):
+    """Dotted paths into a result whose numeric leaves back one of ``targets``.
+
+    The verifier used to hand the reconciler a blind ``json.dumps(result)[:600]``
+    prefix, so a claim citing a value that happened to serialize past 600 chars was
+    adjudicated as unbacked — the verifier's myopia scored as the scientist's error
+    (see issue #48: 6 of 18 computations in the real-sample run were truncated, one
+    to 20% of its content, and BOTH refuted claims cite truncation). Selecting the
+    evidence the claim actually points at is the same token cost with no cliff.
+
+    Matching reuses ``_match_num``, so a percent claim still locates its fraction.
+    """
+    if out is None:
+        out = []
+    if len(out) >= cap:
+        return out
+    if isinstance(v, bool):
+        return out
+    if isinstance(v, (int, float)):
+        if any(_match_num(t, [float(v)]) for t in targets):
+            out.append((path or "(value)", float(v)))
+    elif isinstance(v, dict):
+        for k, x in v.items():
+            _locate_numbers(x, targets, f"{path}.{k}" if path else str(k), out, cap)
+    elif isinstance(v, (list, tuple)):
+        for i, x in enumerate(v):
+            _locate_numbers(x, targets, f"{path}[{i}]", out, cap)
+    return out
 
 
 def _flatten_numbers(v, acc):
@@ -255,11 +313,20 @@ def _flatten_numbers(v, acc):
             _flatten_numbers(x, acc)
 
 
-def _jsonify(v, depth=0):
+MODEL_VIEW_CAP = 50     # items shown to the model in a tool result
+RESULT_CAP = 200        # items KEPT in the stored/re-executed result (verification)
+
+
+def _jsonify(v, depth=0, cap=MODEL_VIEW_CAP):
     """Shrink an arbitrary computation result to a JSON-safe, size-capped form
-    (lists→50, dict items→50, depth 4). numpy/pandas are handled lazily so this
+    (lists/dict items→``cap``, depth 4). numpy/pandas are handled lazily so this
     module imports cleanly even where they are absent (they always are wherever a
-    real result is produced)."""
+    real result is produced).
+
+    The cap is a per-caller choice, not a global truth: the model sees
+    ``MODEL_VIEW_CAP`` items (context economy), while the sandbox keeps
+    ``RESULT_CAP`` so a value the claim cites isn't discarded before ``verify()``
+    can find it (#48)."""
     if depth > 4:
         return str(v)
     try:
@@ -272,13 +339,13 @@ def _jsonify(v, depth=0):
     if isinstance(v, float):
         return round(v, 4)
     if np is not None and isinstance(v, np.ndarray):
-        return _jsonify(v.tolist(), depth + 1)
+        return _jsonify(v.tolist(), depth + 1, cap)
     if isinstance(v, dict):
-        return {str(k): _jsonify(x, depth + 1) for k, x in list(v.items())[:50]}
+        return {str(k): _jsonify(x, depth + 1, cap) for k, x in list(v.items())[:cap]}
     if isinstance(v, (list, tuple)):
-        return [_jsonify(x, depth + 1) for x in list(v)[:50]]
+        return [_jsonify(x, depth + 1, cap) for x in list(v)[:cap]]
     if pd is not None and isinstance(v, (pd.Series, pd.DataFrame)):
-        return _jsonify(v.to_dict(), depth + 1)
+        return _jsonify(v.to_dict(), depth + 1, cap)
     return v
 
 
@@ -309,8 +376,8 @@ def build_dag(computations: dict, ledger: list) -> dict:
 def dag_mermaid(dag):
     """Render a DAG dict as a Mermaid ```graph LR``` block (for the bench .md)."""
     sty = {"verified": "fill:#2e7d32,color:#fff", "refuted": "fill:#c62828,color:#fff",
-           "unverifiable": "fill:#f9a825,color:#000", "computation": "fill:#1565c0,color:#fff",
-           "data": "fill:#455a64,color:#fff"}
+           "partial": "fill:#ef6c00,color:#fff", "unverifiable": "fill:#f9a825,color:#000",
+           "computation": "fill:#1565c0,color:#fff", "data": "fill:#455a64,color:#fff"}
     lines = ["```mermaid", "graph LR"]
     for n in dag["nodes"]:
         lbl = n["label"].replace('"', "'")
@@ -605,13 +672,16 @@ import socket
 def _no_net(*a, **k):
     raise OSError("network disabled in analysis sandbox")
 socket.socket = _no_net; socket.create_connection = _no_net; socket.getaddrinfo = _no_net
+# Items kept per container/list. The RESULT is what verification re-derives from,
+# so it keeps more than the model is shown (the parent re-caps for context economy).
+_CAP = int(os.environ.get("EXPLORER_RESULT_CAP", "200"))
 def _j(v, d=0):
     if d > 4: return str(v)
     if isinstance(v, (np.floating, np.integer)): return round(float(v), 4)
     if isinstance(v, float): return round(v, 4)
     if isinstance(v, np.ndarray): return _j(v.tolist(), d + 1)
-    if isinstance(v, dict): return {str(k): _j(x, d + 1) for k, x in list(v.items())[:50]}
-    if isinstance(v, (list, tuple)): return [_j(x, d + 1) for x in list(v)[:50]]
+    if isinstance(v, dict): return {str(k): _j(x, d + 1) for k, x in list(v.items())[:_CAP]}
+    if isinstance(v, (list, tuple)): return [_j(x, d + 1) for x in list(v)[:_CAP]]
     if isinstance(v, (pd.Series, pd.DataFrame)): return _j(v.to_dict(), d + 1)
     return v
 _ns = dict(np=np, pd=pd, counts=counts, tax=tax, meta=meta, pdist=pdist, squareform=squareform,
@@ -676,6 +746,7 @@ class Autoresearcher:
 
     def __init__(self, data: DataSource, llm: LLMClient, executor: CodeExecutor, *,
                  explore_model: str | None = None, verify_model: str | None = None,
+                 write_model: str | None = None,
                  max_steps: int = 48, max_followups: int = 12,
                  reconcile: bool = True,
                  on_progress: Optional[Callable[[str, Any], Awaitable]] = None):
@@ -684,6 +755,9 @@ class Autoresearcher:
         self.executor = executor
         self.explore_model = explore_model or llm.model
         self.verify_model = verify_model or llm.model
+        # Prose is a DRAFTING role, not the agent loop — let it be pointed at the
+        # drafting model like every other writing surface (falls back to explore).
+        self.write_model = write_model or self.explore_model
         self.max_steps = max_steps
         self.max_followups = max_followups
         self.reconcile = reconcile
@@ -756,10 +830,13 @@ class Autoresearcher:
             if not ok:
                 return {"ok": False, "error": res}
             cid = f"c{len(self.computations) + 1}"
+            # Store the FULL sandbox result (verification re-derives from it); show
+            # the model a re-capped view so context economy doesn't cost the verifier
+            # numbers it will later be asked to find (#48).
             self.computations[cid] = {"label": args.get("label", cid),
                                       "code": args.get("code", ""), "result": res,
                                       "by": self.explore_model}  # model that wrote it
-            return {"ok": True, "computation_id": cid, "result": res}
+            return {"ok": True, "computation_id": cid, "result": _jsonify(res, cap=MODEL_VIEW_CAP)}
         if name == "record_claim":
             claim = {"id": f"k{len(self.ledger) + 1}", "statement": args.get("statement", ""),
                      "value": str(args.get("value", "")),
@@ -864,8 +941,17 @@ class Autoresearcher:
             for tc in msg.tool_calls:
                 try:
                     args = json.loads(tc.function.arguments or "{}")
-                except json.JSONDecodeError:
-                    args = {}
+                except json.JSONDecodeError as e:
+                    # Malformed args used to fall through as `{}` — silently recording
+                    # an empty claim or running empty code. Tell the model instead so
+                    # it can re-issue the call (truncation at max_tokens is the usual
+                    # cause, and it is recoverable).
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(
+                        {"error": f"could not parse tool arguments as JSON ({e}); "
+                                  "re-send this call with valid, complete JSON arguments"})})
+                    await self._emit(tc.function.name, {"step": step, "label": "bad arguments",
+                                                        "result": {"error": "unparseable args"}})
+                    continue
                 result = await self._exec_tool(tc.function.name, args)
                 label = (args.get("label") or args.get("name") or args.get("question")
                          or (args.get("statement") or "")[:40])
@@ -884,13 +970,34 @@ class Autoresearcher:
     def _evidence_for(self, claim, comp_cache: dict) -> str:
         """Deterministic evidence block for a claim: re-executed computation results
         (from ``comp_cache``) and re-read data values. This is what the reconciler
-        judges against — not memory."""
+        judges against — not memory.
+
+        Evidence is CLAIM-DIRECTED (#48): for each antecedent we first locate the
+        values that back the claim's own numbers and quote them by path, then add a
+        bounded head of the result for shape. A number the claim cites is therefore
+        never invisible merely because it serialized late — the reconciler can say
+        "unsupported" on the evidence, not on a truncation artifact."""
+        targets = _nums(claim.get("value", "")) + _nums(claim.get("statement", ""))
         parts = []
         for ant in claim["antecedents"]:
             if ant in self.computations:
                 good, res = comp_cache.get(ant, (False, None))
-                parts.append(f"[{ant}] {self.computations[ant]['label']} (re-executed) = "
-                             + (json.dumps(res, default=str)[:600] if good else "ERROR"))
+                label = self.computations[ant]["label"]
+                if not good:
+                    parts.append(f"[{ant}] {label} (re-executed) = ERROR")
+                    continue
+                hits = _locate_numbers(res, targets) if targets else []
+                block = [f"[{ant}] {label} (re-executed)"]
+                if hits:
+                    block.append("  values matching the claim:")
+                    block += [f"    {p} = {v}" for p, v in hits]
+                dump = json.dumps(res, default=str)
+                block.append(f"  full result ({len(dump)} chars"
+                             + (", head shown" if len(dump) > 600 else "") + f"): {dump[:600]}")
+                if len(dump) > 600 and not hits:
+                    block.append("  NOTE: no value in the FULL result matches the claim's numbers "
+                                 "(this is a real miss, not a display truncation).")
+                parts.append("\n".join(block))
             else:
                 found, val = self.data.navigate(ant)
                 parts.append(f"[{ant}] = {json.dumps(val, default=str)[:300] if found else 'NOT FOUND'}")
@@ -898,7 +1005,10 @@ class Autoresearcher:
 
     async def _reconcile_claim(self, claim, comp_cache: dict) -> dict:
         """Model adjudication of a claim against its re-executed evidence. Only
-        invoked on a deterministic miss. Returns ``{verdict, reasoning}``."""
+        invoked on a deterministic miss. Returns
+        ``{verdict, reasoning, unsupported}`` — ``unsupported`` being the claim
+        numbers the auditor could not back, which is what makes a PARTIAL claim
+        salvageable rather than binary-dead (#48)."""
         user = (f"CLAIM: {claim['statement']}\nCLAIMED VALUE: {claim['value']}\n\n"
                 f"INDEPENDENT EVIDENCE (re-executed from raw data):\n{self._evidence_for(claim, comp_cache)}")
         resp = await self.llm.chat(
@@ -906,7 +1016,10 @@ class Autoresearcher:
             model=self.verify_model, max_tokens=4000, temperature=0.0)
         text = _strip_think(resp.choices[0].message.content or "")
         m = re.search(r"VERDICT:\s*(SUPPORTED|PARTIAL|UNSUPPORTED)", text.upper())
-        return {"verdict": m.group(1).lower() if m else "unsupported", "reasoning": text.strip()[:400]}
+        u = re.search(r"UNSUPPORTED:\s*(.+)", text, re.IGNORECASE)
+        bad = _nums(u.group(1)) if u and "none" not in u.group(1).lower()[:8] else []
+        return {"verdict": m.group(1).lower() if m else "unsupported",
+                "reasoning": text.strip()[:400], "unsupported": bad}
 
     async def verify(self) -> None:
         """Re-derive each claim from its antecedents (data re-read; computations
@@ -962,6 +1075,12 @@ class Autoresearcher:
                 if rec["verdict"] == "supported":
                     c["verdict"], c["method"] = "verified", "reconciled"
                     c["reconciled_by"] = self.verify_model
+                elif rec["verdict"] == "partial":
+                    # Mostly-right claims used to die whole. Keep the grade AND the
+                    # numbers that failed, so the writer can salvage the rest (#48).
+                    c["verdict"], c["method"] = "partial", "reconciled"
+                    c["reconciled_by"] = self.verify_model
+                    c["unsupported_numbers"] = rec.get("unsupported") or []
 
     # -- DAG --------------------------------------------------------------------
     def build_dag(self) -> dict:
@@ -969,28 +1088,44 @@ class Autoresearcher:
         return build_dag(self.computations, self.ledger)
 
     # -- write ------------------------------------------------------------------
-    async def write_results(self, verified: list[dict] | None = None) -> str:
-        """Write the Results prose from VERIFIED claims only (WRITE_SYSTEM). When
-        ``verified`` is omitted, uses this run's verified claims. The result is
-        cached on ``self.results_prose`` so a subsequent ``snapshot()`` includes it."""
+    async def write_results(self, verified: list[dict] | None = None,
+                            partial: list[dict] | None = None) -> str:
+        """Write the Results prose from verified claims, plus any PARTIALLY SUPPORTED
+        claim with its unbacked values withheld (WRITE_SYSTEM). When either list is
+        omitted it is taken from this run's ledger. The result is cached on
+        ``self.results_prose`` so a subsequent ``snapshot()`` includes it.
+
+        A partial claim is a finding the evidence backs whose specific numbers it does
+        not; dropping the whole claim threw away real science, so the writer gets it
+        with an explicit do-not-state list instead (#48)."""
         if verified is None:
             verified = [c for c in self.ledger if c.get("verdict") == "verified"]
+        if partial is None:
+            partial = [c for c in self.ledger if c.get("verdict") == "partial"]
         claims_txt = "\n".join(
             f"- [{c['kind']}] {c['statement']} (value={c['value']})" for c in verified)
+        partial_txt = "\n".join(
+            f"- [{c['kind']}] {c['statement']} (value={c['value']})\n"
+            f"    DO NOT STATE these unsupported values: "
+            f"{', '.join(str(n) for n in c.get('unsupported_numbers') or []) or '(unspecified — avoid its numbers)'}"
+            for c in partial)
         sg = self.data.study or {}
         study = (f"Study: {sg.get('title', '(unknown)')} — {sg.get('study_name', '')} "
                  f"({sg.get('bioproject', '')}), {sg.get('platform', '')}.")
+        user = f"{study}\n\nVERIFIED CLAIMS:\n{claims_txt}\n"
+        if partial_txt:
+            user += ("\nPARTIALLY SUPPORTED CLAIMS (report the finding, withhold the listed "
+                     f"values):\n{partial_txt}\n")
         msgs = [{"role": "system", "content": WRITE_SYSTEM},
-                {"role": "user", "content": f"{study}\n\nVERIFIED CLAIMS:\n{claims_txt}\n\n"
-                 "Write the Results section."}]
+                {"role": "user", "content": user + "\nWrite the Results section."}]
         content = ""
         for mt in (6000, 12000):
-            r = await self.llm.chat(msgs, model=self.explore_model, temperature=0.4, max_tokens=mt)
+            r = await self.llm.chat(msgs, model=self.write_model, temperature=0.4, max_tokens=mt)
             content = _strip_think(r.choices[0].message.content or "")
             if content.strip():
                 break
         self.results_prose = content
-        self.results_prose_by = self.explore_model     # stamp the writer
+        self.results_prose_by = self.write_model       # stamp the writer
         return content
 
     # -- run summary ------------------------------------------------------------
@@ -1035,6 +1170,9 @@ class Autoresearcher:
                 "id": c["id"], "statement": c["statement"], "value": c["value"],
                 "verdict": c.get("verdict", "unverifiable"), "kind": c.get("kind", "observation"),
                 "method": c.get("method"), "antecedents": c["antecedents"],
+                # Values a PARTIAL adjudication could not back — the viewer strikes
+                # them, and the writer is forbidden from restating them.
+                "unsupported_numbers": c.get("unsupported_numbers") or [],
                 # Per-artifact attribution: the model that recorded the claim, and
                 # (when applicable) the model that reconciled it into "verified".
                 "by": c.get("by"), "reconciled_by": c.get("reconciled_by"),
