@@ -80,12 +80,18 @@ class Settings(BaseSettings):
     # its own work shares its own blind spots.
     autoresearch_replicate_enabled: bool = False
     autoresearch_replicate_max_claims: int = 12
+    # Round 3 (#50). When rounds 1 and 2 disagree, or a claim never came back out of
+    # its own antecedents, a THIRD independent derivation breaks the tie with evidence
+    # rather than opinion. Only fires on claims left in doubt, so it is cheap in
+    # practice; gated by autoresearch_replicate_enabled.
+    autoresearch_adjudicate_enabled: bool = True
     autoresearch_commit_enabled: bool = False     # PR the Results prose to .omc/
     # Per-role model overrides for the two autoresearch phases (fall back to
     # llm_model, like the manuscript roles above).
     llm_model_explore: str = ""               # the agenda-driven agent loop
     llm_model_verify: str = ""                # the skeptical reconciler
     llm_model_replicate: str = ""             # the clean-room replication analyst
+    llm_model_adjudicate: str = ""            # round 3's casting-vote analyst
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./omc.db"
@@ -157,7 +163,7 @@ class Settings(BaseSettings):
 
     def role_model(self, role: str, default: str = "") -> str:
         """Model for an AI role ('draft' | 'cite' | 'review' | 'explore' |
-        'verify' | 'replicate'), or `default`.
+        'verify' | 'replicate' | 'adjudicate'), or `default`.
 
         Returns the per-role override when configured, else `default` (the
         caller's resolved model) so per-user backend choices still apply.
@@ -169,6 +175,7 @@ class Settings(BaseSettings):
             "explore": self.llm_model_explore,
             "verify": self.llm_model_verify,
             "replicate": self.llm_model_replicate,
+            "adjudicate": self.llm_model_adjudicate,
         }.get(role, "")
         return override or default
 

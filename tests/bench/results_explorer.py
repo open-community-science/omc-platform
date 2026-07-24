@@ -50,6 +50,9 @@ BASE_URL = os.environ.get("EXPLORER_BASE_URL", "http://localhost:1234/v1")
 MODEL = os.environ.get("EXPLORER_MODEL", "qwen/qwen3.6-35b-a3b")
 # The clean-room analyst. Deliberately its own env var: independence is the point.
 REPLICATE_MODEL = os.environ.get("REPLICATE_MODEL", MODEL)
+# Round 3's casting vote. A third distinct model is ideal — the tiebreak should not
+# share a lineage with either of the first two.
+ADJUDICATE_MODEL = os.environ.get("ADJUDICATE_MODEL", REPLICATE_MODEL)
 API_KEY = os.environ.get("EXPLORER_API_KEY", "lm-studio")
 REMOTE = not any(h in BASE_URL for h in ("localhost", "127.0.0.1"))  # skip lms for remote
 OUT = HERE / "writings"
@@ -88,7 +91,8 @@ def _executor() -> SubprocessExecutor:
 def _make_researcher(llm: LLMClient, *, reconcile: bool) -> Autoresearcher:
     return Autoresearcher(_data_source(), llm, _executor(),
                           explore_model=MODEL, verify_model=MODEL,
-                          replicate_model=REPLICATE_MODEL, reconcile=reconcile)
+                          replicate_model=REPLICATE_MODEL,
+                          adjudicate_model=ADJUDICATE_MODEL, reconcile=reconcile)
 
 
 def _supported_results_data(computations, ledger):
@@ -177,14 +181,19 @@ async def _main_async(llm: LLMClient):
     completed = await ar.explore()
     await ar.verify()  # deterministic first; escalate misses to skeptical model reconciliation
     if "--replicate" in sys.argv:
-        print(f"\n=== CLEAN-ROOM REPLICATION ({REPLICATE_MODEL}) ===")
-        n = await ar.replicate()
+        print(f"\n=== ROUND 2: CLEAN-ROOM REPLICATION ({REPLICATE_MODEL}) ===")
+        n2 = await ar.replicate()
+        print(f"  {n2} claims independently re-derived")
+        print(f"\n=== ROUND 3: ADJUDICATION ({ADJUDICATE_MODEL}) ===")
+        n3 = await ar.adjudicate()
+        print(f"  {n3} stand-offs given a casting vote")
         for c in ar.ledger:
-            if c.get("replication"):
-                r = c["replication"]
-                mark = "agree" if r.get("numbers_match") else "DISAGREE"
-                print(f"    [{mark:8}] {c['id']} {c['statement'][:52]}")
-        print(f"  {n} claims independently re-derived")
+            reps = c.get("replications") or []
+            if reps:
+                marks = " ".join(("r%d:%s" % (r.get("round", 2),
+                                              "agree" if r.get("numbers_match") else "differ"))
+                                 for r in reps)
+                print(f"    [{c['verdict']:11}] {c['id']} {marks:26} {c['statement'][:44]}")
     done = sum(a["status"] == "done" for a in ar.agenda)
     outstanding = [a for a in ar.agenda if a["status"] != "done"]
     print(f"\n  agenda ({done}/{len(ar.agenda)} investigations done"

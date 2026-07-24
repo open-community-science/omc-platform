@@ -23,7 +23,7 @@
 :root{
   --bg:#f4f7f6; --panel:#ffffff; --panel2:#eef2f1; --border:#d8e0df;
   --text:#13211f; --muted:#5a6a68; --accent:#0f8a80;
-  --verified:#1f7a3d; --replicated:#12603a; --disputed:#7b3fa0; --refuted:#c0392b; --partial:#c2620d; --unverifiable:#b07d15;
+  --verified:#1f7a3d; --replicated:#12603a; --disputed:#7b3fa0; --overturned:#9b1b5a; --contested:#4a3fa0; --refuted:#c0392b; --partial:#c2620d; --unverifiable:#b07d15;
   --computation:#2266b8; --data:#5a6f6c;
   --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
@@ -31,18 +31,18 @@
 @media (prefers-color-scheme:dark){:root{
   --bg:#0d1413; --panel:#131c1b; --panel2:#0f1716; --border:#243130;
   --text:#d7e1df; --muted:#899997; --accent:#34d3c3;
-  --verified:#49c96e; --replicated:#34d399; --disputed:#c084fc; --refuted:#f0685c; --partial:#f0913f; --unverifiable:#e2b53f;
+  --verified:#49c96e; --replicated:#34d399; --disputed:#c084fc; --overturned:#f472b6; --contested:#8b9cf9; --refuted:#f0685c; --partial:#f0913f; --unverifiable:#e2b53f;
   --computation:#5aa2ee; --data:#9fb0ad;
 }}
 :root[data-theme="light"]{
   --bg:#f4f7f6; --panel:#ffffff; --panel2:#eef2f1; --border:#d8e0df;
   --text:#13211f; --muted:#5a6a68; --accent:#0f8a80;
-  --verified:#1f7a3d; --replicated:#12603a; --disputed:#7b3fa0; --refuted:#c0392b; --partial:#c2620d; --unverifiable:#b07d15; --computation:#2266b8; --data:#5a6f6c;
+  --verified:#1f7a3d; --replicated:#12603a; --disputed:#7b3fa0; --overturned:#9b1b5a; --contested:#4a3fa0; --refuted:#c0392b; --partial:#c2620d; --unverifiable:#b07d15; --computation:#2266b8; --data:#5a6f6c;
 }
 :root[data-theme="dark"]{
   --bg:#0d1413; --panel:#131c1b; --panel2:#0f1716; --border:#243130;
   --text:#d7e1df; --muted:#899997; --accent:#34d3c3;
-  --verified:#49c96e; --replicated:#34d399; --disputed:#c084fc; --refuted:#f0685c; --partial:#f0913f; --unverifiable:#e2b53f; --computation:#5aa2ee; --data:#9fb0ad;
+  --verified:#49c96e; --replicated:#34d399; --disputed:#c084fc; --overturned:#f472b6; --contested:#8b9cf9; --refuted:#f0685c; --partial:#f0913f; --unverifiable:#e2b53f; --computation:#5aa2ee; --data:#9fb0ad;
 }
 .prov-wrap *{box-sizing:border-box}
 .prov-wrap{max-width:1100px;margin:0 auto;padding:8px 4px 60px;
@@ -81,6 +81,8 @@
 .prov-wrap .dot.partial{background:var(--partial)}
 .prov-wrap .dot.replicated{background:var(--replicated)}
 .prov-wrap .dot.disputed{background:var(--disputed)}
+.prov-wrap .dot.overturned{background:var(--overturned)}
+.prov-wrap .dot.contested{background:var(--contested)}
 .prov-wrap .claim .txt{font-size:13.5px;min-width:0}
 .prov-wrap .claim .cid{font-family:var(--mono);font-size:11px;color:var(--muted)}
 .prov-wrap .kind{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.04em;
@@ -98,11 +100,16 @@
 .prov-wrap .badge.partial{background:color-mix(in srgb,var(--partial) 16%,transparent);color:var(--partial)}
 .prov-wrap .badge.replicated{background:color-mix(in srgb,var(--replicated) 18%,transparent);color:var(--replicated)}
 .prov-wrap .badge.disputed{background:color-mix(in srgb,var(--disputed) 16%,transparent);color:var(--disputed)}
+.prov-wrap .badge.overturned{background:color-mix(in srgb,var(--overturned) 16%,transparent);color:var(--overturned)}
+.prov-wrap .badge.contested{background:color-mix(in srgb,var(--contested) 16%,transparent);color:var(--contested)}
+.prov-wrap .repl .round{font-size:11px;text-transform:none;letter-spacing:0;color:var(--muted)}
+.prov-wrap .consensus{margin-top:10px;font-size:12.5px;line-height:1.6}
 /* Clean-room replication: the independent analyst's own derivation, shown as a
    peer of the original rather than a footnote to it. */
 .prov-wrap .repl{margin-top:16px;border:1px solid var(--border);border-radius:8px;padding:12px 14px;background:var(--panel2)}
 .prov-wrap .repl.agree{border-left:3px solid var(--replicated)}
 .prov-wrap .repl.differ{border-left:3px solid var(--disputed)}
+.prov-wrap .repl + .repl{margin-top:10px}
 .prov-wrap .repl h4{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:0 0 7px}
 .prov-wrap .repl pre{margin:7px 0 0;font-size:12px;overflow-x:auto}
 .prov-wrap .repl .verdict-line{font-size:13px;line-height:1.55;margin-bottom:6px}
@@ -242,6 +249,8 @@ const S = {
   partial: CLAIMS.filter(c => c.verdict === 'partial').length,
   replicated: CLAIMS.filter(c => c.verdict === 'replicated').length,
   disputed: CLAIMS.filter(c => c.verdict === 'disputed').length,
+  overturned: CLAIMS.filter(c => c.verdict === 'overturned').length,
+  contested: CLAIMS.filter(c => c.verdict === 'contested').length,
   insights: CLAIMS.filter(c => c.kind === 'pattern' || c.kind === 'anomaly').length,
   computations: Object.keys(COMPS).length,
   investigations: AGENDA.length,
@@ -250,6 +259,8 @@ document.getElementById('stats').innerHTML = [
   ['claims', S.claims, ''], ['verified', S.verified, 'ok'],
   ...(S.replicated ? [['independently replicated', S.replicated, 'ok']] : []),
   ...(S.disputed ? [['disputed', S.disputed, 'no']] : []),
+  ...(S.overturned ? [['overturned', S.overturned, 'no']] : []),
+  ...(S.contested ? [['contested', S.contested, '']] : []),
   ...(S.partial ? [['partly supported', S.partial, '']] : []),
   ['insights', S.insights, ''], ['assumptions', ASSUMPTIONS.length, ''],
   ['investigations', S.investigations, ''], ['computations', S.computations, '']
@@ -308,25 +319,44 @@ function resolvedCard(a){
 // The independent derivation, shown as a peer of the original: its own code, its own
 // result, and whether the two agreed. This is what lets a reader check the claim
 // without trusting either analyst.
-function replicationCard(c){
-  const r = c.replication;
-  if (!r) return '';
-  if (!r.code) return `<div class="repl"><h4>Clean-room replication</h4>`
-    + `<div class="verdict-line">The independent analyst could not produce runnable code`
+function oneRound(r){
+  const label = r.round === 3 ? 'Round 3 · adjudication' : 'Round 2 · clean-room replication';
+  if (!r.code) return `<div class="repl"><h4>${label}</h4>`
+    + `<div class="verdict-line">This analyst could not produce runnable code`
     + (r.error ? ` (${esc(String(r.error))})` : '') + `. Not counted either way.</div></div>`;
   const agree = !!r.numbers_match;
   const analyst = {supports:'says it supports the claim', contradicts:'says it contradicts the claim',
                    inconclusive:'was inconclusive'}[r.analyst] || '';
-  return `<div class="repl ${agree ? 'agree' : 'differ'}"><h4>Clean-room replication`
-    + (r.by ? ` · ${esc(shortModel(r.by))}` : '') + `</h4>`
-    + `<div class="verdict-line">A second analyst, shown the claim and the raw data but `
-    + `<b>not this code</b>, re-derived it independently and `
+  const who = r.round === 3
+    ? 'A third analyst, brought in to break the tie and shown neither prior attempt,'
+    : 'A second analyst, shown the claim and the raw data but <b>not the original code</b>,';
+  return `<div class="repl ${agree ? 'agree' : 'differ'}"><h4>${label}`
+    + (r.by ? ` <span class="round">· ${esc(shortModel(r.by))}</span>` : '') + `</h4>`
+    + `<div class="verdict-line">${who} re-derived it independently and `
     + (agree ? `<b style="color:var(--replicated)">got the same numbers</b>`
              : `<b style="color:var(--disputed)">did not get the same numbers</b>`)
     + (analyst ? `; it ${analyst}` : '') + `.</div>`
     + (r.reasoning ? `<div class="verdict-line">${esc(r.reasoning)}</div>` : '')
     + `<pre>${esc(r.code)}</pre>`
     + `<div class="val">→ ${esc(trunc(r.result, 900))}</div></div>`;
+}
+
+function replicationCard(c){
+  const reps = c.replications || [];
+  if (!reps.length) return '';
+  let out = reps.map(oneRound).join('');
+  // What the independent analysts agreed ON is the useful part of a disagreement.
+  if ((c.consensus_numbers || []).length && c.verdict !== 'replicated'){
+    out += `<div class="consensus"><b>The independent derivations agreed on:</b> `
+      + c.consensus_numbers.map(n => `<code>${esc(String(n))}</code>`).join(', ')
+      + ` — not the claimed value.</div>`;
+  }
+  if (c.antecedent_mismatch){
+    out += `<div class="consensus"><b>Provenance note.</b> The claim holds up`
+      + ` independently, but its own cited antecedents do not produce it — correct`
+      + ` science, broken bookkeeping. The citation needs fixing before this is reused.</div>`;
+  }
+  return out;
 }
 
 function select(i){
@@ -352,7 +382,11 @@ function select(i){
   const reverify = c.verdict==='replicated'
     ? `Re-derived from the antecedents below${via}, AND independently re-derived from the raw data by a second analyst that never saw this code — <b style="color:var(--replicated)">replicated</b>. Two derivations, one answer.`
     : c.verdict==='disputed'
-    ? 'Re-execution reproduced this value, but an independent re-derivation from the raw data did NOT agree — <b style="color:var(--disputed)">disputed</b>. Reproducible is not the same as correct; this is unresolved and is kept out of the prose until it is settled.'
+    ? 'Re-execution reproduced this value, but an independent re-derivation from the raw data did NOT agree — <b style="color:var(--disputed)">disputed</b>. Reproducible is not the same as correct. One dissent is a stand-off, so this goes to a third independent derivation; it stays out of the prose until it is settled.'
+    : c.verdict==='overturned'
+    ? 'The original code reproduces this value, but TWO independent derivations from the raw data landed together somewhere else — <b style="color:var(--overturned)">overturned</b>. The weight of independent evidence is against the claim as stated.'
+    : c.verdict==='contested'
+    ? 'Independent derivations disagreed with each other, not just with the claim — <b style="color:var(--contested)">contested</b>. That instability is itself the finding: this quantity depends on choices the analysis did not pin down, so no single number should be reported.'
     : c.verdict==='verified'
     ? `Re-derived from the antecedents below${via} — <b>verified</b>.`
     : (c.verdict==='partial'

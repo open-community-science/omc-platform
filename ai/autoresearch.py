@@ -380,6 +380,13 @@ MODEL_VIEW_CAP = 50     # items shown to the model in a tool result
 RESULT_CAP = 200        # items KEPT in the stored/re-executed result (verification)
 
 
+def _flatten_result_numbers(v) -> list[float]:
+    """Every number in a result, as a list (convenience over ``_flatten_numbers``)."""
+    acc: list[float] = []
+    _flatten_numbers(v, acc)
+    return acc
+
+
 def _jsonify(v, depth=0, cap=MODEL_VIEW_CAP):
     """Shrink an arbitrary computation result to a JSON-safe, size-capped form
     (lists/dict items→``cap``, depth 4). numpy/pandas are handled lazily so this
@@ -452,6 +459,7 @@ def build_dag(computations: dict, ledger: list, agenda: list | None = None) -> d
 def dag_mermaid(dag):
     """Render a DAG dict as a Mermaid ```graph LR``` block (for the bench .md)."""
     sty = {"replicated": "fill:#1b5e20,color:#fff", "disputed": "fill:#6a1b9a,color:#fff",
+           "contested": "fill:#4527a0,color:#fff", "overturned": "fill:#880e4f,color:#fff",
            "verified": "fill:#2e7d32,color:#fff", "refuted": "fill:#c62828,color:#fff",
            "partial": "fill:#ef6c00,color:#fff", "unverifiable": "fill:#f9a825,color:#000",
            "computation": "fill:#1565c0,color:#fff", "data": "fill:#455a64,color:#fff",
@@ -864,6 +872,7 @@ class Autoresearcher:
     def __init__(self, data: DataSource, llm: LLMClient, executor: CodeExecutor, *,
                  explore_model: str | None = None, verify_model: str | None = None,
                  write_model: str | None = None, replicate_model: str | None = None,
+                 adjudicate_model: str | None = None,
                  max_steps: int = 48, max_followups: int = 12,
                  reconcile: bool = True,
                  on_progress: Optional[Callable[[str, Any], Awaitable]] = None):
@@ -879,6 +888,9 @@ class Autoresearcher:
         # the whole point — a model re-deriving its own claim shares its own blind
         # spots — so this is worth configuring even when the other roles are not.
         self.replicate_model = replicate_model or self.verify_model
+        # Round 3's analyst. A third distinct model is ideal — the casting vote
+        # should not share a lineage with either of the first two.
+        self.adjudicate_model = adjudicate_model or self.replicate_model
         self.max_steps = max_steps
         self.max_followups = max_followups
         self.reconcile = reconcile
@@ -1187,6 +1199,10 @@ class Autoresearcher:
                 ok = any(c["value"].strip().lower() in s.lower() for s in strvals) if strvals else None
             c["verdict"] = "verified" if ok else ("unverifiable" if (ok is None or not have_evidence) else "refuted")
             c["checked"] = checked
+            # Round 1's own outcome, kept separate from the running verdict: later
+            # rounds change the verdict, and resolving them needs to know whether the
+            # claim ever came back out of its OWN cited antecedents.
+            c["reproduced"] = c["verdict"] == "verified"
             # Escalate deterministic misses to a skeptical model reconciliation against
             # the SAME re-executed evidence (labelled, so judgment-backed claims are visible).
             if c["verdict"] != "verified" and self.reconcile and have_evidence:
@@ -1196,6 +1212,7 @@ class Autoresearcher:
                 if rec["verdict"] == "supported":
                     c["verdict"], c["method"] = "verified", "reconciled"
                     c["reconciled_by"] = self.verify_model
+                    c["reproduced"] = True
                 elif rec["verdict"] == "partial":
                     # Mostly-right claims used to die whole. Keep the grade AND the
                     # numbers that failed, so the writer can salvage the rest (#48).
@@ -1218,7 +1235,9 @@ class Autoresearcher:
                     and _nums(c.get("value", ""))]
         return sorted(eligible, key=lambda c: rank.get(c.get("kind"), 9))
 
-    async def _replicate_claim(self, claim: dict, max_attempts: int = 3) -> dict:
+    async def _replicate_claim(self, claim: dict, max_attempts: int = 3,
+                               round_no: int = 2, model: str | None = None,
+                               temperature: float = 0.3) -> dict:
         """Have an independent analyst re-derive one claim from the raw data.
 
         The analyst sees the claim and the data dictionary — never the original code,
@@ -1235,10 +1254,11 @@ class Autoresearcher:
                 {"role": "user", "content": f"CLAIM: {claim['statement']}\n"
                                             f"CLAIMED VALUE: {claim['value']}\n\n"
                                             "Re-derive this independently."}]
-        rep: dict[str, Any] = {"by": self.replicate_model, "attempts": 0}
+        model = model or self.replicate_model
+        rep: dict[str, Any] = {"round": round_no, "by": model, "attempts": 0}
         for attempt in range(max_attempts):
-            r = await self.llm.chat(msgs, model=self.replicate_model,
-                                    temperature=0.3, max_tokens=3000)
+            r = await self.llm.chat(msgs, model=model,
+                                    temperature=temperature, max_tokens=3000)
             text = _strip_think(r.choices[0].message.content or "")
             code = _extract_code(text)
             rep["attempts"] = attempt + 1
@@ -1275,8 +1295,98 @@ class Autoresearcher:
         rep["analyst"] = "inconclusive"
         return rep
 
+    @staticmethod
+    def _consensus_numbers(reps: list[dict]) -> list[float]:
+        """Numbers every independent derivation arrived at. When the analysts agree
+        with each other but not with the claim, this is what they agree ON — the
+        most useful thing a disagreement can hand back to an author."""
+        if len(reps) < 2:
+            return []
+        pools = []
+        for r in reps:
+            nums: list[float] = []
+            _flatten_numbers(r.get("result"), nums)
+            pools.append(nums)
+        return sorted({x for x in pools[0]
+                       if all(any(_close(x, y) for y in pool) for pool in pools[1:])})
+
+    def _resolve_verdict(self, claim: dict) -> str:
+        """Grade a claim from ALL the evidence gathered about it, in one place.
+
+        Round 1 asks "does the claim come back out of its own cited antecedents?"
+        (reproduction). Rounds 2+ ask "does anyone else, working from the raw data,
+        get the same answer?" (replication). The two questions are independent, and
+        the interesting verdicts live where they disagree:
+
+          reproduced, all independents agree      -> replicated  (strongest)
+          reproduced, ONE independent dissents    -> disputed    (unresolved — round 3)
+          reproduced, 2+ independents concur
+            against the claim                     -> overturned  (the claim loses)
+          reproduced, independents inconsistent
+            with each other                       -> contested   (method-dependent)
+          NOT reproduced, an independent agrees   -> replicated + antecedent_mismatch
+                                                     (claim right, its citation wrong)
+          NOT reproduced, none agree              -> refuted
+
+        The distinction between ``disputed`` and ``overturned`` is the point of round
+        3: one dissent is a stand-off that needs a casting vote, two independent
+        derivations landing together is a conclusion.
+        """
+        reps = [r for r in claim.get("replications", []) if r.get("code")]
+        if not reps:
+            return claim["verdict"]                 # no independent evidence yet
+        agree = [r for r in reps if r.get("numbers_match")]
+        consensus = self._consensus_numbers(reps)
+        if consensus:
+            claim["consensus_numbers"] = consensus
+        # Fall back to the verdict for ledgers written before round 1 recorded this
+        # (an old snapshot re-graded by a newer run must not read as unreproduced).
+        reproduced = claim.get("reproduced")
+        if reproduced is None:
+            reproduced = claim.get("verdict") in ("verified", "partial", "replicated")
+        if reproduced:
+            if len(agree) == len(reps):
+                return "replicated"
+            if not agree:
+                if len(reps) == 1:
+                    return "disputed"                # one dissent — unresolved
+                # Do the independents concur that the claim is wrong, or is each
+                # merely wrong in its own direction? Only the former is evidence
+                # ABOUT the claim; the latter says the quantity is unstable.
+                #
+                # Their NUMBERS decide this, not their self-reports: two analysts can
+                # both say "contradicts" while landing on entirely different values,
+                # which is the textbook contested case. The stated verdicts are only
+                # consulted when there is nothing numeric to compare.
+                numeric = [r for r in reps if _flatten_result_numbers(r.get("result"))]
+                if len(numeric) == len(reps):
+                    concur = bool(consensus)
+                else:
+                    concur = all(r.get("analyst") == "contradicts" for r in reps)
+                return "overturned" if concur else "contested"
+            return "contested"                       # mixed — the number is unstable
+        if agree:
+            # The claim holds up independently even though its own antecedents don't
+            # produce it: correct science, broken bookkeeping. Worth rescuing, and
+            # worth flagging so the provenance gets fixed rather than trusted.
+            claim["antecedent_mismatch"] = True
+            return "replicated"
+        return "refuted"
+
+    async def _run_round(self, claim: dict, round_no: int, model: str | None = None,
+                         temperature: float = 0.3) -> dict:
+        """One independent derivation appended to the claim's evidence record."""
+        rep = await self._replicate_claim(claim, round_no=round_no, model=model,
+                                          temperature=temperature)
+        claim.setdefault("replications", []).append(rep)
+        await self._emit("replicate", {"claim": claim["id"], "round": round_no,
+                                       "agrees": rep.get("numbers_match"),
+                                       "analyst": rep.get("analyst")})
+        return rep
+
     async def replicate(self, max_claims: int = 12) -> int:
-        """Clean-room pass: independently re-derive the strongest claims (#50).
+        """Round 2 — the clean-room pass: independently re-derive the strongest
+        claims (#50).
 
         ``verify()`` re-runs the SAME code, so it establishes reproducibility — it
         structurally cannot catch a wrong axis, an unnormalized comparison or a
@@ -1284,21 +1394,55 @@ class Autoresearcher:
         the question the ledger actually promises: can someone else, working from
         the raw data alone, get the same number?
 
-        Verdicts are additive, so a run with replication off is unchanged:
-          * ``verified`` + independent agreement  -> ``replicated`` (the strongest grade)
-          * ``verified`` + independent DISagreement -> ``disputed`` (a finding in itself)
-        Returns the number of claims replicated."""
+        Additive: with replication off, every verdict is exactly what it was.
+        Returns the number of claims that got a usable independent derivation."""
         done = 0
         for claim in self._replication_candidates()[:max_claims]:
-            rep = await self._replicate_claim(claim)
-            claim["replication"] = rep
-            await self._emit("replicate", {"claim": claim["id"], "agrees": rep.get("numbers_match"),
-                                           "analyst": rep.get("analyst")})
-            if rep.get("error") and not rep.get("code"):
+            rep = await self._run_round(claim, round_no=2)
+            if not rep.get("code"):
                 continue                       # the analyst never produced runnable code
             done += 1
-            if claim["verdict"] == "verified":
-                claim["verdict"] = "replicated" if rep.get("numbers_match") else "disputed"
+            claim["verdict"] = self._resolve_verdict(claim)
+        return done
+
+    def _adjudication_candidates(self) -> list[dict]:
+        """Claims left in doubt after rounds 1-2: a stand-off between the original
+        and one independent analyst (``disputed``), or a claim its own antecedents
+        never produced (``refuted``). Both deserve a casting vote rather than being
+        left as a shrug. ``contested`` is excluded — evidence that is already
+        mutually inconsistent is not settled by adding more of it; that instability
+        is the finding."""
+        return [c for c in self.ledger
+                if c.get("verdict") in ("disputed", "refuted")
+                and _nums(c.get("value", ""))
+                and any(a in self.computations for a in c.get("antecedents", []))]
+
+    async def adjudicate(self, max_claims: int = 12) -> int:
+        """Round 3 — break the tie with evidence rather than opinion.
+
+        When rounds 1 and 2 disagree, the honest move is not to have a third model
+        arbitrate between two accounts it can read; that is judgment stacked on
+        judgment. It is to go and derive the quantity a THIRD independent time,
+        under the same blinding, and see which way the evidence falls. Two
+        independent derivations that land together outweigh one that stands alone —
+        and when all three disagree, the claim is ``contested``, which is a real
+        finding about the analysis, not a failure to decide.
+
+        For a ``refuted`` claim this round is the rescue path: if an independent
+        analyst does get the claimed number, the science was right and only the
+        cited antecedents were wrong (``antecedent_mismatch``).
+
+        The third analyst runs at a slightly higher temperature so that even the
+        same model reaches for a different approach rather than retracing its own.
+        Returns the number of claims adjudicated."""
+        done = 0
+        for claim in self._adjudication_candidates()[:max_claims]:
+            rep = await self._run_round(claim, round_no=3, model=self.adjudicate_model,
+                                        temperature=0.5)
+            if not rep.get("code"):
+                continue
+            done += 1
+            claim["verdict"] = self._resolve_verdict(claim)
         return done
 
     # -- DAG --------------------------------------------------------------------
@@ -1371,15 +1515,21 @@ class Autoresearcher:
         models = {c.get("by") for c in self.ledger} | {c.get("reconciled_by") for c in self.ledger}
         models |= {c.get("by") for c in self.computations.values()}
         models.add(self.results_prose_by)
-        replicated = [c for c in self.ledger if c.get("replication")]
-        models |= {(c.get("replication") or {}).get("by") for c in self.ledger}
+        replicated = [c for c in self.ledger if c.get("replications")]
+        for c in self.ledger:
+            models |= {r.get("by") for r in (c.get("replications") or [])}
         return {"completed": completed, "investigations_done": done,
                 "investigations_total": len(self.agenda),
                 # Clean-room pass (#50): how many claims a second analyst re-derived
                 # from the raw data, and how many of those agreed.
                 "replication_attempted": len(replicated),
-                "replication_agreed": sum(c["verdict"] == "replicated" for c in self.ledger),
-                "replication_disputed": sum(c["verdict"] == "disputed" for c in self.ledger),
+                "replication_rounds": sum(len(c.get("replications") or []) for c in self.ledger),
+                "replication_agreed": sum(c.get("verdict") == "replicated" for c in self.ledger),
+                "replication_disputed": sum(c.get("verdict") == "disputed" for c in self.ledger),
+                "replication_overturned": sum(c.get("verdict") == "overturned" for c in self.ledger),
+                "replication_contested": sum(c.get("verdict") == "contested" for c in self.ledger),
+                "adjudicated": sum(any(r.get("round") == 3 for r in (c.get("replications") or []))
+                                   for c in self.ledger),
                 "models": sorted(m for m in models if m)}
 
     # -- snapshot ---------------------------------------------------------------
@@ -1411,9 +1561,13 @@ class Autoresearcher:
                 # Values a PARTIAL adjudication could not back — the viewer strikes
                 # them, and the writer is forbidden from restating them.
                 "unsupported_numbers": c.get("unsupported_numbers") or [],
-                # Clean-room re-derivation (#50): the independent analyst's own code,
-                # its result, and whether the two derivations agreed.
-                "replication": c.get("replication"),
+                # Independent re-derivations (#50), round 2 onward: each analyst's own
+                # code, its result, and whether it agreed. A list because a disputed
+                # claim goes to a third round.
+                "replications": c.get("replications") or [],
+                "consensus_numbers": c.get("consensus_numbers") or [],
+                "antecedent_mismatch": c.get("antecedent_mismatch", False),
+                "reproduced": c.get("reproduced"),
                 # Per-artifact attribution: the model that recorded the claim, and
                 # (when applicable) the model that reconciled it into "verified".
                 "by": c.get("by"), "reconciled_by": c.get("reconciled_by"),

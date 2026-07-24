@@ -249,6 +249,7 @@ async def run_autoresearch_stream(
                 # Prose is a drafting job — route it like every other writing surface.
                 write_model=settings.role_model("draft", llm["model"]),
                 replicate_model=settings.role_model("replicate", llm["model"]),
+                adjudicate_model=settings.role_model("adjudicate", llm["model"]),
                 max_steps=max_steps,
                 max_followups=settings.autoresearch_max_followups,
                 reconcile=settings.autoresearch_reconcile_enabled,
@@ -294,6 +295,16 @@ async def run_autoresearch_stream(
                     run.emit("replicate", f"re-derived {n} claims independently")
                 except asyncio.TimeoutError:
                     run.emit("replicate", "replication hit the time budget — partial")
+                # Round 3: break any stand-off with a third independent derivation.
+                if settings.autoresearch_adjudicate_enabled:
+                    try:
+                        n = await asyncio.wait_for(
+                            ar.adjudicate(max_claims=settings.autoresearch_replicate_max_claims),
+                            timeout=_left(400))
+                        if n:
+                            run.emit("replicate", f"adjudicated {n} contested claims (round 3)")
+                    except asyncio.TimeoutError:
+                        run.emit("replicate", "adjudication hit the time budget — partial")
             run.emit("write", "writing Results prose")
             try:
                 await asyncio.wait_for(ar.write_results(), timeout=_left(180))

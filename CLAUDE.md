@@ -115,10 +115,12 @@ All settings via environment or `.env` (see `portal/app/config.py`):
 | `AUTORESEARCH_RECONCILE_ENABLED` | `true` | Skeptical-model fallback when deterministic verify misses; grades a claim `verified`, `partial` (finding holds, some values don't), or leaves it refuted |
 | `AUTORESEARCH_REPLICATE_ENABLED` | `false` | Clean-room pass (#50): a second analyst re-derives each strong claim from the raw data without seeing the original code. Agreement → `replicated`; disagreement → `disputed` |
 | `AUTORESEARCH_REPLICATE_MAX_CLAIMS` | `12` | Cap on claims sent for independent re-derivation (insights first) |
+| `AUTORESEARCH_ADJUDICATE_ENABLED` | `true` | Round 3: a third independent derivation breaks a `disputed` stand-off, or rescues a `refuted` claim whose citation was wrong. Only fires on claims left in doubt |
 | `AUTORESEARCH_COMMIT_ENABLED` | `false` | PR the verified Results prose to the paper repo `.omc/` |
 | `LLM_MODEL_EXPLORE` | (falls back to `LLM_MODEL`) | Model for the autoresearch agent loop |
 | `LLM_MODEL_VERIFY` | (falls back to `LLM_MODEL`) | Model for the skeptical reconciler |
 | `LLM_MODEL_REPLICATE` | (falls back to `LLM_MODEL`) | Model for the clean-room analyst — **point this at a different model than `LLM_MODEL_EXPLORE`**; a model checking its own work shares its own blind spots |
+| `LLM_MODEL_ADJUDICATE` | (falls back to `LLM_MODEL`) | Model for round 3's casting vote — ideally a third distinct model |
 | `GITHUB_APP_ID` | | GitHub App numeric ID |
 | `GITHUB_APP_PRIVATE_KEY` | | PEM file path or content |
 | `GITHUB_ORG` | `open-community-science` | Org for paper repos |
@@ -452,7 +454,8 @@ LLM_MODEL=qwen/qwen3.5-35b-a3b
 # LLM_MODEL_EXPLORE=qwen/qwen3.5-35b-a3b   # agent loop model
 # LLM_MODEL_VERIFY=qwen/qwen3.5-35b-a3b    # skeptical reconciler model
 # AUTORESEARCH_REPLICATE_ENABLED=false     # clean-room independent re-derivation
-# LLM_MODEL_REPLICATE=<a DIFFERENT model>  # the clean-room analyst
+# LLM_MODEL_REPLICATE=<a DIFFERENT model>  # round 2's clean-room analyst
+# LLM_MODEL_ADJUDICATE=<a THIRD model>     # round 3's casting vote
 GITHUB_APP_ID=3078928
 GITHUB_APP_PRIVATE_KEY=<pem path>
 GITHUB_ORG=open-community-science

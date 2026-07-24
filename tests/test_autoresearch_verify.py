@@ -357,7 +357,8 @@ def _replicating_researcher(reply, results, *, ledger, comps):
 
 
 _LEDGER = [{"id": "k1", "statement": "richness tracks depth", "value": "rho=0.78",
-            "antecedents": ["c1"], "kind": "pattern", "verdict": "verified"}]
+            "antecedents": ["c1"], "kind": "pattern", "verdict": "verified",
+            "reproduced": True}]
 _COMPS = {"c1": {"label": "depth vs richness", "code": "orig_code", "result": {"rho": 0.78}}}
 
 
@@ -370,8 +371,9 @@ def test_agreement_upgrades_the_claim_to_replicated():
     c = ar.ledger[0]
     assert n == 1
     assert c["verdict"] == "replicated"
-    assert c["replication"]["numbers_match"] is True
-    assert c["replication"]["by"] == "auditor-model"
+    assert c["replications"][0]["numbers_match"] is True
+    assert c["replications"][0]["by"] == "auditor-model"
+    assert c["replications"][0]["round"] == 2
 
 
 def test_disagreement_marks_the_claim_disputed_not_verified():
@@ -384,8 +386,8 @@ def test_disagreement_marks_the_claim_disputed_not_verified():
     asyncio.run(ar.replicate())
     c = ar.ledger[0]
     assert c["verdict"] == "disputed"
-    assert c["replication"]["numbers_match"] is False
-    assert c["replication"]["analyst"] == "contradicts"
+    assert c["replications"][0]["numbers_match"] is False
+    assert c["replications"][0]["analyst"] == "contradicts"
 
 
 def test_the_analyst_never_sees_the_original_code():
@@ -410,7 +412,7 @@ def test_a_failing_analysis_is_retried_with_the_error():
         ledger=[dict(c) for c in _LEDGER], comps=dict(_COMPS))
     asyncio.run(ar.replicate())
     assert ar.ledger[0]["verdict"] == "replicated"
-    assert ar.ledger[0]["replication"]["attempts"] == 2
+    assert ar.ledger[0]["replications"][0]["attempts"] == 2
     retry = "\n".join(m["content"] for m in ar.seen_prompts[1]["messages"])
     assert "Your code failed" in retry
 
@@ -474,15 +476,158 @@ def test_replicated_claims_are_verified_tier_for_the_writer_and_disputed_are_not
 def test_run_summary_reports_the_clean_room_outcome():
     ar = Autoresearcher(_StubData(), LLMClient(None, "m"), _StubExecutor({}))
     ar.ledger = [
-        {"id": "k1", "verdict": "replicated", "replication": {"by": "auditor-model"}},
-        {"id": "k2", "verdict": "disputed", "replication": {"by": "auditor-model"}},
+        {"id": "k1", "verdict": "replicated", "replications": [{"round": 2, "by": "auditor-model"}]},
+        {"id": "k2", "verdict": "disputed",
+         "replications": [{"round": 2, "by": "auditor-model"}, {"round": 3, "by": "third-model"}]},
         {"id": "k3", "verdict": "verified"},
     ]
     s = ar.run_summary(completed=True)
     assert s["replication_attempted"] == 2
     assert s["replication_agreed"] == 1
     assert s["replication_disputed"] == 1
-    assert "auditor-model" in s["models"]
+    assert s["replication_rounds"] == 3
+    assert s["adjudicated"] == 1
+    assert "auditor-model" in s["models"] and "third-model" in s["models"]
+
+
+# ── round 3: adjudication ─────────────────────────────────────────────────────
+def _claim(verdict="disputed", reproduced=True, value="rho=0.78", reps=()):
+    return {"id": "k1", "statement": "richness tracks depth", "value": value,
+            "antecedents": ["c1"], "kind": "pattern", "verdict": verdict,
+            "reproduced": reproduced, "replications": list(reps)}
+
+
+def _round3(reply, results, claim):
+    ar = _replicating_researcher(reply, results, ledger=[claim], comps=dict(_COMPS))
+    ar.adjudicate_model = "third-model"
+    n = asyncio.run(ar.adjudicate())
+    return ar, n
+
+
+def test_round_three_rescues_a_claim_the_lone_dissenter_got_wrong():
+    """Two of three derivations agreeing beats one that stands alone."""
+    ar, n = _round3(
+        "```python\nresult = {'rho': 0.7799}\n```\nSUPPORTS: YES",
+        {"result = {'rho': 0.7799}": {"rho": 0.7799}},
+        _claim(reps=[{"round": 2, "code": "x", "result": {"rho": 0.2},
+                      "numbers_match": False, "analyst": "contradicts"}]))
+    assert n == 1
+    assert ar.ledger[0]["verdict"] == "contested"   # 1 agree, 1 dissent — unstable
+    assert ar.ledger[0]["replications"][-1]["round"] == 3
+    assert ar.ledger[0]["replications"][-1]["by"] == "third-model"
+
+
+def test_two_independents_concurring_against_the_claim_overturn_it():
+    """A single dissent is a stand-off; two that land together is a conclusion."""
+    ar, n = _round3(
+        "```python\nresult = {'rho': 0.21}\n```\nSUPPORTS: NO",
+        {"result = {'rho': 0.21}": {"rho": 0.21}},
+        _claim(reps=[{"round": 2, "code": "x", "result": {"rho": 0.2},
+                      "numbers_match": False, "analyst": "contradicts"}]))
+    c = ar.ledger[0]
+    assert c["verdict"] == "overturned"
+    # And it hands back what they agreed ON, which is the useful part.
+    assert any(abs(x - 0.2) < 0.02 for x in c["consensus_numbers"])
+
+
+def test_independents_wrong_in_different_directions_are_contested_not_overturned():
+    """Instability is a finding about the analysis, not a verdict on the claim."""
+    ar, _ = _round3(
+        "```python\nresult = {'rho': 0.95}\n```\nSUPPORTS: INCONCLUSIVE",
+        {"result = {'rho': 0.95}": {"rho": 0.95}},
+        _claim(reps=[{"round": 2, "code": "x", "result": {"rho": 0.05},
+                      "numbers_match": False, "analyst": "inconclusive"}]))
+    assert ar.ledger[0]["verdict"] == "contested"
+    assert ar.ledger[0].get("consensus_numbers", []) == []
+
+
+def test_numbers_decide_concurrence_not_the_analysts_self_reports():
+    """Two analysts can both say "contradicts" while landing on entirely different
+    values — that is contested, not overturned. Their results are the evidence; what
+    they say about their results is opinion."""
+    ar, _ = _round3(
+        "```python\nresult = {'rho': 0.95}\n```\nSUPPORTS: NO",
+        {"result = {'rho': 0.95}": {"rho": 0.95}},
+        _claim(reps=[{"round": 2, "code": "x", "result": {"rho": 0.05},
+                      "numbers_match": False, "analyst": "contradicts"}]))
+    assert ar.ledger[0]["verdict"] == "contested"
+
+
+def test_self_reports_are_consulted_when_there_are_no_numbers_to_compare():
+    ar, _ = _round3(
+        "```python\nresult = {'note': 'no such pattern'}\n```\nSUPPORTS: NO",
+        {"result = {'note': 'no such pattern'}": {"note": "no such pattern"}},
+        _claim(reps=[{"round": 2, "code": "x", "result": {"note": "absent"},
+                      "numbers_match": False, "analyst": "contradicts"}]))
+    assert ar.ledger[0]["verdict"] == "overturned"
+
+
+def test_round_three_rescues_a_refuted_claim_whose_citation_was_wrong():
+    """Correct science, broken bookkeeping: the antecedents don't produce the number
+    but an independent derivation does. Rescue it, and flag the provenance."""
+    ar, _ = _round3(
+        "```python\nresult = {'rho': 0.78}\n```\nSUPPORTS: YES",
+        {"result = {'rho': 0.78}": {"rho": 0.78}},
+        _claim(verdict="refuted", reproduced=False))
+    c = ar.ledger[0]
+    assert c["verdict"] == "replicated"
+    assert c["antecedent_mismatch"] is True
+
+
+def test_a_refuted_claim_no_one_can_re_derive_stays_refuted():
+    ar, _ = _round3(
+        "```python\nresult = {'rho': 0.11}\n```\nSUPPORTS: NO",
+        {"result = {'rho': 0.11}": {"rho": 0.11}},
+        _claim(verdict="refuted", reproduced=False))
+    assert ar.ledger[0]["verdict"] == "refuted"
+
+
+def test_contested_claims_are_not_sent_to_round_three():
+    """Evidence already inconsistent with itself is not settled by adding more."""
+    ar = _replicating_researcher("", {}, ledger=[_claim(verdict="contested")],
+                                 comps=dict(_COMPS))
+    assert ar._adjudication_candidates() == []
+
+
+def test_replicated_claims_are_not_re_adjudicated():
+    ar = _replicating_researcher("", {}, ledger=[_claim(verdict="replicated")],
+                                 comps=dict(_COMPS))
+    assert ar._adjudication_candidates() == []
+
+
+def test_overturned_and_contested_stay_out_of_the_prose():
+    captured = {}
+
+    class _Chat:
+        class completions:
+            @staticmethod
+            async def create(**kw):
+                captured.update(kw)
+                class M:
+                    content = "prose"
+                class C:
+                    message = M()
+                class R:
+                    choices = [C()]
+                return R()
+
+    class _Client:
+        chat = _Chat()
+
+    ar = Autoresearcher(_StubData(), LLMClient(_Client(), "m"), _StubExecutor({}))
+    ar.ledger = [
+        {"id": "k1", "statement": "solid finding", "value": "1", "kind": "pattern",
+         "antecedents": ["c1"], "verdict": "replicated"},
+        {"id": "k2", "statement": "overturned finding", "value": "2", "kind": "pattern",
+         "antecedents": ["c1"], "verdict": "overturned"},
+        {"id": "k3", "statement": "contested finding", "value": "3", "kind": "pattern",
+         "antecedents": ["c1"], "verdict": "contested"},
+    ]
+    asyncio.run(ar.write_results())
+    prompt = captured["messages"][-1]["content"]
+    assert "solid finding" in prompt
+    assert "overturned finding" not in prompt
+    assert "contested finding" not in prompt
 
 
 def test_assumptions_reach_the_writer():
