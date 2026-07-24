@@ -16,7 +16,7 @@ from sqlalchemy import select
 from .config import get_settings
 from .database import get_db, async_session, Submission, User
 from .auth import require_user
-from .run_registry import Run, registry, stream_run, status_payload
+from .run_registry import Run, registry, stream_run, status_payload, sse_response
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 settings = get_settings()
@@ -276,7 +276,7 @@ async def run_reviews_stream(
 
     existing = _REVIEW_RUNS.get(sub_slug)
     if existing and not existing.done:
-        return StreamingResponse(stream_run(existing), media_type="text/event-stream")
+        return sse_response(stream_run(existing))
     run = Run()
     _REVIEW_RUNS[sub_slug] = run
 
@@ -351,7 +351,7 @@ async def run_reviews_stream(
         run.finish("complete")
 
     asyncio.create_task(worker())
-    return StreamingResponse(stream_run(run), media_type="text/event-stream")
+    return sse_response(stream_run(run))
 
 
 @router.get("/{slug}/run-status")
@@ -525,7 +525,7 @@ async def generate_manuscript_stream(
     # a second run — so navigating back resumes the live progress.
     existing = _MS_RUNS.get(sub_slug)
     if existing and not existing.done:
-        return StreamingResponse(stream_run(existing), media_type="text/event-stream")
+        return sse_response(stream_run(existing))
 
     run = Run()
     _MS_RUNS[sub_slug] = run
@@ -587,7 +587,7 @@ async def generate_manuscript_stream(
         run.finish("complete", result_url=preview_url)
 
     asyncio.create_task(worker())
-    return StreamingResponse(stream_run(run), media_type="text/event-stream")
+    return sse_response(stream_run(run))
 
 
 @router.get("/{slug}/generate-status")

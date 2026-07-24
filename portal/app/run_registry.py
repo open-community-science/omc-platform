@@ -36,6 +36,24 @@ Usage (per endpoint):
 import asyncio
 import json
 
+from fastapi.responses import StreamingResponse
+
+# Headers that make Server-Sent Events actually stream live through nginx. Without
+# X-Accel-Buffering, nginx buffers the response (proxy_buffering defaults on), so
+# the browser sees no live "tail" — progress arrives only in flushed chunks or at
+# the end. This header disables buffering for THIS response only, no nginx change.
+SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+    "Connection": "keep-alive",
+}
+
+
+def sse_response(generator) -> StreamingResponse:
+    """A text/event-stream response with the headers needed to stream live behind
+    nginx. Use for every SSE endpoint instead of a bare StreamingResponse."""
+    return StreamingResponse(generator, media_type="text/event-stream", headers=SSE_HEADERS)
+
 
 class Run:
     """One background run: an append-only event buffer plus terminal status,

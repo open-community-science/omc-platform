@@ -40,7 +40,7 @@ from .database import get_db, async_session, Submission, User
 from .auth import require_user, get_current_user
 from .templating import templates
 
-from .run_registry import Run as _Run, registry, stream_run as _stream_run, status_payload
+from .run_registry import Run as _Run, registry, stream_run as _stream_run, status_payload, sse_response
 
 router = APIRouter(prefix="/autoresearch", tags=["autoresearch"])
 settings = get_settings()
@@ -197,7 +197,7 @@ async def run_autoresearch_stream(
     # starting a second run — this is what makes navigating back resume the view.
     existing = _RUNS.get(sub_slug)
     if existing and not existing.done:
-        return StreamingResponse(_stream_run(existing), media_type="text/event-stream")
+        return sse_response(_stream_run(existing))
 
     run = _Run()
     _RUNS[sub_slug] = run
@@ -316,7 +316,7 @@ async def run_autoresearch_stream(
         run.finish("complete", result_url=url)
 
     asyncio.create_task(worker())
-    return StreamingResponse(_stream_run(run), media_type="text/event-stream")
+    return sse_response(_stream_run(run))
 
 
 @router.get("/{slug}/status")
