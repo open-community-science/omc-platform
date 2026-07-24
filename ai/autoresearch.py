@@ -42,10 +42,12 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional, Protocol, runtime_checkable
 
 # ── Prompts (moved verbatim from the prototype) ───────────────────────────────
-EXPLORE_SYSTEM = """You are a curious microbial ecologist investigating a 16S/18S amplicon
-dataset. Your job is not to restate summary statistics — it is to TEST HYPOTHESES and find
-PATTERNS, RELATIONSHIPS, and ANOMALIES a scientist would care about, then ground each in a
-re-runnable computation.
+EXPLORE_SYSTEM = """You are a curious microbial ecologist REANALYZING an existing 16S/18S
+amplicon dataset as an independent scientist. Your job is not to restate summary statistics —
+it is to TEST HYPOTHESES and find PATTERNS, RELATIONSHIPS, and ANOMALIES a scientist would care
+about, then ground each in a re-runnable computation. Report what the data show; do not presume
+the original collectors' intent, study design, or prior hypotheses — every claim is grounded in
+the data itself, not a presumed backstory.
 
 Work systematically and recursively:
 1. FIRST call propose_agenda with the analyses/hypothesis tests worth running here — the

@@ -126,6 +126,12 @@ independent scientist. Under this stance:
   would — grounded in the data, not in a presumed backstory.
 - Where the interview DOES provide genuine study aims, context, or hypotheses, use them and
   frame accordingly; the reanalysis stance is only the default when that context is absent.
+- Assume there are NO human co-authors unless the interview/context says otherwise. The paper
+  must stand on its own — never address, defer to, or leave editorial notes for a human author.
+  Do NOT emit bracketed asides like "[AUTHOR: describe the study system]" or "[X]". Where a
+  piece of information genuinely isn't available, either omit it or state the gap plainly in the
+  prose as a limitation (e.g. "the sampling environment is not described in the available
+  metadata"). ([CITE] placeholders for citations are the ONLY bracketed markers allowed.)
 
 Key principles:
 - Be precise and accurate about the data
@@ -138,8 +144,9 @@ Key principles:
 CRITICAL — never fabricate. The study's subject matter comes ONLY from the STUDY
 context you are given:
 - Do NOT invent the research topic, organisms, environment, or study system. If the
-  STUDY section is missing or thin, describe only what the data show and write
-  [AUTHOR: describe the study system] rather than guessing.
+  STUDY section is missing or thin, describe only what the data show and, if the study
+  system is unknown, say so plainly in prose — do NOT guess and do NOT leave an [AUTHOR: …]
+  note (there may be no human author to address).
 - Do NOT invent citations, author names, or years. Every reference must be a bare
   [CITE] placeholder — never "(Smith et al., 2022)".
 - Do NOT invent software versions, database releases, or parameters. If a version
@@ -357,8 +364,9 @@ def _format_study(study_metadata: dict | None) -> str:
     "thanatomicrobiome" study), so keep this in every section prompt.
     """
     if not study_metadata:
-        return ("(No study metadata available — do NOT guess the subject matter; "
-                "write [AUTHOR: describe the study system] instead.)")
+        return ("(No study metadata available — do NOT guess the subject matter; describe only "
+                "what the data show and state plainly that the study system is not described in "
+                "the available metadata. Do not leave an [AUTHOR: …] note.)")
     fields = [
         ("Title", study_metadata.get("title")),
         ("Organism", study_metadata.get("organism")),
@@ -656,11 +664,12 @@ You are now REVISING a single section to address specific reviewer and
 automated-check findings. Rules:
 - Fix only what the findings call out. Preserve all other content, facts, and numbers.
 - Never invent data, citations, numbers, software versions, or study details to
-  satisfy a finding. If a finding asks for information you do not have, insert a
-  clear [AUTHOR: ...] note instead of guessing.
+  satisfy a finding. If a finding asks for information you do not have, state the gap
+  plainly in the prose as a limitation — do not guess, and do not leave an [AUTHOR: …]
+  note (assume no human co-author to address unless the context says otherwise).
 - Keep unresolved literature references as bare [CITE] placeholders.
 - Do not delete content merely to satisfy a length or completeness note — add the
-  missing content or mark it [AUTHOR: ...].
+  missing content, or if it isn't available, say so plainly in the prose.
 
 Return ONLY the revised section text — no preamble, no code fences.
 If no change is warranted, return exactly: NO CHANGES NEEDED
