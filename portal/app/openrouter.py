@@ -6,7 +6,7 @@ import logging
 import secrets
 
 import httpx
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Request, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -246,6 +246,7 @@ async def list_models_for_source(
     source: str,
     request: Request,
     user: User = Depends(require_user),
+    all_models: bool = Query(False, alias="all"),
 ):
     """Unified model list for the settings picker, keyed by source.
 
@@ -267,9 +268,11 @@ async def list_models_for_source(
         ids = await list_local_models()
         # The local server serves one model at a time, so when an admin has
         # pinned one it is the only thing an author can actually get. Offering
-        # the rest would let them save a choice that resolve_llm then ignores.
+        # the rest in Settings would let them save a choice resolve_llm ignores.
+        # The admin panel is the exception — choosing the pin is precisely what
+        # it is for — so it asks for the unfiltered list with all=1.
         pinned = await get_site_config(SITE_LOCAL_MODEL)
-        if pinned and (not ids or pinned in ids):
+        if pinned and not all_models and (not ids or pinned in ids):
             ids = [pinned]
         rows = [{
             "id": m, "name": m, "context_length": 0,

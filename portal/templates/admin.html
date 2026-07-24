@@ -107,21 +107,23 @@
                         data-current="{{ admin_local_model }}">
                     <option value="{{ admin_local_model }}" selected>{{ admin_local_model or 'loading…' }}</option>
                 </select>
-                <button type="submit" class="btn btn-secondary btn-sm">Set recommended</button>
+                <button type="submit" class="btn btn-secondary btn-sm">Change model</button>
             </form>
             {% endif %}
         </div>
-        <p class="section-hint">Users pick their own local model in Settings; this sets the <em>recommended</em> default. Falls back to the config model (<code>{{ llm_model }}</code>) if unset.</p>
+        <p class="section-hint">This is the local model <em>every</em> author gets — the server holds one model at a time, so it can't be swapped per user. Falls back to the config model (<code>{{ llm_model }}</code>) if unset.</p>
         {% if llm_local.ok %}
         <script>
-        // Populate the recommended-local dropdown from the live local model list,
-        // so it always reflects what the server actually serves.
+        // Populate the picker from the live local model list. all=1 asks for the
+        // full list: /settings/models narrows `local` to the pinned model for the
+        // user-facing Settings picker, but choosing that pin is what THIS control
+        // is for, so it must see everything the server serves.
         (async function loadAdminLocalModels() {
             const sel = document.getElementById('admin-local-model');
             if (!sel) return;
             const current = sel.dataset.current || '';
             try {
-                const r = await fetch('/settings/models?source=local', { credentials: 'same-origin' });
+                const r = await fetch('/settings/models?source=local&all=1', { credentials: 'same-origin' });
                 const data = await r.json();
                 const models = (data.models || []);
                 if (!models.length) return;

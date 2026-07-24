@@ -71,3 +71,32 @@ def test_without_a_pin_the_users_choice_still_wins(monkeypatch):
 
     user = User(llm_backend=lb.BACKEND_LOCAL, llm_model="user-model")
     assert asyncio.run(lb.resolve_llm(user))["model"] == "user-model"
+
+
+# ── /settings/models?source=local serves two callers with opposite needs ──────
+#
+# Settings must offer only the pinned model (anything else would be a choice
+# resolve_llm ignores), while the admin picker must see everything the server
+# serves — choosing the pin is what that control is for. Narrowing the list for
+# both is what broke the admin panel once already.
+
+def _list_local(monkeypatch, all_models):
+    # list_models_for_source imports these from llm_backends at call time, so
+    # patching them there is what the endpoint actually sees.
+    import portal.app.openrouter as orr
+    _serving(monkeypatch, ["a-model", "b-model", "pinned-model"])
+    _pin(monkeypatch, "pinned-model")
+    return asyncio.run(orr.list_models_for_source(
+        source="local", request=None, user=User(), all_models=all_models))
+
+
+def test_settings_picker_sees_only_the_pinned_model(monkeypatch):
+    data = _list_local(monkeypatch, all_models=False)
+    assert [m["id"] for m in data["models"]] == ["pinned-model"]
+    assert data["pinned"] is True
+
+
+def test_admin_picker_sees_every_served_model(monkeypatch):
+    data = _list_local(monkeypatch, all_models=True)
+    assert [m["id"] for m in data["models"]] == ["a-model", "b-model", "pinned-model"]
+    assert data["pinned"] is False
