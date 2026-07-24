@@ -757,15 +757,20 @@ class Autoresearcher:
         claim_lines = "\n".join(
             f"  {c['id']} [{c.get('kind', 'observation')}] {c['statement']}"
             for c in self.ledger) or "  (none)"
+        assumption_lines = "\n".join(
+            f"  {a['id']}: {a['statement']}" for a in self.assumptions) or "  (none yet)"
         return (
             "You are RESUMING your own earlier investigation of this dataset — keep "
             "digging DEEPER, don't restart.\n\n"
             f"Agenda so far (statuses):\n{agenda_lines}\n\n"
             f"Claims you already recorded — do NOT repeat these; build beyond them:\n{claim_lines}\n\n"
+            f"Assumptions already on record — do NOT re-record these. Better: where digging "
+            f"deeper now lets you CONFIRM or REFUTE one, do that and record_claim the result "
+            f"(that is high-value work); otherwise leave it standing:\n{assumption_lines}\n\n"
             "Work any pending/interrupted items, then add_followup on the most promising "
             "or surprising leads and pursue them (a cluster → its driver taxa → are they "
             "contamination?). Record new claims for what you find, and record_assumption for "
-            "anything new you had to take for granted but couldn't confirm. Reply DONE only "
+            "anything NEW you had to take for granted but couldn't confirm. Reply DONE only "
             "when you judge the investigation has gone deep enough.")
 
     async def explore(self, resume: bool = False) -> bool:
