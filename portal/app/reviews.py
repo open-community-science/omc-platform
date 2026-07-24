@@ -170,9 +170,13 @@ async def run_reviews(
     else:
         logger.info(f"No GitHub repo for {slug} — reviews saved without PRs")
 
-    # Store review results and PR URLs in interview_data
+    # Store review results and PR URLs in interview_data. Stamp the model that
+    # produced the reviews (attribution: whoever does something leaves its stamp).
     interview_data["_reviews"] = reviews
     interview_data["_review_prs"] = pr_urls
+    interview_data["_review_model"] = llm.get("label")
+    interview_data["_review_backend"] = llm.get("backend")
+    interview_data["_review_models"] = {"review": settings.role_model("review", llm["model"])}
 
     # Optional revise pass (issue #20): feed review findings + deterministic
     # checks back into a section rewrite. Off by default and purely additive —
@@ -194,6 +198,7 @@ async def run_reviews(
             )
             interview_data["_manuscript_revised"] = revised
             interview_data["_revise_log"] = revise_log
+            interview_data["_manuscript_revised_model"] = settings.role_model("draft", llm["model"])
         except Exception as e:
             logger.warning(f"Revise pass failed for {slug} (reviews preserved): {e}")
 
@@ -286,9 +291,14 @@ async def generate_manuscript(
 
     # Store manuscript in interview_data (but don't publish yet)
     interview_data["_manuscript"] = sections
-    # Provenance: name the model that produced this draft (#16).
+    # Provenance (#16): the backend label PLUS the per-role model map, since drafting
+    # and citation resolution can use different models (role_model draft/cite).
     interview_data["_manuscript_model"] = llm.get("label")
     interview_data["_manuscript_backend"] = llm.get("backend")
+    interview_data["_manuscript_models"] = {
+        "draft": settings.role_model("draft", llm["model"]),
+        "cite": settings.role_model("cite", llm["model"]),
+    }
     submission.interview_data = interview_data
     attributes.flag_modified(submission, "interview_data")
     await db.commit()
@@ -406,9 +416,14 @@ async def generate_manuscript_stream(
             try:
                 interview_data = dict(sub_interview)
                 interview_data["_manuscript"] = sections
-                # Provenance: name the model that produced this draft (#16).
+                # Provenance (#16): backend label PLUS the per-role model map (drafting
+                # and citation resolution can use different models).
                 interview_data["_manuscript_model"] = llm.get("label")
                 interview_data["_manuscript_backend"] = llm.get("backend")
+                interview_data["_manuscript_models"] = {
+                    "draft": settings.role_model("draft", llm["model"]),
+                    "cite": settings.role_model("cite", llm["model"]),
+                }
 
                 async with async_session() as save_db:
                     save_stmt = select(Submission).where(Submission.id == sub_id)
