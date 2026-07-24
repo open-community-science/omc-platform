@@ -65,9 +65,16 @@ async def settings_page(
         list_local_models, recommended_local_model, get_admin_openrouter,
         resolve_llm,
     )
+    from .llm_backends import get_site_config
+    from .database import SITE_LOCAL_MODEL
     local_models = await list_local_models()
     admin_cfg = await get_admin_openrouter()
     active = await resolve_llm(user)
+    # When the platform has pinned a local model, say so rather than showing a
+    # picker whose result resolve_llm would override.
+    local_pinned = await get_site_config(SITE_LOCAL_MODEL)
+    if local_pinned and local_models and local_pinned not in local_models:
+        local_pinned = None  # pinned but not loaded — the picker still applies
     return templates.TemplateResponse(
         "settings.html",
         {
@@ -82,6 +89,7 @@ async def settings_page(
             "llm_model": user.llm_model or "",
             "local_available": bool(local_models),
             "local_recommended": await recommended_local_model(local_models),
+            "local_pinned": local_pinned or "",
             "admin_key_available": bool(admin_cfg),
             "personal_recommended": OPENROUTER_DEFAULT_MODEL,
             "active_label": active["label"],
@@ -254,13 +262,22 @@ async def list_models_for_source(
     )
 
     if source == "local":
+        from .llm_backends import get_site_config
+        from .database import SITE_LOCAL_MODEL
         ids = await list_local_models()
+        # The local server serves one model at a time, so when an admin has
+        # pinned one it is the only thing an author can actually get. Offering
+        # the rest would let them save a choice that resolve_llm then ignores.
+        pinned = await get_site_config(SITE_LOCAL_MODEL)
+        if pinned and (not ids or pinned in ids):
+            ids = [pinned]
         rows = [{
             "id": m, "name": m, "context_length": 0,
             "free": True, "prompt_price": "0", "completion_price": "0",
             "local": True,
         } for m in ids]
         return {"models": rows, "available": bool(ids),
+                "pinned": bool(pinned and ids == [pinned]),
                 "recommended": await recommended_local_model(ids) if ids else ""}
 
     if source == "free":

@@ -233,14 +233,32 @@ async def resolve_llm(user: User | None) -> dict:
         }
 
     async def _local() -> dict:
-        # Honour any model the local server actually serves — provider validity is
-        # NOT inferable from a "/" in the id (e.g. 'codeqwen3-14b', 'gpt-oss-20b'
-        # are valid local ids). Fall back only when empty, a hosted ':free' id, or
-        # the saved id is no longer served (issue #32).
-        model = chosen_model
+        # The local server holds ONE model in memory at a time and swapping it
+        # per request does not work, so every author shares whatever is loaded.
+        # An admin's pick is therefore authoritative, not merely a default: if it
+        # only seeded the per-user choice, one user's saved id would ask the
+        # server for a model it cannot switch to, and their work would silently
+        # come from a different model than the settings page shows.
         available = await list_local_models()
-        if not model or model.endswith(":free") or (available and model not in available):
-            model = await recommended_local_model(available)
+        pinned = await get_site_config(SITE_LOCAL_MODEL)
+
+        if pinned and (not available or pinned in available):
+            # Trust the pin when the model list is unreadable too — an admin who
+            # set it knows what is loaded better than an unreachable /models.
+            model = pinned
+        else:
+            if pinned:
+                logger.warning(
+                    "Site local model %r is not being served (%d model(s) "
+                    "available); falling back", pinned, len(available),
+                )
+            # No pin: honour any model the server actually serves. Provider
+            # validity is NOT inferable from a "/" in the id (e.g.
+            # 'codeqwen3-14b', 'gpt-oss-20b' are valid local ids). Fall back only
+            # when empty, a hosted ':free' id, or no longer served (issue #32).
+            model = chosen_model
+            if not model or model.endswith(":free") or (available and model not in available):
+                model = await recommended_local_model(available)
         return {
             "backend": BACKEND_LOCAL, "base_url": settings.llm_base_url,
             "api_key": settings.llm_api_key, "model": model,
