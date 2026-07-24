@@ -19,8 +19,9 @@ but respects the HARD CONSTRAINTS of #29:
   * the LLM is acquired only through ``resolve_llm`` (no hardcoded endpoint).
 
 Routes:
-  * ``POST /autoresearch/{slug}/run-stream`` — SSE run + persistence + optional PR.
-  * ``GET  /autoresearch/{slug}/provenance`` — the provenance DAG viewer.
+  * ``POST /autoresearch/{slug}/run-stream`` — SSE run (``?resume=true`` to keep
+    digging from the prior snapshot) + persistence + optional PR.
+  * ``GET  /autoresearch/{slug}/findings`` — the claim/evidence findings viewer.
 """
 import asyncio
 import json
@@ -125,6 +126,7 @@ async def _build_data_source(slug: str, study: dict):
 @router.post("/{slug}/run-stream")
 async def run_autoresearch_stream(
     slug: str,
+    resume: bool = False,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
@@ -136,7 +138,12 @@ async def run_autoresearch_stream(
     on a background task while forwarding tool-call / verification events over SSE.
     On completion the resolved snapshot is persisted to
     ``interview_data['_autoresearch']`` in a fresh DB session and (optionally) the
-    Results prose is committed to the paper repo's ``.omc/`` via a PR."""
+    Results prose is committed to the paper repo's ``.omc/`` via a PR.
+
+    With ``resume=true`` ("keep digging") the prior persisted snapshot is
+    reconstructed and the agent CONTINUES from where it stopped — running another
+    ``max_steps`` batch that appends to the same ledger. The user stops simply by
+    not asking for another batch."""
     if not settings.autoresearch_enabled:
         raise HTTPException(status_code=403, detail="Autoresearch is not enabled.")
 
@@ -173,6 +180,13 @@ async def run_autoresearch_stream(
 
     llm = await _get_llm_config(user.id)
     user_id = user.id
+    # Per-user depth (blank → site default). See /settings/autoresearch.
+    max_steps = user.autoresearch_max_steps or settings.autoresearch_max_steps
+
+    # "Keep digging": reconstruct from the prior snapshot and continue. Falls back
+    # to a fresh run if resume was asked but nothing has been persisted yet.
+    prior_snapshot = sub_interview.get("_autoresearch") if resume else None
+    resuming = bool(prior_snapshot)
 
     result_holder: dict = {}
 
@@ -218,18 +232,24 @@ async def run_autoresearch_stream(
                     AsyncOpenAI(base_url=llm["base_url"], api_key=llm["api_key"]),
                     model=llm["model"])
 
-                ar = Autoresearcher(
-                    data, llm_client, executor,
+                ar_kwargs = dict(
                     explore_model=settings.role_model("explore", llm["model"]),
                     verify_model=settings.role_model("verify", llm["model"]),
-                    max_steps=settings.autoresearch_max_steps,
+                    max_steps=max_steps,
                     max_followups=settings.autoresearch_max_followups,
                     reconcile=settings.autoresearch_reconcile_enabled,
                     on_progress=on_progress)
+                if resuming:
+                    await progress_queue.put({"event": "session",
+                                              "detail": f"resuming from {len(prior_snapshot.get('claims', []))} prior claims"})
+                    ar = Autoresearcher.from_snapshot(
+                        prior_snapshot, data, llm_client, executor, **ar_kwargs)
+                else:
+                    ar = Autoresearcher(data, llm_client, executor, **ar_kwargs)
 
                 # 4. Explore (time-budgeted) → verify → write prose → snapshot.
                 completed = await asyncio.wait_for(
-                    ar.explore(), timeout=settings.autoresearch_time_budget_s)
+                    ar.explore(resume=resuming), timeout=settings.autoresearch_time_budget_s)
                 await progress_queue.put({"event": "verify",
                                           "detail": "re-executing claims for verification"})
                 await ar.verify()
@@ -296,26 +316,26 @@ async def run_autoresearch_stream(
 
             complete = {
                 "event": "complete",
-                "detail": "Autoresearch complete — view the provenance ledger",
-                "ledger_url": f"/autoresearch/{sub_slug}/provenance",
+                "detail": "Autoresearch complete — view the findings",
+                "ledger_url": f"/autoresearch/{sub_slug}/findings",
             }
             yield f"data: {json.dumps(complete)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-# ── provenance viewer ─────────────────────────────────────────────────────────
-@router.get("/{slug}/provenance")
-async def provenance_viewer(
+# ── findings viewer ───────────────────────────────────────────────────────────
+@router.get("/{slug}/findings")
+async def findings_viewer(
     slug: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Render the provenance DAG viewer for a completed autoresearch run.
+    """Render the findings viewer (the claim/evidence DAG) for an autoresearch run.
 
     Mirrors ``main.manuscript_preview``: owner-scoped load, redirect to the
     submission page when no run exists. The persisted snapshot is already fully
-    resolved (``snapshot(resolve=True)``), so ``provenance.html`` is pure-render —
+    resolved (``snapshot(resolve=True)``), so ``findings.html`` is pure-render —
     it consumes ``data_json`` and imports nothing from the bench / ``ai``."""
     user = await get_current_user(request, db)
     if not user:
@@ -338,7 +358,7 @@ async def provenance_viewer(
         return RedirectResponse(f"/submissions/{slug}", status_code=303)
 
     return templates.TemplateResponse(
-        "provenance.html",
+        "findings.html",
         {
             "request": request,
             "user": user,

@@ -16,19 +16,24 @@
   `settings.autoresearch_enabled` in config.py (Task E).
 
   Backend contract (Task C):
-    POST /autoresearch/{slug}/run-stream   — SSE: session/agenda/run_analysis/
-                                             record_claim/verify/reconcile/complete/error
-    GET  /autoresearch/{slug}/provenance   — the claim-provenance viewer
+    POST /autoresearch/{slug}/run-stream          — SSE: session/agenda/run_analysis/
+                                                    record_claim/verify/reconcile/complete/error
+    POST /autoresearch/{slug}/run-stream?resume=true — "keep digging" from prior snapshot
+    GET  /autoresearch/{slug}/findings            — the claim/evidence findings viewer
 #}
 {% if settings and settings.autoresearch_enabled %}
 {% set has_autoresearch = submission.interview_data and submission.interview_data.get('_autoresearch') %}
 <div class="wf-step-actions" style="margin-top: 0.5rem;">
     <button class="btn btn-secondary" onclick="runAutoresearch()"
         {% if not has_pipeline_results %}title="Available once pipeline results are ready" disabled{% endif %}>
-        {% if has_autoresearch %}Re-run Autoresearch{% else %}Run Autoresearch{% endif %}
+        {% if has_autoresearch %}Re-run from scratch{% else %}Run Autoresearch{% endif %}
     </button>
     {% if has_autoresearch %}
-    <a href="/autoresearch/{{ submission.slug }}/provenance" class="btn btn-secondary">View Provenance</a>
+    <button class="btn btn-primary" onclick="runAutoresearch(true)"
+        title="Continue the investigation from where it left off and dig deeper">
+        Keep digging
+    </button>
+    <a href="/autoresearch/{{ submission.slug }}/findings" class="btn btn-secondary">View Findings</a>
     {% endif %}
 </div>
 
@@ -40,12 +45,13 @@
 </div>
 
 <script>
-async function runAutoresearch() {
+async function runAutoresearch(resume = false) {
     const progressDiv = document.getElementById('ar-progress');
     const logDiv = document.getElementById('ar-log');
     progressDiv.style.display = '';
     logDiv.innerHTML = '';
-    if (typeof showPersistentStatus === 'function') showPersistentStatus('Running autoresearch...');
+    if (typeof showPersistentStatus === 'function')
+        showPersistentStatus(resume ? 'Digging deeper...' : 'Running autoresearch...');
 
     function scrollLog() {
         const term = document.getElementById('ar-terminal');
@@ -74,10 +80,11 @@ async function runAutoresearch() {
         }
     }
 
-    appendLog('Starting claim-grounded autoresearch...');
+    appendLog(resume ? 'Resuming — digging deeper from where it left off...'
+                     : 'Starting claim-grounded autoresearch...');
 
     try {
-        const resp = await fetch(`/autoresearch/${subId}/run-stream`, {
+        const resp = await fetch(`/autoresearch/${subId}/run-stream${resume ? '?resume=true' : ''}`, {
             method: 'POST', credentials: 'same-origin',
         });
 
@@ -135,7 +142,7 @@ async function runAutoresearch() {
                         break;
                     case 'complete':
                         appendLog(d || 'Autoresearch complete.', '#22c55e');
-                        if (typeof showStatus === 'function') showStatus('Autoresearch complete! Opening provenance...');
+                        if (typeof showStatus === 'function') showStatus('Autoresearch complete! Opening findings...');
                         if (msg.ledger_url) {
                             setTimeout(() => window.location.href = msg.ledger_url, 1500);
                         } else {

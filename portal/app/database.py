@@ -62,6 +62,9 @@ class User(Base):
     # NULL means "not chosen yet"; resolution falls back personal → admin → local.
     llm_backend = Column(String(20))
     llm_model = Column(String(255))  # model for the chosen backend
+    # Per-user autoresearch depth: the agent tool-call budget per run/continue
+    # batch. NULL means "use the site default" (settings.autoresearch_max_steps).
+    autoresearch_max_steps = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, default=datetime.utcnow)
 
@@ -218,6 +221,13 @@ async def init_db():
         except Exception:
             await conn.execute(text("ALTER TABLE users ADD COLUMN llm_model VARCHAR(255)"))
             logging.getLogger(__name__).info("Added llm_model column to users")
+
+        # Migration: per-user autoresearch depth (agent tool-call budget per batch)
+        try:
+            await conn.execute(text("SELECT autoresearch_max_steps FROM users LIMIT 1"))
+        except Exception:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN autoresearch_max_steps INTEGER"))
+            logging.getLogger(__name__).info("Added autoresearch_max_steps column to users")
 
         # Migration: make bioproject_accession nullable (SQLite can't ALTER constraints,
         # so recreate the table if the column is NOT NULL)

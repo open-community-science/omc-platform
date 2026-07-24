@@ -85,8 +85,33 @@ async def settings_page(
             "admin_key_available": bool(admin_cfg),
             "personal_recommended": OPENROUTER_DEFAULT_MODEL,
             "active_label": active["label"],
+            # Autoresearch depth: user's per-run budget (blank → the site default).
+            "autoresearch_enabled": settings.autoresearch_enabled,
+            "autoresearch_max_steps": user.autoresearch_max_steps,
+            "autoresearch_max_steps_default": settings.autoresearch_max_steps,
         },
     )
+
+
+@router.post("/settings/autoresearch")
+async def set_autoresearch(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Save the user's autoresearch depth (agent tool-call budget per run/continue
+    batch). Blank/0 clears it → the site default applies. Bounded to a sane range."""
+    form = await request.form()
+    raw = (form.get("max_steps") or "").strip()
+    if not raw:
+        user.autoresearch_max_steps = None
+    else:
+        try:
+            user.autoresearch_max_steps = max(4, min(200, int(raw)))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="max_steps must be a number")
+    await db.commit()
+    return RedirectResponse("/settings?saved=1", status_code=303)
 
 
 @router.post("/settings/llm")
