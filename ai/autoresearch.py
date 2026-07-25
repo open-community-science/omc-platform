@@ -401,6 +401,27 @@ def _split_labelled(text: str) -> list[dict]:
     return out if len(out) > 1 else []       # one pair is no better than the whole string
 
 
+_INLINE_KV_RE = re.compile(
+    r"([A-Za-z_][\w.\-]{0,40})\s*(?:<=|>=|=|<|>)\s*"
+    r"([<>]?=?\s*-?\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?%?)")
+
+
+def _assertions_from_text(text: str) -> list[dict]:
+    """Last-resort salvage: labelled quantities embedded in prose ("rho=1.0, p<0.001").
+
+    Claimants that skip the `assertions` field do not stop asserting numbers — they
+    just move them into the statement. Recovering them keeps the claim checkable
+    instead of unverifiable, though it is strictly worse than being told the labels."""
+    out, seen = [], set()
+    for m in _INLINE_KV_RE.finditer(str(text or "")):
+        label = m.group(1).strip()
+        if label.lower() in seen:
+            continue
+        seen.add(label.lower())
+        out.append({"label": label, "value": m.group(2).strip(), "of": ""})
+    return out
+
+
 def _match_label(raw_label: str, known: list[str]):
     """Map a judge's label onto one of ours. Judges echo what they are grading —
     "n_core = 14", "bacteria_F (bacteria batch)" — so exact matching loses grades that
@@ -1124,8 +1145,17 @@ class Autoresearcher:
                                       "by": self.explore_model}  # model that wrote it
             return {"ok": True, "computation_id": cid, "result": _jsonify(res, cap=MODEL_VIEW_CAP)}
         if name == "record_claim":
-            assertions = _norm_assertions(args.get("assertions"), args.get("value", ""))
-            claim = {"id": f"k{len(self.ledger) + 1}", "statement": args.get("statement", ""),
+            statement = args.get("statement", "")
+            assertions = (_norm_assertions(args.get("assertions"), args.get("value", ""))
+                          or _assertions_from_text(statement))
+            if not assertions:
+                # Refuse the claim rather than bank one nothing can check. The model gets
+                # told why and can re-send; a silently unverifiable claim helps nobody.
+                return {"recorded": False, "error":
+                        "no assertions — a claim with nothing separately checkable cannot be "
+                        "verified. Re-send with assertions=[{\"label\": ..., \"value\": ..., "
+                        "\"of\": ...}], one entry per number you are asserting."}
+            claim = {"id": f"k{len(self.ledger) + 1}", "statement": statement,
                      "value": str(args.get("value", "")) or _assertions_summary(assertions),
                      "assertions": assertions,
                      "parameters": args.get("parameters") or {},

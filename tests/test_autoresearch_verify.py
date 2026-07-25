@@ -49,6 +49,20 @@ class TestNormAssertions:
         assert got == [{"label": "claim", "value": "richness rose with depth", "of": ""}]
 
 
+class TestAssertionSalvage:
+    """Claimants that skip `assertions` keep asserting numbers — they just move them
+    into the statement. Recovering them keeps the claim checkable."""
+
+    def test_labelled_quantities_are_recovered_from_prose(self):
+        from ai.autoresearch import _assertions_from_text
+        got = _assertions_from_text("Richness is depth-confounded (rho=1.0, p<0.001)")
+        assert [(a["label"], a["value"]) for a in got] == [("rho", "1.0"), ("p", "0.001")]
+
+    def test_prose_with_no_quantities_recovers_nothing(self):
+        from ai.autoresearch import _assertions_from_text
+        assert _assertions_from_text("the community looked diverse") == []
+
+
 class TestJsonifyCaps:
     def test_the_model_view_is_capped_but_the_stored_result_is_not(self):
         """Context economy for the model must not cost the verifier its evidence."""
