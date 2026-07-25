@@ -27,6 +27,7 @@ Out:  writings/{claims_ledger.json, claims_dag.json, claims_dag.md, results_from
 import asyncio
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -46,9 +47,23 @@ from run_bench import _unload_all, _lms_load
 
 # Endpoint/model are env-configurable so the same loop can run on a LOCAL LM Studio
 # model or a REMOTE OpenAI-compatible API (e.g. OpenRouter → anthropic/claude-sonnet-5).
-BASE_URL = os.environ.get("EXPLORER_BASE_URL", "http://localhost:1234/v1")
+# ── Hosts ─────────────────────────────────────────────────────────────────────
+# Roles can run on DIFFERENT machines. With one GPU every role swaps the card, so a
+# four-model run costs six loads; split across two boxes, each host holds its own
+# model and the swaps mostly disappear. `lms` is driven per host — locally for the
+# local server, over ssh for a remote one (reached through an ssh -L tunnel, so the
+# remote LM Studio stays loopback-bound).
+HOSTS = {
+    "local": {"base_url": os.environ.get("LOCAL_BASE_URL", "http://localhost:1234/v1"),
+              "lms": ["lms"]},
+    "grid":  {"base_url": os.environ.get("GRID_BASE_URL", "http://localhost:1235/v1"),
+              "lms": ["ssh", "grid", "export PATH=$PATH:~/.lmstudio/bin; lms"]},
+}
+BASE_URL = os.environ.get("EXPLORER_BASE_URL", HOSTS["local"]["base_url"])
+API_KEY = os.environ.get("EXPLORER_API_KEY", "lm-studio")
+REMOTE = not any(h in BASE_URL for h in ("localhost", "127.0.0.1"))
+
 MODEL = os.environ.get("EXPLORER_MODEL", "qwen/qwen3.6-35b-a3b")
-# The clean-room analyst. Deliberately its own env var: independence is the point.
 # The judge. Defaults AWAY from the explorer: a claimant grading its own claims is
 # not verification, and with a model doing the judging that conflict is real.
 VERIFY_MODEL = os.environ.get("VERIFY_MODEL", os.environ.get("REPLICATE_MODEL", MODEL))
@@ -56,88 +71,65 @@ REPLICATE_MODEL = os.environ.get("REPLICATE_MODEL", MODEL)
 # Round 3's casting vote. A third distinct model is ideal — the tiebreak should not
 # share a lineage with either of the first two.
 ADJUDICATE_MODEL = os.environ.get("ADJUDICATE_MODEL", REPLICATE_MODEL)
-API_KEY = os.environ.get("EXPLORER_API_KEY", "lm-studio")
-REMOTE = not any(h in BASE_URL for h in ("localhost", "127.0.0.1"))  # skip lms for remote
+
+# Which host serves each role (default: everything local).
+ROLE_HOST = {r: os.environ.get(f"{r.upper()}_HOST", "local")
+             for r in ("explore", "verify", "replicate", "adjudicate", "write")}
+ROLE_MODEL = {"explore": MODEL, "verify": VERIFY_MODEL, "replicate": REPLICATE_MODEL,
+              "adjudicate": ADJUDICATE_MODEL, "write": MODEL}
+
 OUT = HERE / "writings"
 OUT.mkdir(exist_ok=True)
 
 
-def _client() -> LLMClient:
-    """The injected LLM collaborator: an async OpenAI-compatible tool-calling client.
-
-    (The bench endpoint is synchronous under the hood, but ``AsyncOpenAI`` drives it
-    fine and lets the same core run on the portal's real async backend.)"""
-    return LLMClient(AsyncOpenAI(base_url=BASE_URL, api_key=API_KEY), MODEL)
-
-
-_LOADED = {"model": None}
+def _client_for(role: str) -> LLMClient:
+    """An OpenAI-compatible client pointed at whichever host serves `role`."""
+    host = HOSTS[ROLE_HOST[role]]
+    return LLMClient(AsyncOpenAI(base_url=host["base_url"], api_key=API_KEY, timeout=1800),
+                     ROLE_MODEL[role])
 
 
-def _switch_model(model: str) -> bool:
-    """Make `model` the one resident model (LM Studio); no-op for a remote endpoint.
+def _clients() -> dict:
+    return {r: _client_for(r) for r in ROLE_HOST}
 
-    A ~20 GB card cannot hold an explorer AND two analysts at once, so a genuinely
-    multi-model run has to PHASE them: each phase gets the whole card. Unload before
-    load — LM Studio's JIT loads on top and SIGSEGVs once VRAM is near full."""
-    if REMOTE or _LOADED["model"] == model:
+
+_LOADED = {}     # host -> currently resident model
+
+
+def _switch_model(model: str, role: str = "explore") -> bool:
+    """Make `model` the resident model on the host serving `role`.
+
+    Unload before load: LM Studio's JIT loads on top and the engine dies once VRAM is
+    near full. Because roles are spread across hosts, a host is only disturbed when
+    one of ITS roles changes model."""
+    hostname = ROLE_HOST[role]
+    host = HOSTS[hostname]
+    if _LOADED.get(hostname) == model:
         return True
-    _unload_all()
-    ok = _lms_load(model, 65536, 300)[1]
-    _LOADED["model"] = model if ok else None
+    _run_lms(host, "unload --all", timeout=120)
+    ok = _run_lms(host, f"load {model} -c 65536 --parallel 1 -y", timeout=600)
+    _LOADED[hostname] = model if ok else None
+    if not ok:      # fall back down the context ladder on a tight card
+        for ctx in (49152, 32768, 16384):
+            if _run_lms(host, f"load {model} -c {ctx} --parallel 1 -y", timeout=600):
+                _LOADED[hostname] = model
+                return True
     return ok
 
 
-def _round_marks(reps) -> str:
-    """Per-round outcome. `nocode`/`noresult` are the ANALYST failing, which is a
-    different thing from disagreeing — printing both as "differ" made a broken
-    derivation read as evidence against the claim."""
-    out = []
-    for r in reps:
-        if not r.get("code"):
-            mark = "nocode"
-        elif not r.get("usable", True):
-            mark = "noresult"
-        else:
-            mark = "agree" if r.get("agrees") else "differ"
-        out.append(f"r{r.get('round', 2)}:{mark}")
-    return " ".join(out)
-
-
-async def _run_independent_rounds(ar):
-    """Rounds 2 and 3, phased so exactly ONE model is resident at a time.
-
-    Deriving and judging are separate passes because they need different models and
-    a single GPU holds one: judging inline made LM Studio JIT-load the judge on top
-    of the analyst, and the engine died (~31 GB asked of a ~20 GB card)."""
-    print(f"\n=== ROUND 2: CLEAN-ROOM REPLICATION ({REPLICATE_MODEL}) ===", flush=True)
-    if not _switch_model(REPLICATE_MODEL):
-        print("  load failed — skipping", flush=True)
-        return
-    print(f"  {await ar.replicate(defer_judgment=True)} claims independently re-derived",
-          flush=True)
-
-    print(f"\n=== JUDGE ROUND 2 ({VERIFY_MODEL}) ===", flush=True)
-    if _switch_model(VERIFY_MODEL):
-        print(f"  {await ar.judge_replications()} derivations judged", flush=True)
-
-    print(f"\n=== ROUND 3: ADJUDICATION ({ADJUDICATE_MODEL}) ===", flush=True)
-    if _switch_model(ADJUDICATE_MODEL):
-        print(f"  {await ar.adjudicate(defer_judgment=True)} stand-offs given a casting vote",
-              flush=True)
-        print(f"\n=== JUDGE ROUND 3 ({VERIFY_MODEL}) ===", flush=True)
-        if _switch_model(VERIFY_MODEL):
-            print(f"  {await ar.judge_replications()} derivations judged", flush=True)
-
-    for c in ar.ledger:
-        reps = c.get("replications") or []
-        if reps:
-            print(f"    [{c['verdict']:11}] {c['id']:4} {_round_marks(reps):34} "
-                  f"{c['statement'][:44]}", flush=True)
-
-
-def _ensure_model_loaded():
-    """Load the explorer/verifier model."""
-    return _switch_model(MODEL)
+def _run_lms(host: dict, args: str, timeout: int) -> bool:
+    """Run an `lms` subcommand on a host (locally, or over ssh for a remote one)."""
+    cmd = host["lms"][:]
+    if cmd[0] == "ssh":
+        cmd = cmd[:2] + [f"{cmd[2]} {args}"]
+    else:
+        cmd = cmd + args.split()
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode == 0
+    except Exception as e:
+        print(f"  [lms {args} on {cmd[:2]} failed: {e}]", flush=True)
+        return False
 
 
 def _data_source() -> DirDataSource:
@@ -154,7 +146,7 @@ def _executor() -> SubprocessExecutor:
 
 
 def _make_researcher(llm: LLMClient) -> Autoresearcher:
-    return Autoresearcher(_data_source(), llm, _executor(),
+    return Autoresearcher(_data_source(), llm, _executor(), clients=_clients(),
                           explore_model=MODEL, verify_model=VERIFY_MODEL,
                           replicate_model=REPLICATE_MODEL,
                           adjudicate_model=ADJUDICATE_MODEL)
@@ -203,10 +195,11 @@ async def _reverify_async(llm):
     deterministic miss escalates to skeptical model reconciliation."""
     saved = json.loads((OUT / "claims_ledger.json").read_text())
     ar = Autoresearcher.from_snapshot(saved, _data_source(), llm or LLMClient(None, MODEL),
-                                      _executor(), explore_model=MODEL, verify_model=VERIFY_MODEL,
+                                      _executor(), clients=(_clients() if llm else None),
+                                      explore_model=MODEL, verify_model=VERIFY_MODEL,
                                       replicate_model=REPLICATE_MODEL,
                                       adjudicate_model=ADJUDICATE_MODEL)
-    _switch_model(VERIFY_MODEL)
+    _switch_model(VERIFY_MODEL, "verify")
     await ar.verify()
     # Re-grade a SAVED ledger through the independent rounds without re-exploring —
     # the cheap way to ask "how many of these claims survive a clean-room check?".
@@ -250,7 +243,7 @@ async def _main_async(llm: LLMClient):
     ar = _make_researcher(llm)
     completed = await ar.explore()
     print(f"\n=== VERIFY (judged by {VERIFY_MODEL}) ===", flush=True)
-    _switch_model(VERIFY_MODEL)
+    _switch_model(VERIFY_MODEL, "verify")
     await ar.verify()
     if "--replicate" in sys.argv:
         await _run_independent_rounds(ar)
@@ -276,7 +269,7 @@ async def _main_async(llm: LLMClient):
     _write_dag(ar, len(verified), status)
 
     print(f"\n=== WRITE (verified claims only, by {MODEL}) ===")
-    _switch_model(MODEL)      # the writer is the explorer/draft model, not the judge
+    _switch_model(MODEL, "write")   # the writer is the draft model, not the judge
     text = await ar.write_results(verified)
     unsupported = check_numbers_supported({"results": text}, results_data=_supported_results_data(
         ar.computations, ar.ledger))
@@ -296,11 +289,11 @@ def main():
         if "--reconcile" in sys.argv:   # verification needs a model to judge
             if not _ensure_model_loaded():
                 print("load failed"); return
-            client = _client()
+            client = _client_for("verify")
         reverify_saved(client); return
     if not _ensure_model_loaded():
         print("load failed"); return
-    asyncio.run(_main_async(_client()))
+    asyncio.run(_main_async(_client_for("explore")))
 
 
 if __name__ == "__main__":

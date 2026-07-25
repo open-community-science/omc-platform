@@ -887,10 +887,16 @@ class Autoresearcher:
                  explore_model: str | None = None, verify_model: str | None = None,
                  write_model: str | None = None, replicate_model: str | None = None,
                  adjudicate_model: str | None = None,
+                 clients: dict | None = None,
                  max_steps: int = 48, max_followups: int = 12,
                  on_progress: Optional[Callable[[str, Any], Awaitable]] = None):
         self.data = data
         self.llm = llm
+        # Optional per-ROLE clients ('explore'/'verify'/'replicate'/'adjudicate'/'write').
+        # Roles can live on different endpoints — e.g. a big claimant on a 32 GB box and
+        # the judge on another — which is what lets several models stay resident at once
+        # instead of being swapped in and out of one card. Absent roles use `llm`.
+        self.clients = dict(clients or {})
         self.executor = executor
         self.explore_model = explore_model or llm.model
         self.verify_model = verify_model or llm.model
@@ -930,6 +936,14 @@ class Autoresearcher:
             except Exception:
                 self._briefing = ""
         return self._briefing
+
+    # -- role routing -----------------------------------------------------------
+    def client_for(self, role: str) -> LLMClient:
+        """The client serving `role`, falling back to the shared one."""
+        return self.clients.get(role) or self.llm
+
+    async def _chat(self, role: str, messages, **kw):
+        return await self.client_for(role).chat(messages, **kw)
 
     # -- progress ---------------------------------------------------------------
     async def _emit(self, event: str, detail: Any) -> None:
@@ -1071,7 +1085,7 @@ class Autoresearcher:
                  "then work through it, recursing where it gets interesting."}]
         swept_assumptions = False   # force one assumptions pass before finishing
         for step in range(self.max_steps):
-            r = await self.llm.chat(messages, model=self.explore_model, tools=TOOLS,
+            r = await self._chat("explore", messages, model=self.explore_model, tools=TOOLS,
                                     tool_choice="auto", temperature=0.25, max_tokens=2500)
             msg = r.choices[0].message
             if not msg.tool_calls:
@@ -1153,7 +1167,8 @@ class Autoresearcher:
 
     async def _judge(self, system: str, user: str, model: str) -> dict:
         """One adjudication. Returns ``{verdict, contradicted, reasoning}``."""
-        resp = await self.llm.chat(
+        resp = await self._chat(
+            "verify",
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             model=model, max_tokens=4000, temperature=0.0)
         text = _strip_think(resp.choices[0].message.content or "")
@@ -1199,7 +1214,7 @@ class Autoresearcher:
 
             if not have_evidence:
                 c["verdict"] = "unverifiable"
-            elif self.llm.client is None:
+            elif self.client_for("verify").client is None:
                 # No model: the evidence is still re-derived (that half stays
                 # deterministic), but nothing can judge it. Leave the prior grade
                 # rather than inventing one.
@@ -1261,8 +1276,8 @@ class Autoresearcher:
         model = model or self.replicate_model
         rep: dict[str, Any] = {"round": round_no, "by": model, "attempts": 0}
         for attempt in range(max_attempts):
-            r = await self.llm.chat(msgs, model=model,
-                                    temperature=temperature, max_tokens=3000)
+            r = await self._chat("adjudicate" if round_no >= 3 else "replicate", msgs,
+                                 model=model, temperature=temperature, max_tokens=3000)
             text = _strip_think(r.choices[0].message.content or "")
             code = _extract_code(text)
             rep["attempts"] = attempt + 1
@@ -1573,7 +1588,8 @@ class Autoresearcher:
                 {"role": "user", "content": user + "\nWrite the Results section."}]
         content = ""
         for mt in (6000, 12000):
-            r = await self.llm.chat(msgs, model=self.write_model, temperature=0.4, max_tokens=mt)
+            r = await self._chat("write", msgs, model=self.write_model,
+                                 temperature=0.4, max_tokens=mt)
             content = _strip_think(r.choices[0].message.content or "")
             if content.strip():
                 break
