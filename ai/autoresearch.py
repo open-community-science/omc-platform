@@ -1053,6 +1053,7 @@ class Autoresearcher:
         self.results_prose: str | None = None     # last write_results() output (for snapshot)
         self.results_prose_by: str | None = None  # model that wrote the prose
         self._briefing: str | None = None         # cached data-shape briefing
+        self.refused_claims: int = 0              # claims rejected as uncheckable
 
     # -- data briefing ----------------------------------------------------------
     async def data_briefing(self) -> str:
@@ -1151,6 +1152,7 @@ class Autoresearcher:
             if not assertions:
                 # Refuse the claim rather than bank one nothing can check. The model gets
                 # told why and can re-send; a silently unverifiable claim helps nobody.
+                self.refused_claims += 1
                 return {"recorded": False, "error":
                         "no assertions — a claim with nothing separately checkable cannot be "
                         "verified. Re-send with assertions=[{\"label\": ..., \"value\": ..., "
@@ -1573,6 +1575,15 @@ class Autoresearcher:
         differed = [l for l, t in tally.items() if t["differs"] and not t["agrees"]]
         split   = [l for l, t in tally.items() if t["differs"] and t["agrees"]]
 
+        # An assertion that failed INDEPENDENT re-derivation must not be restated in the
+        # prose either. Previously only round-1 contradictions were withheld, so a claim
+        # that passed verification and then lost a value to replication handed the writer
+        # an empty do-not-state list.
+        by_label = {a["label"]: a.get("value", "") for a in (claim.get("assertions") or [])}
+        claim["unsupported_numbers"] = sorted(set(
+            (claim.get("unsupported_numbers") or [])
+            + [f"{l}={by_label.get(l, '')}" for l in differed + split]))
+
         if not reproduced:
             # Correct science, broken bookkeeping: its own antecedents do not produce it
             # but an independent analyst does. Worth rescuing, worth flagging.
@@ -1816,6 +1827,10 @@ class Autoresearcher:
         for c in self.ledger:
             models |= {r.get("by") for r in (c.get("replications") or [])}
         return {"completed": completed, "investigations_done": done,
+                # Refused claims are otherwise invisible: a claimant that cannot produce
+                # checkable assertions just looks unproductive, which is a different
+                # problem with a different fix.
+                "claims_refused": self.refused_claims,
                 "investigations_total": len(self.agenda),
                 # Clean-room pass (#50): how many claims a second analyst re-derived
                 # from the raw data, and how many of those agreed.

@@ -807,6 +807,34 @@ def test_accumulating_across_passes_is_possible_but_opt_in():
     assert len(ar.ledger[0]["replications"]) == 2
 
 
+def test_an_assertion_that_fails_replication_is_withheld_from_the_prose():
+    """A claim can pass verification and still lose a value to independent
+    re-derivation; the writer has to be told, or it restates it as solid."""
+    claim = _claim(verdict="verified", value="corr=-0.34")
+    claim["assertions"] = [{"label": "n_asvs", "value": "24", "of": ""},
+                           {"label": "corr", "value": "-0.34", "of": ""}]
+    claim["replications"] = [{"round": 2, "by": "analyst-2", "usable": True, "code": "x",
+                              "roll": "mixed",
+                              "assertion_verdicts": {"n_asvs": "agrees", "corr": "differs"},
+                              "judgment": {"notes": {"corr": "I get -0.12"}}}]
+    ar = _replicating_researcher("", {}, ledger=[claim], comps=dict(_COMPS))
+    ar.ledger[0]["verdict"] = ar._resolve_verdict(ar.ledger[0])
+    c = ar.ledger[0]
+    assert c["verdict"] == "partial"
+    assert c["unsupported_numbers"] == ["corr=-0.34"]      # the failed one, not the good one
+
+
+def test_refused_claims_are_counted():
+    """A claimant that cannot produce checkable assertions otherwise just looks
+    unproductive — a different problem with a different fix."""
+    ar = Autoresearcher(_StubData(), LLMClient(None, "m"), _StubExecutor({}))
+    r = asyncio.run(ar._exec_tool("record_claim", {
+        "statement": "the community looked diverse", "antecedents": ["c1"]}))
+    assert r["recorded"] is False and "assertions" in r["error"]
+    assert ar.ledger == []
+    assert ar.run_summary(completed=True)["claims_refused"] == 1
+
+
 def test_assumptions_reach_the_writer():
     """The agent is made to surface what it could not confirm; dropping that at the
     writing step is exactly where candour matters most."""
