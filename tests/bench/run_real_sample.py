@@ -64,7 +64,7 @@ if "--reverify" in flags:
     client = None
     if "--reconcile" in flags:
         R._ensure_model_loaded()
-        client = R._client()
+        client = R._client_for("verify")
     R.reverify_saved(client)
 else:
     # Fresh run: hide OUR flags from R.main(), but pass through the ones it owns

@@ -283,7 +283,7 @@ TOOLS = [
                 "anything that should actually be checked.")},
             "antecedents": {"type": "array", "items": {"type": "string"}},
             "kind": {"type": "string", "enum": ["observation", "pattern", "anomaly", "quality_caveat"]}},
-            "required": ["statement", "value", "antecedents"]}}},
+            "required": ["statement", "assertions", "antecedents"]}}},
     {"type": "function", "function": {
         "name": "record_assumption",
         "description": ("When you must proceed despite something you CANNOT confirm from the data or the "
@@ -372,6 +372,43 @@ def _first_number(text: str):
     return float(m.group().replace(",", "")) if m else None
 
 
+_KV_RE = re.compile(r"^\s*([A-Za-z_][\w .\-/%()]*?)\s*=\s*(.+?)\s*$")
+
+
+def _split_labelled(text: str) -> list[dict]:
+    """Split "a=1; b=2" into assertions. Claimants that ignore `assertions` still tend
+    to write labelled values into `value`, and that is already the structure — treating
+    it as one opaque blob threw away a decomposition the claimant had made."""
+    parts = [x for x in re.split(r"[;\n]", str(text)) if x.strip()]
+    if len(parts) == 1:
+        comma = [x for x in str(text).split(",") if x.strip()]
+        if len(comma) > 1 and all(_KV_RE.match(x) for x in comma):
+            parts = comma
+    out = []
+    for part in parts:
+        m = _KV_RE.match(part)
+        if m:
+            out.append({"label": m.group(1).strip(), "value": m.group(2).strip(), "of": ""})
+    return out if len(out) > 1 else []       # one pair is no better than the whole string
+
+
+def _match_label(raw_label: str, known: list[str]):
+    """Map a judge's label onto one of ours. Judges echo what they are grading —
+    "n_core = 14", "bacteria_F (bacteria batch)" — so exact matching loses grades that
+    were correctly made."""
+    raw = str(raw_label).strip().lower()
+    lowered = {k.lower(): k for k in known}
+    if raw in lowered:
+        return lowered[raw]
+    head = raw.split("=")[0].split("(")[0].strip()
+    if head in lowered:
+        return lowered[head]
+    for low, orig in lowered.items():        # longest first: prefer the specific label
+        if low and (raw.startswith(low) or low in raw):
+            return orig
+    return None
+
+
 def _norm_assertions(raw, value_fallback: str = "") -> list[dict]:
     """Assertions as a clean list of ``{label, value, of}``.
 
@@ -393,7 +430,8 @@ def _norm_assertions(raw, value_fallback: str = "") -> list[dict]:
         elif isinstance(a, str) and a.strip():          # tolerate a bare list of strings
             out.append({"label": a.strip()[:60], "value": a.strip(), "of": ""})
     if not out and str(value_fallback).strip():
-        out = [{"label": "claim", "value": str(value_fallback).strip(), "of": ""}]
+        out = (_split_labelled(value_fallback)
+               or [{"label": "claim", "value": str(value_fallback).strip(), "of": ""}])
     return out
 
 
@@ -1240,11 +1278,29 @@ class Autoresearcher:
                           "NOT_ADDRESSED": "not_addressed", "AGREES": "agrees",
                           "DIFFERS": "differs"}[verdict]
             notes[label] = (note or "").strip()[:200]
-        # A judge that answered about nothing we asked leaves every assertion unaddressed
-        # rather than silently grading the claim on a label it invented.
-        known = {a["label"] for a in assertions}
-        per = {k: v for k, v in per.items() if k in known} or {}
-        return {"per": per, "notes": notes, "by": model, "raw": text.strip()[:600]}
+        # Map the judge's labels back onto ours FORGIVINGLY. Judges echo the assertion
+        # they are grading ("ASSERTION n_core = 14: SUPPORTED"), and an exact-match filter
+        # discarded a correct grade as if nothing had been graded at all — six claims came
+        # back unverifiable off the back of six SUPPORTED verdicts.
+        known = [a["label"] for a in assertions]
+        mapped, mapped_notes = {}, {}
+        for raw_label, verdict in per.items():
+            k = _match_label(raw_label, known)
+            if k and k not in mapped:
+                mapped[k] = verdict
+                mapped_notes[k] = notes.get(raw_label, "")
+        if not mapped and per:
+            if len(known) == 1 and len(per) == 1:
+                # One assertion, one verdict, label unrecognisable: it is about that one.
+                mapped[known[0]] = next(iter(per.values()))
+                mapped_notes[known[0]] = next(iter(notes.values()), "")
+            else:
+                # The judge decomposed further than we did — a finer grading of the same
+                # claim is more information, not less. Take its labels.
+                mapped, mapped_notes = dict(per), dict(notes)
+        return {"per": mapped, "notes": mapped_notes, "by": model,
+                "raw": text.strip()[:600],
+                "unmatched": [l for l in per if not _match_label(l, known)]}
 
     @staticmethod
     def _roll_up(per: dict, good: str, bad: str) -> str:
