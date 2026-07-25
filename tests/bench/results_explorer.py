@@ -98,7 +98,7 @@ def _round_marks(reps) -> str:
         elif not r.get("usable", True):
             mark = "noresult"
         else:
-            mark = "agree" if r.get("numbers_match") else "differ"
+            mark = "agree" if r.get("agrees") else "differ"
         out.append(f"r{r.get('round', 2)}:{mark}")
     return " ".join(out)
 
@@ -275,7 +275,8 @@ async def _main_async(llm: LLMClient):
     _write_ledger(ar, completed)
     _write_dag(ar, len(verified), status)
 
-    print("\n=== WRITE (verified claims only) ===")
+    print(f"\n=== WRITE (verified claims only, by {MODEL}) ===")
+    _switch_model(MODEL)      # the writer is the explorer/draft model, not the judge
     text = await ar.write_results(verified)
     unsupported = check_numbers_supported({"results": text}, results_data=_supported_results_data(
         ar.computations, ar.ledger))
