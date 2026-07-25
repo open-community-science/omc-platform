@@ -76,6 +76,16 @@ Work systematically and recursively:
    them being mistaken for findings.
    DEFINE AMBIGUOUS TERMS in the label or `of`: "doubletons" meant three different things to
    three analysts once, and the claim lost the one number nobody could agree how to compute.
+   A good call looks like:
+     record_claim(
+       statement="PERMANOVA separates habitat types within each domain batch",
+       assertions=[{"label":"bacteria_F","value":"14.61","of":"bacteria batch, 6 habitat groups"},
+                   {"label":"bacteria_p","value":"0.001","of":"bacteria batch"},
+                   {"label":"eukaryote_F","value":"10.52","of":"eukaryote batch, 4 groups"}],
+       parameters={"permutations":999, "n_bacteria":44, "n_eukaryote":18},
+       antecedents=["c12"], kind="pattern")
+   Note what is NOT an assertion: the permutation count and the group sizes. Those are how
+   you ran it, not what you found.
    Prefer claims of kind "pattern" or "anomaly" (an insight) over "observation" (a restated
    number). Be honest: record quality_caveat for depth bias, low evenness, contamination,
    or anything that undermines a result. Never claim a number you did not compute. Phrase
@@ -265,22 +275,21 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {
             "statement": {"type": "string"},
             "assertions": {"type": "array", "description": (
-                "The claim broken into SEPARATELY CHECKABLE quantities — one entry per number "
-                "you are asserting. Each is verified on its own, so one shaky value no longer "
-                "sinks the rest of the claim. Split anything a reader could agree with in part."),
+                "One entry per number you are asserting. Each is checked SEPARATELY, so a "
+                "claim keeps credit for the findings that hold even if one value is "
+                "disputed. Example: [{\"label\": \"bacteria_F\", \"value\": \"14.61\", "
+                "\"of\": \"bacteria batch, 6 habitat groups\"}, {\"label\": \"bacteria_p\", "
+                "\"value\": \"0.001\"}]"),
                 "items": {"type": "object", "properties": {
                     "label": {"type": "string", "description": "what the number IS, e.g. 'bacteria_F'"},
                     "value": {"type": "string", "description": "the value, e.g. '14.61'"},
-                    "of": {"type": "string", "description": "the subset/grouping it applies to, e.g. 'bacteria batch, 6 habitat groups'"}},
+                    "of": {"type": "string", "description": "which subset/grouping, e.g. 'bacteria batch'"}},
                     "required": ["label", "value"]}},
             "parameters": {"type": "object", "description": (
                 "The knobs your analysis used — thresholds, permutation counts, group sizes, "
-                "how many things you screened. These are CONTEXT, not findings: nobody will "
-                "try to re-derive them, and putting them here keeps them from being mistaken "
-                "for claims. e.g. {'permutations': 999, 'prevalence_threshold': 0.5}")},
-            "value": {"type": "string", "description": (
-                "One-line summary of the assertions, for display. Prefer `assertions` for "
-                "anything that should actually be checked.")},
+                "how many things you screened. CONTEXT, never graded. Putting them here is "
+                "what stops them being mistaken for findings. "
+                "Example: {\"permutations\": 999, \"prevalence_threshold\": 0.5}")},
             "antecedents": {"type": "array", "items": {"type": "string"}},
             "kind": {"type": "string", "enum": ["observation", "pattern", "anomaly", "quality_caveat"]}},
             "required": ["statement", "assertions", "antecedents"]}}},
