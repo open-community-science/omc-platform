@@ -68,10 +68,12 @@ class _StubData:
         return {}
 
 
-SUPPORTED = "VERDICT: SUPPORTED\nCONTRADICTED: none\nEverything checks out."
-UNSUPPORTED = "VERDICT: UNSUPPORTED\nCONTRADICTED: 915\nThe evidence gives a different value."
-AGREES = "VERDICT: AGREES\nCONTRADICTED: none\nSame answer, derived my own way."
-DIFFERS = "VERDICT: DIFFERS\nCONTRADICTED: rho=0.78\nI get a much weaker relationship."
+# Judges grade one line per assertion. A claim recorded with only a `value` string
+# degrades to a single implicit assertion labelled "claim".
+SUPPORTED = "ASSERTION claim: SUPPORTED — the evidence gives this value"
+UNSUPPORTED = "ASSERTION claim: CONTRADICTED — the evidence gives 161"
+AGREES = "ASSERTION claim: AGREES — same answer, derived my own way"
+DIFFERS = "ASSERTION claim: DIFFERS — I get 0.2"
 
 
 def _stub_client(*, analyst=None, judge=SUPPORTED, seen=None):
@@ -134,7 +136,7 @@ def test_refuted_when_reexecution_contradicts():
                   "antecedents": ["c1"], "kind": "observation"}]
     asyncio.run(ar.verify())
     assert ar.ledger[0]["verdict"] == "refuted"
-    assert ar.ledger[0]["judgment"]["contradicted"] == ["915"]
+    assert ar.ledger[0]["assertion_verdicts"] == {"claim": "contradicted"}
 
 
 def test_unverifiable_without_a_checkable_antecedent():
@@ -151,16 +153,19 @@ def test_partial_keeps_the_claim_and_names_the_bad_numbers():
     """A mostly-right claim used to die whole; now the failure is itemised."""
     ar = _researcher(
         results={"code_a": {"rho": [0.8319, -0.7315]}},
-        judge=("VERDICT: PARTIAL\nCONTRADICTED: 0.812, 0.781\n"
-               "Two of the four correlations are contradicted by the evidence."))
+        judge=("ASSERTION rho_a: SUPPORTED — evidence gives 0.8319\n"
+               "ASSERTION rho_b: CONTRADICTED — evidence gives -0.7315, not 0.812"))
     ar.computations = {"c1": {"label": "co-occurrence", "code": "code_a",
                               "result": {"rho": [0.8319, -0.7315]}}}
     ar.ledger = [{"id": "k1", "statement": "a co-occurring guild", "kind": "pattern",
-                  "value": "0.832, 0.812, 0.781, -0.732", "antecedents": ["c1"]}]
+                  "value": "rho_a=0.832, rho_b=0.812", "antecedents": ["c1"],
+                  "assertions": [{"label": "rho_a", "value": "0.832", "of": ""},
+                                 {"label": "rho_b", "value": "0.812", "of": ""}]}]
     asyncio.run(ar.verify())
     c = ar.ledger[0]
     assert c["verdict"] == "partial"
-    assert c["unsupported_numbers"] == ["0.812", "0.781"]
+    assert c["unsupported_numbers"] == ["rho_b=0.812"]
+    assert c["assertion_verdicts"] == {"rho_a": "supported", "rho_b": "contradicted"}
     assert c["judgment"]["by"] == "stub-model"
 
 
@@ -168,7 +173,7 @@ def test_the_judge_can_support_a_claim_stated_in_words():
     """A claim whose value is prose, not digits — impossible for a matcher, ordinary
     for a judge reading the evidence."""
     ar = _researcher(results={"code_a": {"rho": 0.8319}},
-                     judge="VERDICT: SUPPORTED\nCONTRADICTED: none\nMatches within rounding.")
+                     judge=SUPPORTED)
     ar.computations = {"c1": {"label": "corr", "code": "code_a", "result": {"rho": 0.8319}}}
     ar.ledger = [{"id": "k1", "statement": "strong correlation", "kind": "pattern",
                   "value": "rho about four fifths", "antecedents": ["c1"]}]
@@ -487,7 +492,10 @@ def test_a_failed_derivation_does_not_vote_against_the_claim():
 
 # ── round 3: adjudication ─────────────────────────────────────────────────────
 def _claim(verdict="disputed", reproduced=True, value="rho=0.78", reps=()):
-    reps = [{"by": "analyst-2", "usable": True, **r} for r in reps]  # round 2, own model
+    reps = [{"by": "analyst-2", "usable": True,
+             "assertion_verdicts": {"claim": "agrees" if r.get("agrees") else "differs"},
+             "roll": "all" if r.get("agrees") else "none",
+             "judgment": {"notes": {"claim": r.get("got", "0.2")}}, **r} for r in reps]
     return {"id": "k1", "statement": "richness tracks depth", "value": value,
             "antecedents": ["c1"], "kind": "pattern", "verdict": verdict,
             "reproduced": reproduced, "replications": list(reps)}
@@ -515,38 +523,40 @@ def test_round_three_rescues_a_claim_the_lone_dissenter_got_wrong():
 
 
 def test_two_independents_concurring_against_the_claim_overturn_it():
-    """A single dissent is a stand-off; two that land together is a conclusion."""
-    ar, n = _round3(
+    """A single dissent is a stand-off; two that land on the SAME value is a conclusion."""
+    ar, _ = _round3(
         "```python\nresult = {'rho': 0.21}\n```\nSUPPORTS: NO",
         {"result = {'rho': 0.21}": {"rho": 0.21}},
         _claim(reps=[{"round": 2, "code": "x", "result": {"rho": 0.2},
-                      "agrees": False, "analyst": "contradicts"}]))
+                      "agrees": False, "got": "I get 0.2"}]),
+        judge="ASSERTION claim: DIFFERS — I get 0.2")
     c = ar.ledger[0]
     assert c["verdict"] == "overturned"
-    # And it hands back what they agreed ON, which is the useful part.
-    assert any(abs(x - 0.2) < 0.02 for x in c["consensus_numbers"])
+    # And the record keeps what they each got, which is the useful part of a dissent.
+    assert c["assertion_replication"]["claim"]["differs"] == 2
 
 
-def test_independents_wrong_in_different_directions_are_contested_not_overturned():
-    """Instability is a finding about the analysis, not a verdict on the claim."""
+def test_independents_landing_on_different_values_are_contested_not_overturned():
+    """Two analysts dissenting to 0 and 72 means the quantity is ill-defined, not that
+    the claim is wrong. This is the real k9 case: 'doubletons' meant three things."""
     ar, _ = _round3(
-        "```python\nresult = {'rho': 0.95}\n```\nSUPPORTS: INCONCLUSIVE",
-        {"result = {'rho': 0.95}": {"rho": 0.95}},
-        _claim(reps=[{"round": 2, "code": "x", "result": {"rho": 0.05},
-                      "agrees": False, "analyst": "inconclusive"}]))
+        "```python\nresult = {'n': 72}\n```\nSUPPORTS: NO",
+        {"result = {'n': 72}": {"n": 72}},
+        _claim(reps=[{"round": 2, "code": "x", "result": {"n": 0},
+                      "agrees": False, "got": "I get 0"}]),
+        judge="ASSERTION claim: DIFFERS — I get 72")
     assert ar.ledger[0]["verdict"] == "contested"
-    assert ar.ledger[0].get("consensus_numbers", []) == []
 
 
-def test_numbers_decide_concurrence_not_the_analysts_self_reports():
-    """Two analysts can both say "contradicts" while landing on entirely different
-    values — that is contested, not overturned. Their results are the evidence; what
-    they say about their results is opinion."""
+def test_an_assertion_some_agree_and_some_dispute_is_contested():
+    """One analyst reproduced it, another did not — the quantity is unstable, which is
+    a different finding from either 'confirmed' or 'wrong'."""
     ar, _ = _round3(
-        "```python\nresult = {'rho': 0.95}\n```\nSUPPORTS: NO",
-        {"result = {'rho': 0.95}": {"rho": 0.95}},
-        _claim(reps=[{"round": 2, "code": "x", "result": {"rho": 0.05},
-                      "agrees": False, "analyst": "contradicts"}]))
+        "```python\nresult = {'rho': 0.78}\n```\nSUPPORTS: YES",
+        {"result = {'rho': 0.78}": {"rho": 0.78}},
+        _claim(reps=[{"round": 2, "code": "x", "result": {"rho": 0.2},
+                      "agrees": False, "got": "I get 0.2"}]),
+        judge=AGREES)
     assert ar.ledger[0]["verdict"] == "contested"
 
 

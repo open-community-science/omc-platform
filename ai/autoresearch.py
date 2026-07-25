@@ -65,12 +65,17 @@ Work systematically and recursively:
    you go deeper (a cluster in ordination → its driver taxa → are they contamination?).
 4. WRITE CLAIMS THAT CAN BE REPRODUCED. Every claim you record will be handed to an
    independent analyst who gets the raw data and your claim — but NOT your code — and must
-   re-derive it. A vague claim is one you lose. So make each claim ONE testable assertion,
-   and put its numbers in `value` as LABELLED quantities (e.g.
-   "bacteria_F=14.61, bacteria_p=0.001, eukaryote_F=10.52") rather than buried in prose.
-   Name the subset or grouping the number applies to, and state the parameters you used
-   (thresholds, permutation counts) so your work can be repeated. If a claim needs three
-   sentences of context to interpret, split it.
+   re-derive it. A vague claim is one you lose.
+   Break each claim into `assertions`: one entry per number you are asserting, each with a
+   `label` saying what it IS and an `of` saying which subset it applies to. Each assertion is
+   checked SEPARATELY, so a claim whose main finding holds keeps its credit even if one
+   secondary number is disputed — but only if you separated them. Bundling several findings
+   into one assertion means they stand or fall together, which is your loss, not the checker's.
+   Put your knobs in `parameters` (thresholds, permutation counts, group sizes, how many
+   genera you screened). Nobody re-derives those, and keeping them out of `assertions` stops
+   them being mistaken for findings.
+   DEFINE AMBIGUOUS TERMS in the label or `of`: "doubletons" meant three different things to
+   three analysts once, and the claim lost the one number nobody could agree how to compute.
    Prefer claims of kind "pattern" or "anomaly" (an insight) over "observation" (a restated
    number). Be honest: record quality_caveat for depth bias, low evenness, contamination,
    or anything that undermines a result. Never claim a number you did not compute. Phrase
@@ -120,55 +125,43 @@ Keep going until the agenda (including follow-ups) is worked through AND you hav
 assumptions your findings rest on, then reply DONE."""
 
 
-JUDGE_SYSTEM = """You are a strict verification auditor. You are given a CLAIM and
-INDEPENDENT EVIDENCE — results re-executed from the raw data, with the analyst's own labels
-intact. Decide whether the evidence supports the claim's substantive findings.
+JUDGE_SYSTEM = """You are a strict verification auditor. You are given a CLAIM broken into
+separately checkable ASSERTIONS, the PARAMETERS its analysis used, and INDEPENDENT EVIDENCE
+re-executed from the raw data with the analyst's own labels intact.
 
-Read the LABELS, not just the numbers. `{"bacteria_F": 14.61}` backs "PERMANOVA F=14.61 for
-the bacteria batch"; a bare 14.61 sitting under a different label does not.
+Grade EVERY assertion on its own. They stand or fall separately — a claim whose main finding
+holds keeps its credit even if one secondary number is contradicted.
 
-- A claim's FINDINGS must be backed. The PARAMETERS it cites need not appear anywhere: a
-  permutation count (999), a prevalence threshold (>=50%), a group size (n=44), how many
-  genera were screened (6) — these describe how the analysis was done, not what it found.
-  Never mark a claim unsupported because a parameter was not restated.
-- Distinguish CONTRADICTED from NOT REPORTED. Contradicted means the evidence gives a
-  different value for the same quantity — that is grounds for UNSUPPORTED. Silence is not:
-  evidence that simply does not mention a quantity neither supports nor refutes it.
-- Allow equivalent representations: a fraction vs a percent, a rounded value, a simple
-  derivation (a difference, a ratio) of what is shown.
-- IGNORE tokens that are identifiers rather than quantities (sample accessions like
-  SRR38966955, ASV_000123, PC1).
-- If every finding is backed, say SUPPORTED. If some findings are backed and others are
-  CONTRADICTED, say PARTIAL and list the contradicted values. If the central finding is
-  contradicted, say UNSUPPORTED. If the evidence is empty or unrelated, say UNVERIFIABLE.
+Read the LABELS, not just the numbers. `{"bacteria_F": 14.61}` backs an assertion labelled
+bacteria_F; a bare 14.61 under some unrelated label does not.
 
-Reply with exactly two lines:
-VERDICT: SUPPORTED|PARTIAL|UNSUPPORTED|UNVERIFIABLE
-CONTRADICTED: <comma-separated claim values the evidence actually contradicts, or 'none'>
-then one sentence of reasoning. Be strict about contradictions and relaxed about silence."""
+- PARAMETERS are never graded. Permutation counts, thresholds, group sizes, how many things
+  were screened — these describe how the analysis was done, not what it found.
+- SUPPORTED: the evidence gives this value (allow rounding, fraction vs percent, and simple
+  derivations — 0.0002 and 0.0003 for the same p-value is rounding, not a contradiction).
+- CONTRADICTED: the evidence gives a DIFFERENT value for this same quantity.
+- NOT_ADDRESSED: the evidence is silent on it. Silence is neither support nor contradiction.
+- IGNORE identifiers (SRR38966955, ASV_000123, PC1) — they are names, not quantities.
+
+Reply with one line per assertion, then nothing else:
+ASSERTION <label>: SUPPORTED|CONTRADICTED|NOT_ADDRESSED — <evidence value, or why>"""
 
 
 REPLICATE_JUDGE_SYSTEM = """You are auditing a CLEAN-ROOM REPLICATION. A second analyst was
 given the claim and the raw data — never the original code — and wrote its own analysis. You
-see the claim and that analyst's labelled result.
+see the claim's ASSERTIONS and that analyst's labelled result.
 
-Decide whether the independent derivation REPRODUCES the claim's findings.
+Grade EVERY assertion separately: did this independent derivation reproduce it?
 
-Read the labels. `{"bacteria_F": 14.61, "bacteria_p": 0.001}` reproduces "PERMANOVA F=14.61,
-p=0.001 for the bacteria batch" even though the claim also mentions 999 permutations and 6
-groups, which an independent analyst has no reason to restate.
+- AGREES: the analyst's result gives this value (allow rounding, fraction vs percent, simple
+  derivations — 0.0002 vs 0.0003 for a p-value is rounding, not disagreement).
+- DIFFERS: the analyst computed a DIFFERENT value for this same quantity. Say what it got.
+- NOT_ADDRESSED: the analyst did not compute this. An independent analyst reports its own
+  findings and has no reason to restate every number, so silence is NOT disagreement.
+- PARAMETERS are never graded.
 
-- Parameters (permutation counts, thresholds, group sizes, how many things were screened) do
-  NOT need to appear. Only the findings do.
-- Silence is not disagreement. The derivation disagrees only where it computed a DIFFERENT
-  value for a quantity the claim asserts.
-- Allow fraction/percent, rounding, and simple derivations.
-- A result that computed nothing relevant is INCONCLUSIVE, not disagreement.
-
-Reply with exactly two lines:
-VERDICT: AGREES|PARTIAL|DIFFERS|INCONCLUSIVE
-CONTRADICTED: <the claim values this derivation actually contradicts, or 'none'>
-then one sentence saying what it computed and how it compares."""
+Reply with one line per assertion, then nothing else:
+ASSERTION <label>: AGREES|DIFFERS|NOT_ADDRESSED — <what the analyst got>"""
 
 
 REPLICATE_SYSTEM = """You are an independent analyst performing a CLEAN-ROOM REPLICATION.
@@ -271,11 +264,23 @@ TOOLS = [
                         "(patterns, relationships, anomalies) over restating summary numbers."),
         "parameters": {"type": "object", "properties": {
             "statement": {"type": "string"},
+            "assertions": {"type": "array", "description": (
+                "The claim broken into SEPARATELY CHECKABLE quantities — one entry per number "
+                "you are asserting. Each is verified on its own, so one shaky value no longer "
+                "sinks the rest of the claim. Split anything a reader could agree with in part."),
+                "items": {"type": "object", "properties": {
+                    "label": {"type": "string", "description": "what the number IS, e.g. 'bacteria_F'"},
+                    "value": {"type": "string", "description": "the value, e.g. '14.61'"},
+                    "of": {"type": "string", "description": "the subset/grouping it applies to, e.g. 'bacteria batch, 6 habitat groups'"}},
+                    "required": ["label", "value"]}},
+            "parameters": {"type": "object", "description": (
+                "The knobs your analysis used — thresholds, permutation counts, group sizes, "
+                "how many things you screened. These are CONTEXT, not findings: nobody will "
+                "try to re-derive them, and putting them here keeps them from being mistaken "
+                "for claims. e.g. {'permutations': 999, 'prevalence_threshold': 0.5}")},
             "value": {"type": "string", "description": (
-                "the supporting quantities as LABELLED values, e.g. "
-                "'bacteria_F=14.61, bacteria_p=0.001, n_groups=6'. An independent analyst "
-                "will re-derive these from the raw data without seeing your code, so label "
-                "what each number IS and which subset it applies to.")},
+                "One-line summary of the assertions, for display. Prefer `assertions` for "
+                "anything that should actually be checked.")},
             "antecedents": {"type": "array", "items": {"type": "string"}},
             "kind": {"type": "string", "enum": ["observation", "pattern", "anomaly", "quality_caveat"]}},
             "required": ["statement", "value", "antecedents"]}}},
@@ -353,6 +358,55 @@ def _norm_antecedents(x):
 
 def _close(x, n):
     return abs(x - n) < 0.05 * max(abs(n), 1)
+
+
+_FIRST_NUM_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?")
+
+
+def _first_number(text: str):
+    """The first quantity in a judge's note ("I get 72" -> 72.0), or None.
+
+    Used only to ask whether two DISSENTING analysts landed on the same value — a
+    comparison between two derivations, never a judgment about a claim."""
+    m = _FIRST_NUM_RE.search(str(text or ""))
+    return float(m.group().replace(",", "")) if m else None
+
+
+def _norm_assertions(raw, value_fallback: str = "") -> list[dict]:
+    """Assertions as a clean list of ``{label, value, of}``.
+
+    A claim is a bundle of separately checkable quantities, and grading the bundle
+    as one unit was the single biggest source of wrong verdicts: every failure
+    observed was a claim whose findings held with ONE element in question — four
+    correlations reproduced and a p-value off in the last decimal, or 86 rare ASVs
+    and 0 singletons confirmed twice over while nobody could agree what a
+    "doubleton" was.
+
+    Ledgers written before assertions existed (and models that ignore the field)
+    degrade to a single implicit assertion over the whole ``value`` string, which
+    grades exactly as it used to."""
+    out = []
+    for a in (raw or []):
+        if isinstance(a, dict) and a.get("label"):
+            out.append({"label": str(a["label"]), "value": str(a.get("value", "")),
+                        "of": str(a.get("of", ""))})
+        elif isinstance(a, str) and a.strip():          # tolerate a bare list of strings
+            out.append({"label": a.strip()[:60], "value": a.strip(), "of": ""})
+    if not out and str(value_fallback).strip():
+        out = [{"label": "claim", "value": str(value_fallback).strip(), "of": ""}]
+    return out
+
+
+def _assertions_summary(assertions: list[dict]) -> str:
+    """One-line rendering of assertions, for display and for older consumers."""
+    return ", ".join(f"{a['label']}={a['value']}" for a in assertions)
+
+
+def _format_assertions(assertions: list[dict]) -> str:
+    """The checklist a judge grades, one line per separately-checkable quantity."""
+    return "\n".join(
+        f"  - {a['label']} = {a['value']}" + (f"   (of: {a['of']})" if a.get("of") else "")
+        for a in assertions) or "  (none)"
 
 
 MODEL_VIEW_CAP = 50     # items shown to the model in a tool result
@@ -1013,8 +1067,11 @@ class Autoresearcher:
                                       "by": self.explore_model}  # model that wrote it
             return {"ok": True, "computation_id": cid, "result": _jsonify(res, cap=MODEL_VIEW_CAP)}
         if name == "record_claim":
+            assertions = _norm_assertions(args.get("assertions"), args.get("value", ""))
             claim = {"id": f"k{len(self.ledger) + 1}", "statement": args.get("statement", ""),
-                     "value": str(args.get("value", "")),
+                     "value": str(args.get("value", "")) or _assertions_summary(assertions),
+                     "assertions": assertions,
+                     "parameters": args.get("parameters") or {},
                      "antecedents": _norm_antecedents(args.get("antecedents")),
                      "kind": args.get("kind", "observation"),
                      "investigation": self._current_investigation(),
@@ -1165,20 +1222,41 @@ class Autoresearcher:
                              + (json.dumps(val, default=str)[:1500] if found else "NOT FOUND"))
         return "\n\n".join(parts) or "(no antecedents cited)"
 
-    async def _judge(self, system: str, user: str, model: str) -> dict:
-        """One adjudication. Returns ``{verdict, contradicted, reasoning}``."""
+    async def _judge(self, system: str, user: str, model: str,
+                     assertions: list[dict]) -> dict:
+        """Grade every assertion in one call. Returns
+        ``{per: {label: verdict}, notes: {label: str}, by, raw}``."""
         resp = await self._chat(
             "verify",
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             model=model, max_tokens=4000, temperature=0.0)
         text = _strip_think(resp.choices[0].message.content or "")
-        m = re.search(r"VERDICT:\s*(SUPPORTED|PARTIAL|UNSUPPORTED|UNVERIFIABLE|AGREES|DIFFERS|INCONCLUSIVE)",
-                      text.upper())
-        cm = re.search(r"CONTRADICTED:\s*(.+)", text, re.IGNORECASE)
-        bad = ([t.strip() for t in cm.group(1).split(",") if t.strip()]
-               if cm and "none" not in cm.group(1).lower()[:8] else [])
-        return {"verdict": (m.group(1).lower() if m else "unverifiable"),
-                "contradicted": bad, "reasoning": text.strip()[:400], "by": model}
+        per, notes = {}, {}
+        for m in re.finditer(
+                r"ASSERTION\s+(.+?)\s*:\s*(SUPPORTED|CONTRADICTED|NOT[_ ]ADDRESSED|AGREES|DIFFERS)"
+                r"\s*(?:[—\-–]\s*(.*))?$", text, re.IGNORECASE | re.MULTILINE):
+            label, verdict, note = m.group(1).strip(), m.group(2).upper().replace(" ", "_"), m.group(3)
+            per[label] = {"SUPPORTED": "supported", "CONTRADICTED": "contradicted",
+                          "NOT_ADDRESSED": "not_addressed", "AGREES": "agrees",
+                          "DIFFERS": "differs"}[verdict]
+            notes[label] = (note or "").strip()[:200]
+        # A judge that answered about nothing we asked leaves every assertion unaddressed
+        # rather than silently grading the claim on a label it invented.
+        known = {a["label"] for a in assertions}
+        per = {k: v for k, v in per.items() if k in known} or {}
+        return {"per": per, "notes": notes, "by": model, "raw": text.strip()[:600]}
+
+    @staticmethod
+    def _roll_up(per: dict, good: str, bad: str) -> str:
+        """Claim-level grade from per-assertion outcomes: all-good, none-good, or mixed."""
+        vals = [v for v in per.values() if v != "not_addressed"]
+        if not vals:
+            return "unaddressed"
+        if all(v == good for v in vals):
+            return "all"
+        if any(v == good for v in vals) and any(v == bad for v in vals):
+            return "mixed"
+        return "none"
 
     async def verify(self) -> None:
         """Re-derive each claim's evidence, then have the verifier JUDGE it.
@@ -1222,19 +1300,32 @@ class Autoresearcher:
                 await self._emit("verify", {"claim": c["id"], "verdict": "not judged"})
                 continue
             else:
+                assertions = c.setdefault(
+                    "assertions", _norm_assertions(None, c.get("value", "")))
                 j = await self._judge(
                     JUDGE_SYSTEM,
-                    f"CLAIM: {c['statement']}\nCLAIMED VALUE: {c['value']}\n\n"
+                    f"CLAIM: {c['statement']}\n\nASSERTIONS TO GRADE:\n"
+                    f"{_format_assertions(assertions)}\n\n"
+                    f"PARAMETERS (context — do not grade): "
+                    f"{json.dumps(c.get('parameters') or {}, default=str)}\n\n"
                     f"INDEPENDENT EVIDENCE (re-executed from the raw data):\n"
                     f"{self._evidence_for(c, comp_cache)}",
-                    self.verify_model)
+                    self.verify_model, assertions)
                 c["judgment"] = j
-                c["verdict"] = {"supported": "verified", "partial": "partial",
-                                "unsupported": "refuted"}.get(j["verdict"], "unverifiable")
-                if c["verdict"] == "partial":
-                    c["unsupported_numbers"] = j["contradicted"]
+                c["assertion_verdicts"] = j["per"]
+                roll = self._roll_up(j["per"], "supported", "contradicted")
+                c["verdict"] = {"all": "verified", "mixed": "partial", "none": "refuted",
+                                "unaddressed": "unverifiable"}[roll]
+                # Which assertions actually failed — what the writer must not restate,
+                # and what a reader needs in order to judge the rest.
+                c["unsupported_numbers"] = [
+                    f"{lbl}={next((a['value'] for a in assertions if a['label'] == lbl), '')}"
+                    for lbl, v in j["per"].items() if v == "contradicted"]
             c["method"] = "judged"
-            c["reproduced"] = c["verdict"] == "verified"
+            # `partial` counts as reproduced: its findings came back out of its own
+            # antecedents with one element in question, which is a different thing from
+            # a claim the antecedents never produced at all.
+            c["reproduced"] = c["verdict"] in ("verified", "partial")
             c["verdict_round1"] = c["verdict"]
             await self._emit("verify", {"claim": c["id"], "verdict": c["verdict"]})
 
@@ -1328,90 +1419,90 @@ class Autoresearcher:
         return rep
 
     @staticmethod
-    def _consensus_numbers(reps: list[dict]) -> list[float]:
-        """Numbers every independent derivation arrived at. When the analysts agree
-        with each other but not with the claim, this is what they agree ON — the
-        most useful thing a disagreement can hand back to an author."""
-        if len(reps) < 2:
-            return []
-        pools = []
+    def _disputed_assertions(reps: list[dict]) -> dict:
+        """Per assertion, how many independent derivations agreed and how many differed,
+        with what each of the dissenters got."""
+        tally: dict[str, dict] = {}
         for r in reps:
-            nums: list[float] = []
-            _flatten_numbers(r.get("result"), nums)
-            pools.append(nums)
-        return sorted({x for x in pools[0]
-                       if all(any(_close(x, y) for y in pool) for pool in pools[1:])})
+            for label, v in (r.get("assertion_verdicts") or {}).items():
+                t = tally.setdefault(label, {"agrees": 0, "differs": 0, "got": []})
+                if v == "agrees":
+                    t["agrees"] += 1
+                elif v == "differs":
+                    t["differs"] += 1
+                    note = (r.get("judgment") or {}).get("notes", {}).get(label, "")
+                    if note:
+                        t["got"].append(note)
+        return tally
 
     def _resolve_verdict(self, claim: dict) -> str:
-        """Grade a claim from ALL the evidence gathered about it, in one place.
+        """Grade a claim from ALL the evidence gathered about it.
 
-        Round 1 asks "does the claim come back out of its own cited antecedents?"
-        (reproduction). Rounds 2+ ask "does anyone else, working from the raw data,
-        get the same answer?" (replication). The two questions are independent, and
-        the interesting verdicts live where they disagree:
+        Round 1 asks "does this come back out of its OWN cited antecedents?"
+        (reproduction). Rounds 2+ ask "does anyone else, from the raw data, get the
+        same answer?" (replication). Both are graded per ASSERTION, so a claim keeps
+        credit for the findings that held:
 
-          reproduced, all independents agree      -> replicated  (strongest)
-          reproduced, ONE independent dissents    -> disputed    (unresolved — round 3)
-          reproduced, 2+ independents concur
-            against the claim                     -> overturned  (the claim loses)
-          reproduced, independents inconsistent
-            with each other                       -> contested   (method-dependent)
-          NOT reproduced, an independent agrees   -> replicated + antecedent_mismatch
-                                                     (claim right, its citation wrong)
-          NOT reproduced, none agree              -> refuted
-
-        The distinction between ``disputed`` and ``overturned`` is the point of round
-        3: one dissent is a stand-off that needs a casting vote, two independent
-        derivations landing together is a conclusion.
+          every addressed assertion reproduced         -> replicated
+          some reproduced, some did not                -> partial   (the usual shape)
+          none reproduced, one independent             -> disputed  (a stand-off)
+          none reproduced, 2+ independents CONCURRING  -> overturned
+          none reproduced, 2+ independents disagreeing
+            with each other as well                    -> contested (unstable quantity)
+          claim never reproduced from its antecedents,
+            but an independent got it                  -> replicated + antecedent_mismatch
         """
-        # Only derivations that ran AND computed something get a vote. Older ledgers
-        # predate the `usable` flag, so fall back to "did it produce code".
         reps = [r for r in claim.get("replications", [])
                 if r.get("usable", bool(r.get("code")))]
         if not reps:
-            return claim["verdict"]                 # no independent evidence yet
-        agree = [r for r in reps if r.get("agrees")]
-        consensus = self._consensus_numbers(reps)
-        if consensus:
-            claim["consensus_numbers"] = consensus
-        # Fall back to the verdict for ledgers written before round 1 recorded this
-        # (an old snapshot re-graded by a newer run must not read as unreproduced).
+            return claim["verdict"]
+        rolls = [r.get("roll") for r in reps]
+        tally = self._disputed_assertions(reps)
+        claim["assertion_replication"] = tally
         reproduced = claim.get("reproduced")
         if reproduced is None:
             reproduced = claim.get("verdict") in ("verified", "partial", "replicated")
-        if reproduced:
-            if len(agree) == len(reps):
+
+        # Three ways an assertion can land across independent derivations.
+        agreed  = [l for l, t in tally.items() if t["agrees"] and not t["differs"]]
+        differed = [l for l, t in tally.items() if t["differs"] and not t["agrees"]]
+        split   = [l for l, t in tally.items() if t["differs"] and t["agrees"]]
+
+        if not reproduced:
+            # Correct science, broken bookkeeping: its own antecedents do not produce it
+            # but an independent analyst does. Worth rescuing, worth flagging.
+            if agreed:
+                claim["antecedent_mismatch"] = True
                 return "replicated"
-            if not agree:
-                if len(reps) == 1:
-                    return "disputed"                # one dissent — unresolved
-                # Do the independents concur that the claim is wrong, or is each
-                # merely wrong in its own direction? Only the former is evidence
-                # ABOUT the claim; the latter says the quantity is unstable.
-                #
-                # Their NUMBERS decide this, never their self-reports: two analysts can
-                # both say "contradicts" while landing on entirely different values,
-                # which is the textbook contested case. (A derivation with no finite
-                # numbers is filtered out upstream as a failed derivation, so every
-                # rep here has something to compare.)
-                concur = bool(consensus)
-                # Two derivations from ONE model are one derivation. Observed on real
-                # data: the same model transposed a samples x ASV table in round 2 and
-                # emitted byte-identical code in round 3, so its correlated error
-                # "concurred" with itself and overturned two claims that were exactly
-                # right. Agreement is only evidence when the analysts are independent.
-                if concur and len({r.get("by") for r in reps if r.get("by")}) < 2:
-                    claim["correlated_analysts"] = True
-                    return "disputed"
-                return "overturned" if concur else "contested"
-            return "contested"                       # mixed — the number is unstable
-        if agree:
-            # The claim holds up independently even though its own antecedents don't
-            # produce it: correct science, broken bookkeeping. Worth rescuing, and
-            # worth flagging so the provenance gets fixed rather than trusted.
-            claim["antecedent_mismatch"] = True
+            return "refuted"
+        if split:
+            # Analysts disagree with EACH OTHER about this quantity, which says the
+            # quantity is unstable rather than that the claim is wrong.
+            return "contested"
+        if agreed and not differed:
             return "replicated"
-        return "refuted"
+        if agreed and differed:
+            return "partial"                       # the findings that held, keep
+        if not differed:
+            return claim["verdict"]                # nobody addressed anything
+        # Nothing reproduced. Do the dissenters concur, or is each wrong its own way?
+        n_models = len({r.get("by") for r in reps if r.get("by")})
+        if len(reps) == 1 or n_models < 2:
+            if n_models < 2 and len(reps) > 1:
+                claim["correlated_analysts"] = True
+            return "disputed"
+        # Concurrence is judged on what the dissenters GOT, not merely that they dissented:
+        # two analysts landing on 0 and 72 for the same quantity means the quantity is
+        # ill-defined, not that the claim is wrong.
+        # Compare what the dissenters GOT, numerically — two analysts landing on 0 and
+        # 72 for the same quantity means it is ill-defined, not that the claim is wrong.
+        def _concur(got: list[str]) -> bool:
+            nums = [n for n in (_first_number(g) for g in got) if n is not None]
+            if len(nums) < 2:
+                return True            # nothing to contradict each other with
+            return all(_close(nums[0], n) for n in nums[1:])
+        concur = all(_concur(t["got"]) for t in tally.values() if t["differs"])
+        return "overturned" if concur else "contested"
 
     async def _run_round(self, claim: dict, round_no: int, model: str | None = None,
                          temperature: float = 0.3, judge: bool = True) -> dict:
@@ -1443,15 +1534,21 @@ class Autoresearcher:
 
     async def _judge_replication(self, claim: dict, rep: dict) -> dict:
         """Judge one derivation against the claim, and record the outcome on it."""
+        assertions = claim.get("assertions") or _norm_assertions(None, claim.get("value", ""))
         j = await self._judge(
             REPLICATE_JUDGE_SYSTEM,
-            f"CLAIM: {claim['statement']}\nCLAIMED VALUE: {claim['value']}\n\n"
+            f"CLAIM: {claim['statement']}\n\nASSERTIONS TO GRADE:\n"
+            f"{_format_assertions(assertions)}\n\n"
+            f"PARAMETERS (context — do not grade): "
+            f"{json.dumps(claim.get('parameters') or {}, default=str)}\n\n"
             f"THE INDEPENDENT ANALYST'S RESULT:\n"
-            f"{json.dumps(rep.get('result'), default=str, indent=1)[:4000]}\n\n"
-            f"Its own summary: {rep.get('analyst')}",
-            self.verify_model)
+            f"{json.dumps(rep.get('result'), default=str, indent=1)[:4000]}",
+            self.verify_model, assertions)
         rep["judgment"] = j
-        rep["agrees"] = j["verdict"] == "agrees"
+        rep["assertion_verdicts"] = j["per"]
+        roll = self._roll_up(j["per"], "agrees", "differs")
+        rep["roll"] = roll
+        rep["agrees"] = roll == "all"          # every addressed assertion reproduced
         return rep
 
     async def judge_replications(self) -> int:
@@ -1660,7 +1757,12 @@ class Autoresearcher:
                 # code, its result, and whether it agreed. A list because a disputed
                 # claim goes to a third round.
                 "replications": c.get("replications") or [],
-                "consensus_numbers": c.get("consensus_numbers") or [],
+                # Per-assertion outcomes: which quantities held and which were disputed,
+                # so a reader can see WHAT survived rather than only whether the bundle did.
+                "assertions": c.get("assertions") or [],
+                "parameters": c.get("parameters") or {},
+                "assertion_verdicts": c.get("assertion_verdicts") or {},
+                "assertion_replication": c.get("assertion_replication") or {},
                 "antecedent_mismatch": c.get("antecedent_mismatch", False),
                 # Set when rounds 2/3 shared a model: their agreement is correlated,
                 # not independent, so it must not read as a settled conclusion.
