@@ -1239,7 +1239,7 @@ class Autoresearcher:
 
     async def _replicate_claim(self, claim: dict, max_attempts: int = 3,
                                round_no: int = 2, model: str | None = None,
-                               temperature: float = 0.3) -> dict:
+                               temperature: float = 0.3, judge: bool = True) -> dict:
         """Have an independent analyst re-derive one claim from the raw data.
 
         The analyst sees the claim and the data dictionary — never the original code,
@@ -1294,25 +1294,19 @@ class Autoresearcher:
             m = re.search(r"SUPPORTS:\s*(YES|NO|INCONCLUSIVE)", text.upper())
             analyst = {"YES": "supports", "NO": "contradicts"}.get(
                 m.group(1) if m else "", "inconclusive")
-            # The verdict is a judgment over the analyst's LABELLED result, not a
-            # digit hunt: an independent analyst reports its findings, not the
-            # claim's parameters, and only a different VALUE for the same quantity
-            # is disagreement.
-            j = await self._judge(
-                REPLICATE_JUDGE_SYSTEM,
-                f"CLAIM: {claim['statement']}\nCLAIMED VALUE: {claim['value']}\n\n"
-                f"THE INDEPENDENT ANALYST'S RESULT:\n"
-                f"{json.dumps(_jsonify(res, cap=MODEL_VIEW_CAP), default=str, indent=1)[:4000]}\n\n"
-                f"Its own summary: {analyst}",
-                self.verify_model)
             rep.update({
                 "code": code, "result": _jsonify(res, cap=MODEL_VIEW_CAP), "usable": True,
-                "agrees": j["verdict"] == "agrees",
-                "judgment": j,
                 "analyst": analyst,
                 "reasoning": re.sub(r"```.*?```", "", text, flags=re.DOTALL).strip()[:400],
                 "error": None,
             })
+            # The verdict is a judgment over the analyst's LABELLED result, not a
+            # digit hunt: an independent analyst reports its findings, not the
+            # claim's parameters, and only a different VALUE for the same quantity
+            # is disagreement. Deferred when the judge runs in its own phase — on a
+            # single-GPU host the analyst and the judge cannot both be resident.
+            if judge:
+                await self._judge_replication(claim, rep)
             return rep
         rep["agrees"] = False
         rep["analyst"] = "inconclusive"
@@ -1405,10 +1399,10 @@ class Autoresearcher:
         return "refuted"
 
     async def _run_round(self, claim: dict, round_no: int, model: str | None = None,
-                         temperature: float = 0.3) -> dict:
+                         temperature: float = 0.3, judge: bool = True) -> dict:
         """One independent derivation appended to the claim's evidence record."""
         rep = await self._replicate_claim(claim, round_no=round_no, model=model,
-                                          temperature=temperature)
+                                          temperature=temperature, judge=judge)
         claim.setdefault("replications", []).append(rep)
         await self._emit("replicate", {"claim": claim["id"], "round": round_no,
                                        "agrees": rep.get("agrees"),
@@ -1432,7 +1426,38 @@ class Autoresearcher:
                 if c.get("verdict_round1"):
                     c["verdict"] = c["verdict_round1"]
 
-    async def replicate(self, max_claims: int = 12, fresh: bool = True) -> int:
+    async def _judge_replication(self, claim: dict, rep: dict) -> dict:
+        """Judge one derivation against the claim, and record the outcome on it."""
+        j = await self._judge(
+            REPLICATE_JUDGE_SYSTEM,
+            f"CLAIM: {claim['statement']}\nCLAIMED VALUE: {claim['value']}\n\n"
+            f"THE INDEPENDENT ANALYST'S RESULT:\n"
+            f"{json.dumps(rep.get('result'), default=str, indent=1)[:4000]}\n\n"
+            f"Its own summary: {rep.get('analyst')}",
+            self.verify_model)
+        rep["judgment"] = j
+        rep["agrees"] = j["verdict"] == "agrees"
+        return rep
+
+    async def judge_replications(self) -> int:
+        """Judge every derivation that is still unjudged, then re-grade its claim.
+
+        Exists so the analyst and the judge can occupy the card one at a time: derive
+        the whole round with one model, swap, judge the whole round with another.
+        Returns how many derivations were judged."""
+        n = 0
+        for c in self.ledger:
+            touched = False
+            for rep in c.get("replications") or []:
+                if rep.get("usable") and "judgment" not in rep:
+                    await self._judge_replication(c, rep)
+                    n, touched = n + 1, True
+            if touched:
+                c["verdict"] = self._resolve_verdict(c)
+        return n
+
+    async def replicate(self, max_claims: int = 12, fresh: bool = True,
+                        defer_judgment: bool = False) -> int:
         """Round 2 — the clean-room pass: independently re-derive the strongest
         claims (#50).
 
@@ -1450,11 +1475,12 @@ class Autoresearcher:
             self._clear_replications()
         done = 0
         for claim in self._replication_candidates()[:max_claims]:
-            rep = await self._run_round(claim, round_no=2)
+            rep = await self._run_round(claim, round_no=2, judge=not defer_judgment)
             if not rep.get("usable"):
                 continue                       # the analyst never produced runnable code
             done += 1
-            claim["verdict"] = self._resolve_verdict(claim)
+            if not defer_judgment:
+                claim["verdict"] = self._resolve_verdict(claim)
         return done
 
     def _adjudication_candidates(self) -> list[dict]:
@@ -1468,7 +1494,7 @@ class Autoresearcher:
                 if c.get("verdict") in ("disputed", "refuted")
                 and any(a in self.computations for a in c.get("antecedents", []))]
 
-    async def adjudicate(self, max_claims: int = 12) -> int:
+    async def adjudicate(self, max_claims: int = 12, defer_judgment: bool = False) -> int:
         """Round 3 — break the tie with evidence rather than opinion.
 
         When rounds 1 and 2 disagree, the honest move is not to have a third model
@@ -1489,11 +1515,12 @@ class Autoresearcher:
         done = 0
         for claim in self._adjudication_candidates()[:max_claims]:
             rep = await self._run_round(claim, round_no=3, model=self.adjudicate_model,
-                                        temperature=0.5)
+                                        temperature=0.5, judge=not defer_judgment)
             if not rep.get("usable"):
                 continue
             done += 1
-            claim["verdict"] = self._resolve_verdict(claim)
+            if not defer_judgment:
+                claim["verdict"] = self._resolve_verdict(claim)
         return done
 
     # -- DAG --------------------------------------------------------------------

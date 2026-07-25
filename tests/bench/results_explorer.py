@@ -104,17 +104,30 @@ def _round_marks(reps) -> str:
 
 
 async def _run_independent_rounds(ar):
-    """Rounds 2 and 3, each with its own model resident for the whole phase."""
+    """Rounds 2 and 3, phased so exactly ONE model is resident at a time.
+
+    Deriving and judging are separate passes because they need different models and
+    a single GPU holds one: judging inline made LM Studio JIT-load the judge on top
+    of the analyst, and the engine died (~31 GB asked of a ~20 GB card)."""
     print(f"\n=== ROUND 2: CLEAN-ROOM REPLICATION ({REPLICATE_MODEL}) ===", flush=True)
     if not _switch_model(REPLICATE_MODEL):
         print("  load failed — skipping", flush=True)
         return
-    print(f"  {await ar.replicate()} claims independently re-derived", flush=True)
+    print(f"  {await ar.replicate(defer_judgment=True)} claims independently re-derived",
+          flush=True)
+
+    print(f"\n=== JUDGE ROUND 2 ({VERIFY_MODEL}) ===", flush=True)
+    if _switch_model(VERIFY_MODEL):
+        print(f"  {await ar.judge_replications()} derivations judged", flush=True)
+
     print(f"\n=== ROUND 3: ADJUDICATION ({ADJUDICATE_MODEL}) ===", flush=True)
-    if not _switch_model(ADJUDICATE_MODEL):
-        print("  load failed — skipping", flush=True)
-    else:
-        print(f"  {await ar.adjudicate()} stand-offs given a casting vote", flush=True)
+    if _switch_model(ADJUDICATE_MODEL):
+        print(f"  {await ar.adjudicate(defer_judgment=True)} stand-offs given a casting vote",
+              flush=True)
+        print(f"\n=== JUDGE ROUND 3 ({VERIFY_MODEL}) ===", flush=True)
+        if _switch_model(VERIFY_MODEL):
+            print(f"  {await ar.judge_replications()} derivations judged", flush=True)
+
     for c in ar.ledger:
         reps = c.get("replications") or []
         if reps:
