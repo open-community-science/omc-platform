@@ -16,10 +16,37 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from ai.autoresearch import _norm_assertions  # noqa: E402
 from ai.autoresearch import (  # noqa: E402
     Autoresearcher, JUDGE_SYSTEM, LLMClient, MODEL_VIEW_CAP, REPLICATE_SYSTEM,
     _jsonify, _usable_derivation, format_briefing,
 )
+
+
+class TestNormAssertions:
+    """Models hand array arguments back as strings. Iterating one yields an assertion
+    per CHARACTER — it cost a full run, every claim arriving as {label: "["}."""
+
+    def test_a_json_string_is_parsed_not_iterated(self):
+        import json as _json
+        raw = _json.dumps([{"label": "rho", "value": "0.63", "of": "63 samples"},
+                           {"label": "p", "value": "<0.001"}])
+        got = _norm_assertions(raw)
+        assert [a["label"] for a in got] == ["rho", "p"]
+
+    def test_a_real_list_still_works(self):
+        got = _norm_assertions([{"label": "rho", "value": "0.63"}])
+        assert got == [{"label": "rho", "value": "0.63", "of": ""}]
+
+    def test_labelled_text_is_split(self):
+        assert [a["label"] for a in _norm_assertions("a=1; b=2")] == ["a", "b"]
+
+    def test_unparseable_text_yields_nothing_rather_than_characters(self):
+        assert _norm_assertions('[{"label"') == []
+
+    def test_the_value_fallback_still_covers_a_bare_string(self):
+        got = _norm_assertions(None, "richness rose with depth")
+        assert got == [{"label": "claim", "value": "richness rose with depth", "of": ""}]
 
 
 class TestJsonifyCaps:

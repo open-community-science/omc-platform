@@ -431,6 +431,16 @@ def _norm_assertions(raw, value_fallback: str = "") -> list[dict]:
     Ledgers written before assertions existed (and models that ignore the field)
     degrade to a single implicit assertion over the whole ``value`` string, which
     grades exactly as it used to."""
+    # Models often hand an array argument back as a STRING. Iterating that yields one
+    # "assertion" per CHARACTER — the same trap `_norm_antecedents` exists to avoid, and
+    # it cost a whole run: every claim arrived as {label: "[", value: "["} and graded
+    # unverifiable. Parse it as JSON first, then as "label=value; ..." text.
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            parsed = None
+        raw = parsed if isinstance(parsed, list) else _split_labelled(raw)
     out = []
     for a in (raw or []):
         if isinstance(a, dict) and a.get("label"):
