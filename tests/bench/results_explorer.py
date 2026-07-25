@@ -117,6 +117,60 @@ def _switch_model(model: str, role: str = "explore") -> bool:
     return ok
 
 
+def _ensure_model_loaded():
+    """Load the claimant's model on whichever host serves it."""
+    return _switch_model(MODEL, "explore")
+
+
+def _round_marks(reps) -> str:
+    """Per-round outcome. `nocode`/`noresult` are the ANALYST failing, which is a
+    different thing from disagreeing — printing both as "differ" made a broken
+    derivation read as evidence against the claim."""
+    out = []
+    for r in reps:
+        if not r.get("code"):
+            mark = "nocode"
+        elif not r.get("usable", True):
+            mark = "noresult"
+        else:
+            mark = "agree" if r.get("agrees") else "differ"
+        out.append(f"r{r.get('round', 2)}:{mark}")
+    return " ".join(out)
+
+
+async def _run_independent_rounds(ar):
+    """Rounds 2 and 3, phased so each model gets its host to itself.
+
+    Deriving and judging are separate passes because they use different models:
+    judging inline made LM Studio JIT-load the judge on top of the analyst and the
+    engine died. With roles spread across hosts, a host is only disturbed when one
+    of ITS roles changes model."""
+    print(f"\n=== ROUND 2: CLEAN-ROOM REPLICATION ({REPLICATE_MODEL}) ===", flush=True)
+    if not _switch_model(REPLICATE_MODEL, "replicate"):
+        print("  load failed — skipping", flush=True)
+        return
+    print(f"  {await ar.replicate(defer_judgment=True)} claims independently re-derived",
+          flush=True)
+
+    print(f"\n=== JUDGE ROUND 2 ({VERIFY_MODEL}) ===", flush=True)
+    if _switch_model(VERIFY_MODEL, "verify"):
+        print(f"  {await ar.judge_replications()} derivations judged", flush=True)
+
+    print(f"\n=== ROUND 3: ADJUDICATION ({ADJUDICATE_MODEL}) ===", flush=True)
+    if _switch_model(ADJUDICATE_MODEL, "adjudicate"):
+        print(f"  {await ar.adjudicate(defer_judgment=True)} stand-offs given a casting vote",
+              flush=True)
+        print(f"\n=== JUDGE ROUND 3 ({VERIFY_MODEL}) ===", flush=True)
+        if _switch_model(VERIFY_MODEL, "verify"):
+            print(f"  {await ar.judge_replications()} derivations judged", flush=True)
+
+    for c in ar.ledger:
+        reps = c.get("replications") or []
+        if reps:
+            print(f"    [{c['verdict']:11}] {c['id']:4} {_round_marks(reps):34} "
+                  f"{c['statement'][:44]}", flush=True)
+
+
 def _run_lms(host: dict, args: str, timeout: int) -> bool:
     """Run an `lms` subcommand on a host (locally, or over ssh for a remote one)."""
     cmd = host["lms"][:]
