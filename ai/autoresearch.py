@@ -416,7 +416,8 @@ _b = {}
 if counts is not None and getattr(counts, "size", 0):
     _b["counts"] = {"shape": list(counts.shape),
                     "sample_ids_sample": [str(x) for x in list(counts.index[:3])],
-                    "asv_ids_sample": [str(x) for x in list(counts.columns[:3])]}
+                    "asv_ids_sample": [str(x) for x in list(counts.columns[:3])],
+                    "has_props": props is not None}
 if tax is not None and getattr(tax, "size", 0):
     _b["tax"] = {"shape": list(tax.shape), "columns": [str(c) for c in tax.columns]}
 if meta is not None and getattr(meta, "size", 0):
@@ -460,6 +461,9 @@ def format_briefing(b: dict) -> str:
             "    reduces over axis=1. Check your orientation before you trust a number:",
             f"    anything claiming there are {rows} ASVs or {cols} samples has them backwards.",
         ]
+        if c.get("has_props"):
+            lines.append("    `counts` holds RAW READ COUNTS. `props` holds the same table "
+                         "as each ASV's share of its own sample (rows sum to 1).")
     if (p := b.get("provenance")) and p.get("n_dropped"):
         # Stated up front and beside the axis rule, because an analyst that meets the
         # attempted-sample count later, unexplained, concludes its own frame is wrong.
@@ -1120,12 +1124,18 @@ try:  # scipy/sklearn are the analysis toolkit; if a sandbox lacks them, numpy/
     from sklearn.decomposition import PCA
 except ImportError:
     pdist = squareform = braycurtis = entropy = pearsonr = spearmanr = kruskal = mannwhitneyu = PCA = None
-_c = _rj("counts"); counts = None
+_c = _rj("counts"); counts = None; props = None
 if _c:
     _m = np.zeros((len(_c["samples"]), len(_c["asvs"])))
     for _s, _a, _n, _r in _c["data"]:
         _m[_s, _a] = _n
     counts = pd.DataFrame(_m, index=_c["samples"], columns=_c["asvs"])
+    # Both forms, built here rather than left to be re-derived. `counts` is RAW READS;
+    # `props` is each ASV's share of its own sample. The arithmetic is one line, but it
+    # is a line along the axis that has twice been got backwards, and a proportion
+    # divided by the wrong margin looks entirely plausible.
+    _tot = counts.sum(axis=1)
+    props = counts.div(_tot.where(_tot > 0), axis=0).fillna(0.0)
 _t = _rj("taxonomy") or {}
 _db, _body = next(iter(_t.items()), ("none", {}))
 _lv = _body.get("levels", [])
@@ -1202,7 +1212,8 @@ def _j(v, d=0):
     if isinstance(v, (list, tuple)): return [_j(x, d + 1) for x in list(v)[:_CAP]]
     if isinstance(v, (pd.Series, pd.DataFrame)): return _j(v.to_dict(), d + 1)
     return v
-_ns = dict(np=np, pd=pd, counts=counts, tax=tax, meta=meta, pdist=pdist, squareform=squareform,
+_ns = dict(np=np, pd=pd, counts=counts, props=props, tax=tax, meta=meta,
+           pdist=pdist, squareform=squareform,
            braycurtis=braycurtis, entropy=entropy, pearsonr=pearsonr, spearmanr=spearmanr,
            kruskal=kruskal, mannwhitneyu=mannwhitneyu, PCA=PCA,
            fdr=fdr, clr=clr, rarefy=rarefy)

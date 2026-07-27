@@ -171,6 +171,29 @@ class TestSampleAttrition:
         assert "Say so" not in text and "finding in its own right" not in text
 
 
+class TestRawAndRelative:
+    """Both forms of the table are built, rather than one being left to be re-derived.
+    The arithmetic is one line, but it is a line along the axis that has twice been got
+    backwards, and a proportion divided by the wrong margin looks entirely plausible."""
+
+    def test_the_sandbox_exposes_both_tables(self):
+        import inspect
+        import ai.autoresearch as A
+        src = inspect.getsource(A)
+        assert "props = counts.div(" in src
+        assert "counts=counts, props=props" in src   # the namespace is an allowlist
+
+    def test_the_briefing_says_which_is_which(self):
+        text = format_briefing({"counts": {
+            "shape": [63, 735], "sample_ids_sample": ["a"], "asv_ids_sample": ["b"],
+            "has_props": True}})
+        assert "RAW READ COUNTS" in text
+        assert "rows sum to 1" in text
+
+    def test_a_dataset_without_counts_says_nothing_about_props(self):
+        assert "props" not in format_briefing({"tax": {"shape": [7, 6], "columns": ["a"]}})
+
+
 class TestSourcePrefixes:
     """Three sources reach `meta` and they are not interchangeable. Nothing in a value
     says which one produced it, so the column name has to."""
