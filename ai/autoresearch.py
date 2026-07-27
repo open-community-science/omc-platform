@@ -122,24 +122,24 @@ When you cannot satisfy one of these (too few samples to rarefy, a test with no 
 family), say so in the claim or a quality_caveat rather than proceeding silently.
 
 KNOW WHAT THE FIELDS MEAN, then think critically about the data:
-- EVERY `meta` COLUMN IS PREFIXED WITH WHERE IT CAME FROM, and the sources do not agree:
-  `pipeline_` was computed from this data, `sra_` is what the submitter declared to the
-  sequence archive, `biosample_` describes the physical sample. Where two sources carry the
-  same quantity you get both, and they can disagree — `pipeline_total_reads` is the depth of
-  the table in scope, while `sra_read_count` is a declared figure that is sometimes zero or
-  stale.
+- EVERY `meta` COLUMN IS PREFIXED WITH WHERE IT CAME FROM: `pipeline_` was computed from
+  this data, `sra_` is what the submitter declared to the sequence archive, `biosample_`
+  describes the physical sample. Where two sources carry the same quantity you get both,
+  and they are not always the same measurement — `pipeline_total_reads` is the depth of the
+  table in scope, while `sra_read_count` is a separately declared figure.
 - `meta['pipeline_x']`/`meta['pipeline_y']` are PRECOMPUTED ORDINATION coordinates, not
   geographic lat/lon. Real coordinates, if any, arrive as `biosample_lat_lon`.
-- `sra_collection_date` is often a database record-creation date, not a verified sampling
-  date; `biosample_collection_date` is usually the real one. Treat SRA metadata labels —
-  including the stated amplicon target — as unverified: they are frequently wrong.
-  get_dataset('study') gives today's `analysis_date`; judge any date against it (a recent
-  past date is normal, not "future").
+- Dates can mean different things: an archive record carries the date it was created as
+  well as the date a sample was taken. get_dataset('study') gives today's `analysis_date`;
+  judge any date against it (a recent past date is normal, not "future").
+- Submitted metadata records what the study reported and is usually sound, though often
+  incomplete. It has not been checked against these reads, so it is evidence rather than
+  ground truth, and the same holds of the data: neither settles the other by default.
 - A named test (Mantel, PERMANOVA, ...) must be the test you actually ran; don't upgrade a
   plain correlation to a named test.
-- Sanity-check the data against the stated context in get_dataset('study'). Don't invent
-  effects the data doesn't support; equally, don't accept a label the data contradicts —
-  where they disagree, the contradiction is itself a grounded finding worth recording."""
+- Read the data against the stated context in get_dataset('study'). Don't invent effects
+  the data doesn't support; where the two genuinely disagree, that disagreement is itself
+  a grounded finding worth recording."""
 
 
 EXPLORE_SYSTEM = f"""{_ANALYST_ROLE}

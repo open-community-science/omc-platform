@@ -188,8 +188,18 @@ class TestSourcePrefixes:
     def test_the_prompt_points_at_the_prefixed_columns(self):
         from ai.autoresearch import EXPLORE_SYSTEM
         assert "meta['pipeline_x']" in EXPLORE_SYSTEM
-        assert "biosample_collection_date" in EXPLORE_SYSTEM
+        assert "biosample_lat_lon" in EXPLORE_SYSTEM
         assert "meta['x']" not in EXPLORE_SYSTEM      # the old, now-wrong name
+
+    def test_the_prompt_does_not_prime_the_agent_to_expect_bad_metadata(self):
+        """Submitted metadata is mostly sound if incomplete. Telling an analyst it is
+        "frequently wrong" is inaccurate and invites a hunt for mislabels, which is how
+        false positives get recorded as findings."""
+        from ai.autoresearch import EXPLORE_SYSTEM
+        for phrase in ("frequently wrong", "commonly mislabel", "often a database"):
+            assert phrase not in EXPLORE_SYSTEM
+        assert "usually sound" in EXPLORE_SYSTEM
+        assert "neither settles the other" in EXPLORE_SYSTEM
 
 
 if __name__ == "__main__":
