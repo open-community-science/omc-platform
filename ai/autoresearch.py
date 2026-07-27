@@ -931,10 +931,13 @@ def _provenance_summary(prov: dict, n_analysed: int) -> dict:
 
 def _primers_summary(primers: dict | None) -> Optional[dict]:
     """Compact INFERRED-primer view for the `study` dataset: which amplicon design(s)
-    the submission appears to use. When more than one design is present, a domain split
-    across samples is the expected consequence of a multi-amplicon study (e.g. paired
-    16S + 18S), not a mislabel to re-derive. Per-sample assignment is not yet available
-    (see issue #37); this is design-level context only."""
+    the submission appears to use, and how confident that inference is.
+
+    States what was inferred and stops. It used to add that a domain split across
+    samples is "EXPECTED by design, not a mislabel to flag" — which decides in advance
+    the question an analyst is there to answer. Per-sample assignment is not available
+    (issue #37), so whether a given split follows from the assay structure is exactly
+    what has to be worked out rather than asserted here."""
     if not primers:
         return None
     sets = primers.get("sets") or [primers]
@@ -949,10 +952,8 @@ def _primers_summary(primers: dict | None) -> Optional[dict]:
     return {
         "source": primers.get("source", "inferred"),
         "designs": designs,
-        "note": ("INFERRED amplicon design (not confirmed, not fully mapped per sample). "
-                 "Multiple designs mean a deliberate multi-amplicon study, so a domain split "
-                 "across samples is EXPECTED by design — treat it as the assay structure, not "
-                 "a mislabel to flag. Confirm specifics against tax Domain where it matters."),
+        "note": ("INFERRED from the reads, not confirmed, and not mapped to individual "
+                 f"samples (issue #37). {len(designs)} design(s) detected."),
     }
 
 
@@ -1043,8 +1044,11 @@ class DirDataSource:
         sg = self._study_meta or {}
         self._datasets = {
             "overview": fx,
-            # Stated study/methods context — the amplicon target here is the SRA metadata
-            # LABEL, which is frequently wrong; verify it against the observed taxonomy.
+            # Stated study/methods context, as the submitters gave it. Every key here is
+            # a CLAIM by someone else, and the field names say so (`stated_target_label`).
+            # It carried a `caveat` string that told the agent 18S runs are commonly
+            # mislabelled '16S' and to check tax Domain — which is the finding, handed
+            # over. A run then "discovering" the mislabel had only followed instructions.
             "study": {
                 # Today's real date — so the agent judges temporal plausibility correctly
                 # (a model with no clock can mistake a recent date for a future one).
@@ -1055,12 +1059,9 @@ class DirDataSource:
                 "platform": sg.get("platform"),
                 "taxonomy_database": fx.get("taxonomy_summary", {}).get("database"),
                 "pipeline_stages": [s.get("id") for s in prov.get("stages", [])],
-                # Inferred amplicon design (when available) — so a domain split reads as
-                # the expected multi-amplicon structure, not a mislabel to re-derive.
+                # Primers as recorded, when the pipeline captured them. What assay they
+                # imply is the analyst's to work out.
                 "amplicon_primers": _primers_summary(sg.get("primers")),
-                "caveat": ("stated_target_label is the SRA-metadata amplicon label and can be "
-                           "wrong (18S runs are commonly mislabeled '16S'). See amplicon_primers "
-                           "for the inferred assay design; confirm against tax Domain."),
             },
             "renorm_stats": self.read_json("renorm_stats") or fx.get("renorm", {}),
             "provenance": _provenance_summary(prov, len(samples)),
