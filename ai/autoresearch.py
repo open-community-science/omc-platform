@@ -1455,7 +1455,12 @@ class Autoresearcher:
         for a in self.agenda:
             if a["status"] == "in_progress":
                 a["status"] = "interrupted"
-        return not any(a["status"] in ("pending", "in_progress", "interrupted") for a in self.agenda)
+        # `bool(self.agenda)` is load-bearing: an agenda that was never proposed has
+        # nothing outstanding, and reporting that as a completed investigation is how a
+        # run that did nothing comes to look finished (it once ran all six downstream
+        # phases on an empty ledger and printed "0/0 investigations done").
+        return bool(self.agenda) and not any(
+            a["status"] in ("pending", "in_progress", "interrupted") for a in self.agenda)
 
     # -- hyphal growth (#58) ----------------------------------------------------
     async def _agent_loop(self, *, system: str, seed: str, tools: list, max_steps: int,
@@ -1575,7 +1580,12 @@ class Autoresearcher:
         is still reported as outstanding."""
         self.exploration = "hyphal"
         budget = self.max_steps if max_total_steps is None else max_total_steps
-        used = await self._germinate(max_steps=min(6, budget))
+        # Germination is the root of everything and costs one model call when it goes
+        # well; starving it to save six steps risks the entire run. Size it like a tip.
+        used = await self._germinate(max_steps=min(tip_steps, budget))
+        if not self.agenda:
+            await self._emit("germinate_failed", {"steps": used})
+            return False
         last: str | None = None
         while used < budget:
             item = self._next_tip(last)
@@ -1589,8 +1599,8 @@ class Autoresearcher:
             used += await self._sweep_assumptions(max_steps=min(tip_steps, budget - used))
         await self._emit("hyphal_done", {"steps": used, "tips": len(self.agenda),
                                          "claims": len(self.ledger)})
-        return not any(a["status"] in ("pending", "in_progress", "interrupted")
-                       for a in self.agenda)
+        return bool(self.agenda) and not any(
+            a["status"] in ("pending", "in_progress", "interrupted") for a in self.agenda)
 
     async def _germinate(self, max_steps: int = 6) -> int:
         """Propose the agenda in a context that can do nothing else. Given
@@ -1604,6 +1614,19 @@ class Autoresearcher:
             system=GERMINATE_SYSTEM, seed=seed, tools=GERMINATE_TOOLS, max_steps=max_steps,
             nudge="Call propose_agenda with your agenda items now.",
             stop=lambda: bool(self.agenda), tag="germinate")
+        if not self.agenda:
+            # Germination that proposes nothing is a FAILED run, not a short one —
+            # everything downstream then works an empty agenda and reports success.
+            # Retry once with the looking-around tools removed: the usual failure is a
+            # model spending its whole budget inspecting the data it was asked to plan
+            # over, and offering it only propose_agenda takes that option away.
+            used += await self._agent_loop(
+                system=GERMINATE_SYSTEM,
+                seed=seed + "\n\nCall propose_agenda NOW, with at least six items. Do "
+                            "not inspect the data further and do not reply in prose.",
+                tools=tools_for("propose_agenda"), max_steps=max_steps,
+                nudge="Call propose_agenda. It is the only tool available to you.",
+                stop=lambda: bool(self.agenda), tag="germinate-retry")
         # propose_agenda promotes its first item for the linear loop's benefit. Here the
         # scheduler decides what gets grown, and it only looks at pending — leaving that
         # promotion in place would strand item 1 as permanently in_progress, unworked.

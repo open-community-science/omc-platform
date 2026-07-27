@@ -1230,6 +1230,33 @@ class TestHyphalGrowth:
         assert not completed
         assert [a["status"] for a in ar.agenda] == ["interrupted", "interrupted"]
 
+    def test_germination_that_proposes_nothing_is_a_failed_run(self):
+        """A real run burned its germination budget without calling propose_agenda,
+        then ran all six downstream phases on an empty ledger and printed
+        "0/0 investigations done" with no INCOMPLETE marker — nothing outstanding is
+        vacuously true when there is nothing."""
+        c = _ScriptedClient(germinate=["thinking about it"] * 40)
+        ar = _hyphal(c)
+        assert asyncio.run(ar.explore_hyphal(tip_steps=4)) is False
+        assert ar.run_summary()["completed"] is False
+
+    def test_germination_retries_with_only_the_one_tool_it_needs(self):
+        """The usual failure is a model spending its whole budget inspecting the data
+        it was asked to plan over, so the retry takes that option away."""
+        c = _ScriptedClient(germinate=[[("list_datasets", {})], [("list_datasets", {})],
+                                       [("list_datasets", {})], [("list_datasets", {})],
+                                       _AGENDA2])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=4))
+        offered = [tools for phase, _, tools in c.calls if phase == "germinate"]
+        assert offered[-1] == ["propose_agenda"]      # the retry, stripped down
+        assert len(ar.agenda) == 2
+
+    def test_an_empty_agenda_is_never_reported_complete(self):
+        ar = _hyphal(_ScriptedClient())
+        ar.agenda = []
+        assert ar.run_summary()["completed"] is False
+
     def test_a_worked_agenda_reports_complete(self):
         c = _ScriptedClient(germinate=[_AGENDA2], tip=[[("mark_done", {})]] * 4)
         ar = _hyphal(c)

@@ -1,0 +1,21 @@
+{
+  "claims": [],
+  "computations": {},
+  "agenda": [],
+  "assumptions": [],
+  "run": {
+    "completed": false,
+    "investigations_done": 0,
+    "exploration": "hyphal",
+    "claims_refused": 0,
+    "investigations_total": 0,
+    "replication_attempted": 0,
+    "replication_rounds": 0,
+    "replication_agreed": 0,
+    "replication_disputed": 0,
+    "replication_overturned": 0,
+    "replication_contested": 0,
+    "adjudicated": 0,
+    "models": []
+  }
+}

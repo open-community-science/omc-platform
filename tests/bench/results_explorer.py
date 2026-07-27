@@ -240,6 +240,9 @@ async def _print_progress(event: str, detail: dict):
         print(f"      + {detail['result']['claim_id']} {detail.get('label')}", flush=True)
     elif event == "add_followup" and (detail.get("result") or {}).get("added"):
         print(f"      ↳ {detail['result']['added']}: {detail.get('label')}", flush=True)
+    elif event == "germinate_failed":
+        print(f"  !! germination proposed no agenda after {detail['steps']} steps — "
+              "nothing to explore; stopping", flush=True)
     elif event == "hyphal_done":
         print(f"  {detail['tips']} tips, {detail['claims']} claims, "
               f"{detail['steps']} steps", flush=True)
