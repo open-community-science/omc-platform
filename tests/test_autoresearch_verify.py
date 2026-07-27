@@ -1309,6 +1309,36 @@ class TestHyphalGrowth:
         assert [a["id"] for a in ar._ancestry(ar.agenda[0])] == ["a1", "a2"]
 
 
+class TestPromptsDoNotDictateTheAgenda:
+    """The germination prompt used to enumerate the toolkit — alpha diversity, then
+    beta diversity, then core taxa, then a contamination screen naming five genera —
+    and the model handed back that list, in that order, every run. An agenda that
+    matches the prescription is the prompt's agenda, not the dataset's."""
+
+    TECHNIQUES = ("Shannon", "Simpson", "Pielou", "Bray-Curtis", "Jaccard",
+                  "Ralstonia", "Bradyrhizobium", "Cutibacterium", "Pelomonas", "Delftia")
+
+    def test_germination_does_not_enumerate_a_checklist(self):
+        from ai.autoresearch import GERMINATE_SYSTEM
+        assert not [t for t in self.TECHNIQUES if t in GERMINATE_SYSTEM]
+
+    def test_the_linear_driver_does_not_either(self):
+        from ai.autoresearch import EXPLORE_SYSTEM
+        assert not [t for t in self.TECHNIQUES if t in EXPLORE_SYSTEM]
+
+    def test_germination_still_says_to_read_the_data_first(self):
+        """Removing the checklist only helps if something replaces it. What replaces
+        it is the data — otherwise a weaker model proposes nothing at all."""
+        from ai.autoresearch import GERMINATE_SYSTEM
+        assert "LOOK BEFORE YOU PLAN" in GERMINATE_SYSTEM
+        assert "list_datasets" in GERMINATE_SYSTEM
+
+    def test_germination_still_requires_self_contained_items(self):
+        """Each item is worked by an analyst who never sees the others."""
+        from ai.autoresearch import GERMINATE_SYSTEM
+        assert "stand on its own" in GERMINATE_SYSTEM
+
+
 class TestLiveVerification:
     """#61 — the judge runs on the other machine while the analyst explores, and the
     verdicts it returns seed the contexts that come after."""

@@ -55,14 +55,10 @@ the data itself, not a presumed backstory."""
 # different workflow (it is handed ONE item and never sees the rest), but the same
 # role, the same claim craft, and the same statistical rules — so those are shared.
 _LINEAR_WORKFLOW = """Work systematically and recursively:
-1. FIRST call propose_agenda with the analyses/hypothesis tests worth running here — the
-   standard microbial-ecology toolkit AND less obvious ideas. Think across: alpha diversity
-   (richness, Shannon, Simpson, Pielou evenness) and its dependence on sequencing depth;
-   dominance and the rare biosphere; beta-diversity structure (Bray-Curtis/Jaccard,
-   ordination) and WHICH taxa drive it; differential abundance / indicator taxa between
-   sample groups; co-occurrence; the prokaryote-vs-eukaryote split (use `tax` Domain);
-   core vs transient taxa (prevalence); and a contamination screen for known kit/reagent
-   genera (e.g. Ralstonia, Bradyrhizobium, Cutibacterium, Pelomonas, Delftia).
+1. FIRST look at what is actually here — the frames, their columns, what varies across
+   samples — and then call propose_agenda with the questions THIS dataset can answer.
+   You are a microbial ecologist; the standard toolkit is yours to draw on where it fits,
+   but an agenda that could have been written before seeing the data is not an agenda.
 2. Work the agenda item by item. For each: run_analysis over `counts`/`tax`/`meta` to test
    it, then record_claim(s) with the exact value(s) and antecedents. mark_done and move on.
 3. RECURSE: whenever a result is surprising or opens a question, add_followup — that is how
@@ -163,19 +159,24 @@ assumptions your findings rest on, then reply DONE."""
 
 GERMINATE_SYSTEM = f"""{_ANALYST_ROLE}
 
-Right now you are PLANNING ONLY. Propose the agenda of analyses and hypothesis tests worth
-running on this dataset — the standard microbial-ecology toolkit AND the less obvious ideas.
-Think across: alpha diversity (richness, Shannon, Simpson, Pielou evenness) and its dependence
-on sequencing depth; dominance and the rare biosphere; beta-diversity structure (Bray-Curtis/
-Jaccard, ordination) and WHICH taxa drive it; differential abundance / indicator taxa between
-sample groups; co-occurrence; the prokaryote-vs-eukaryote split (use `tax` Domain); core vs
-transient taxa (prevalence); and a contamination screen for known kit/reagent genera (e.g.
-Ralstonia, Bradyrhizobium, Cutibacterium, Pelomonas, Delftia).
+Right now you are PLANNING ONLY.
 
-Each item will be worked SEPARATELY by an analyst who sees that item and the findings so far,
-but not the others — so make each question stand on its own, and don't split one test across
-two items. Look at the data first if it helps you plan (list_datasets/get_dataset), then call
-propose_agenda once. Do not start analysing."""
+LOOK BEFORE YOU PLAN. Read what is in front of you — the frames and their shapes, which
+columns vary across samples and how, what the pipeline did and what it lost, what the
+submitters said this was. list_datasets and get_dataset are available. An agenda you could
+have written without seeing this dataset is a list of techniques, not a plan.
+
+Then propose the questions THIS data can answer. You are a microbial ecologist and the
+standard toolkit is yours to draw on wherever it fits — but let what you just read decide
+which parts of it are worth running here, and what else is worth asking that no toolkit
+would have suggested. The findings that matter are usually the ones nobody thought to
+look for.
+
+Each item will be worked SEPARATELY by an analyst who is given that item and the findings so
+far, but not the other items — so each question must stand on its own, name what it is
+testing precisely enough to act on, and not split one test across two items.
+
+Call propose_agenda once. Do not start analysing."""
 
 
 TIP_SYSTEM = f"""{_ANALYST_ROLE}
