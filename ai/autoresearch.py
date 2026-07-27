@@ -565,6 +565,54 @@ def _jsonify(v, depth=0, cap=MODEL_VIEW_CAP):
     return v
 
 
+# The explore transcript grows monotonically: every step appends an assistant turn
+# plus the tool results answering it. At a 48-step cap that stayed under a 64k window
+# by luck; above it the server starts dropping from the FRONT, which is exactly where
+# the system prompt and the data briefing live — so a long run silently loses its
+# instructions and its warning about which axis is samples. Elide from the MIDDLE
+# instead, oldest first, with the head pinned.
+EXPLORE_CHAR_BUDGET = 140_000    # ≈35k tokens of transcript at ~4 chars/token
+
+
+def _msg_chars(m: dict) -> int:
+    n = len(m.get("content") or "")
+    for tc in (m.get("tool_calls") or []):
+        n += len(json.dumps(tc, default=str))
+    return n
+
+
+def _compact_messages(messages: list[dict], budget: int = EXPLORE_CHAR_BUDGET) -> list[dict]:
+    """Drop the OLDEST steps once the transcript outgrows ``budget``, keeping the
+    system prompt and the opening briefing pinned at the head.
+
+    Steps are dropped whole — an assistant turn together with the tool messages that
+    answer it — because a ``tool`` message whose ``tool_calls`` are gone is a 400 from
+    the API, not a smaller prompt. Little of substance is lost: the agenda, claims,
+    assumptions and computations all live on the ``Autoresearcher``, and the model can
+    re-read them with ``get_agenda``. Only the raw chatter goes.
+    """
+    total = sum(_msg_chars(m) for m in messages)
+    if total <= budget:
+        return messages
+    head, tail = messages[:2], messages[2:]      # system prompt + opening briefing
+    i = dropped = 0
+    while i < len(tail) and total > budget:
+        j = i + 1
+        while j < len(tail) and tail[j].get("role") == "tool":
+            j += 1
+        if j >= len(tail):      # never drop the newest step — it has to answer something
+            break
+        total -= sum(_msg_chars(m) for m in tail[i:j])
+        dropped += 1
+        i = j
+    if not dropped:
+        return messages
+    return head + [{"role": "user", "content": (
+        f"[{dropped} earlier steps were elided to stay within the context window. "
+        "Nothing you recorded was lost — your agenda, claims and assumptions are all "
+        "intact. Call get_agenda to see where you are, and carry on from there.]")}] + tail[i:]
+
+
 def build_dag(computations: dict, ledger: list, agenda: list | None = None) -> dict:
     """Claim→antecedent provenance DAG. Nodes: computations (blue), claims
     (verdict-coloured), data paths (grey), and — when ``agenda`` is passed —
@@ -1231,6 +1279,7 @@ class Autoresearcher:
                  "then work through it, recursing where it gets interesting."}]
         swept_assumptions = False   # force one assumptions pass before finishing
         for step in range(self.max_steps):
+            messages = _compact_messages(messages)
             r = await self._chat("explore", messages, model=self.explore_model, tools=TOOLS,
                                     tool_choice="auto", temperature=0.25, max_tokens=2500)
             msg = r.choices[0].message

@@ -1,104 +1,104 @@
-# Claim provenance DAG (anthropic/claude-sonnet-5) — INCOMPLETE (10/13 investigations)
+# Claim provenance DAG (qwen/qwen3.5-35b-a3b) — INCOMPLETE (8/12 investigations)
 
-13/16 claims verified · 18 computations
+3/9 claims verified · 15 computations
 
-Legend: 🟩 verified · 🟥 refuted · 🟨 unverifiable · 🟦 computation · ⬛ data
+Legend: 🟢 replicated · 🟩 verified · 🟪 disputed · 🟧 partly supported · 🟥 refuted · 🟨 unverifiable · 🟦 computation · ⬛ data
 
 ```mermaid
 graph LR
-  c1[["inspect shapes"]]
+  a1{{"Alpha diversity metrics (observed ASVs, Shannon, Simpson, Pielou evenn"}}
+  style a1 fill:#00695c,color:#fff
+  a2{{"Dominance structure: what proportion of total reads are captured by th"}}
+  style a2 fill:#00695c,color:#fff
+  a3{{"Beta-diversity structure: do samples cluster by library_name (experime"}}
+  style a3 fill:#00695c,color:#fff
+  a4{{"Which taxa drive the primary axes of beta-diversity separation (if any"}}
+  style a4 fill:#00695c,color:#fff
+  a5{{"Prokaryote vs Eukaryote split: what is the relative abundance of Bacte"}}
+  style a5 fill:#00695c,color:#fff
+  a6{{"Core vs transient taxa: what proportion of ASVs are present in >50%, >"}}
+  style a6 fill:#00695c,color:#fff
+  a7{{"Contamination screen: what is the abundance of known kit/reagent gener"}}
+  style a7 fill:#00695c,color:#fff
+  a8{{"Differential abundance: which ASVs differ significantly between librar"}}
+  style a8 fill:#00695c,color:#fff
+  a9{{"Co-occurrence network: are there robust taxon-taxon associations after"}}
+  style a9 fill:#00695c,color:#fff
+  a10{{"Outlier detection: which samples have unusual diversity, composition, "}}
+  style a10 fill:#00695c,color:#fff
+  a11{{"What do the pre-computed x/y ordination coordinates (meta['x'], meta['"}}
+  style a11 fill:#00695c,color:#fff
+  a12{{"Which specific samples show the highest contaminant proportions, and d"}}
+  style a12 fill:#00695c,color:#fff
+  c1[["a1_alpha_diversity_and_depth"]]
   style c1 fill:#1565c0,color:#fff
-  c2[["domain composition per sample"]]
+  c2[["a1_depth_distribution_and_outliers"]]
   style c2 fill:#1565c0,color:#fff
-  c3[["domain purity per sample and batch alignment"]]
+  c3[["a2_dominance_structure"]]
   style c3 fill:#1565c0,color:#fff
-  c4[["check description/library_strategy consistency within eukaryote batch"]]
+  c4[["a3_beta_diversity_library_effect"]]
   style c4 fill:#1565c0,color:#fff
-  c5[["alpha diversity vs depth"]]
+  c5[["a11_precomputed_ordination_analysis"]]
   style c5 fill:#1565c0,color:#fff
-  c6[["alpha diversity vs depth split by domain batch"]]
+  c6[["a4_driver_taxa_beta_diversity"]]
   style c6 fill:#1565c0,color:#fff
-  c7[["rank abundance and rare biosphere"]]
+  c7[["a4_driver_taxa_taxonomy_check"]]
   style c7 fill:#1565c0,color:#fff
-  c8[["check min counts and top taxa IDs"]]
+  c8[["a5_prokaryote_eukaryote_split"]]
   style c8 fill:#1565c0,color:#fff
-  c9[["bray-curtis PCoA vs precomputed xy"]]
+  c9[["a6_core_transient_taxa_prevalence_debug"]]
   style c9 fill:#1565c0,color:#fff
-  c10[["clustering by domain in bray curtis space and meta xy separation check"]]
+  c10[["a6_core_transient_taxa_debug2"]]
   style c10 fill:#1565c0,color:#fff
-  c11[["within-batch sample type parsing"]]
+  c11[["a6_core_transient_taxa_prevalence_v4"]]
   style c11 fill:#1565c0,color:#fff
-  c12[["PERMANOVA-like test for sample type within bacteria batch"]]
+  c12[["a7_contamination_screen"]]
   style c12 fill:#1565c0,color:#fff
-  c13[["indicator taxa by sample type within bacteria batch"]]
+  c13[["a8_differential_abundance_depth_association_v2"]]
   style c13 fill:#1565c0,color:#fff
-  c14[["contamination screen for kit genera"]]
+  c14[["a8_depth_associated_taxonomy"]]
   style c14 fill:#1565c0,color:#fff
-  c15[["core vs transient taxa prevalence"]]
+  c15[["a8_depth_association_raw_pvals_v2"]]
   style c15 fill:#1565c0,color:#fff
-  c16[["Kruskal-Wallis differential abundance per genus across habitat types in bacteria batch"]]
-  style c16 fill:#1565c0,color:#fff
-  c17[["co-occurrence network among core/abundant genera in bacteria batch"]]
-  style c17 fill:#1565c0,color:#fff
-  c18[["xy vs depth/richness technical check within each batch"]]
-  style c18 fill:#1565c0,color:#fff
-  k1["The dataset is not pure 16S: SILVA domain classification spl"]
-  style k1 fill:#2e7d32,color:#fff
-  get_dataset('study').caveat("get_dataset('study').caveat")
-  style get_dataset('study').caveat fill:#455a64,color:#fff
-  k2["Both accession batches sample the same underlying site/mater"]
-  style k2 fill:#f9a825,color:#000
-  k3["ASV richness is strongly confounded with sequencing depth, e"]
+  k1["Observed ASV richness shows strong positive correlation with"]
+  style k1 fill:#ef6c00,color:#fff
+  k2["Communities show strong dominance: top 10 ASVs capture ~76% "]
+  style k2 fill:#1b5e20,color:#fff
+  k3["Beta-diversity ordination shows PC1 explains 34% and PC2 exp"]
   style k3 fill:#2e7d32,color:#fff
-  k4["Pielou evenness decreases with increasing sequencing depth, "]
-  style k4 fill:#2e7d32,color:#fff
-  k5["This ASV table has already been pre-filtered to remove singl"]
-  style k5 fill:#2e7d32,color:#fff
-  k6["The community is moderately dominated by a few taxa: the sin"]
+  k4["Pre-computed ordination coordinates show unexpected patterns"]
+  style k4 fill:#f9a825,color:#000
+  k5["Beta-diversity ordination is driven by both abundant and rar"]
+  style k5 fill:#4527a0,color:#fff
+  k6["Dataset is eukaryote-dominated (74% mean proportion) with su"]
   style k6 fill:#2e7d32,color:#fff
-  k7["Between the two domain batches (bacteria vs eukaryote runs),"]
-  style k7 fill:#2e7d32,color:#fff
-  k8["The precomputed ordination coordinate meta['y'] almost perfe"]
-  style k8 fill:#c62828,color:#fff
-  k9["Within each domain batch separately, sample/habitat type (fr"]
-  style k9 fill:#2e7d32,color:#fff
-  k10["Distinct dominant genera characterize each sea-ice habitat t"]
-  style k10 fill:#2e7d32,color:#fff
-  k11["Classic kit/reagent contaminant genera are essentially absen"]
-  style k11 fill:#2e7d32,color:#fff
-  k12["Core taxa (≥50% sample prevalence) are a tiny fraction of to"]
-  style k12 fill:#2e7d32,color:#fff
-  k13["The core microbiome genera consistently present across sea-i"]
-  style k13 fill:#2e7d32,color:#fff
-  k14["Differential abundance testing (Kruskal-Wallis) across the f"]
-  style k14 fill:#2e7d32,color:#fff
-  k15["A positively co-occurring guild of genera (Neptuniibacter, C"]
-  style k15 fill:#c62828,color:#fff
-  k16["Within the eukaryote batch, the precomputed ordination x-coo"]
-  style k16 fill:#2e7d32,color:#fff
-  c2 --> k1
-  c3 --> k1
-  c4 --> k1
-  get_dataset('study').caveat --> k1
-  c4 --> k2
-  c5 --> k3
-  c6 --> k3
+  k7["Microbiome exhibits classic long-tail diversity: mean ASV pr"]
+  style k7 fill:#ef6c00,color:#fff
+  k8["Contamination screen identifies 24 ASVs matching known kit g"]
+  style k8 fill:#ef6c00,color:#fff
+  k9["Sequencing depth is a major driver of taxon detection: 641 o"]
+  style k9 fill:#4527a0,color:#fff
+  a3 --> a11
+  a8 --> a12
+  a1 --> k1
+  c1 --> k1
+  a2 --> k2
+  c3 --> k2
+  a3 --> k3
+  c4 --> k3
+  a4 --> k4
   c5 --> k4
-  c6 --> k4
+  a5 --> k5
+  c6 --> k5
   c7 --> k5
-  c8 --> k5
-  c7 --> k6
+  a6 --> k6
   c8 --> k6
-  c10 --> k7
-  c10 --> k8
-  c12 --> k9
-  c13 --> k10
-  c14 --> k11
-  c15 --> k12
-  c15 --> k13
-  c13 --> k13
-  c16 --> k14
-  c17 --> k15
-  c13 --> k15
-  c18 --> k16
+  a7 --> k7
+  c11 --> k7
+  a8 --> k8
+  c12 --> k8
+  a8 --> k9
+  c13 --> k9
+  c14 --> k9
+  c15 --> k9
 ```

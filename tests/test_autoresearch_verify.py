@@ -19,8 +19,61 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from ai.autoresearch import _norm_assertions  # noqa: E402
 from ai.autoresearch import (  # noqa: E402
     Autoresearcher, JUDGE_SYSTEM, LLMClient, MODEL_VIEW_CAP, REPLICATE_SYSTEM,
-    _jsonify, _usable_derivation, format_briefing,
+    _compact_messages, _jsonify, _usable_derivation, format_briefing,
 )
+
+
+def _step(n: int, n_tools: int = 2, size: int = 4000) -> list[dict]:
+    """One explore step as it lands in the transcript: an assistant turn carrying
+    tool_calls, followed by the tool messages that answer them."""
+    calls = [{"id": f"c{n}_{k}", "type": "function",
+              "function": {"name": "run_analysis", "arguments": "{}"}} for k in range(n_tools)]
+    return ([{"role": "assistant", "content": "", "tool_calls": calls}]
+            + [{"role": "tool", "tool_call_id": f"c{n}_{k}", "content": "x" * size}
+               for k in range(n_tools)])
+
+
+class TestCompactMessages:
+    """Nothing trimmed the explore transcript, so every run above the step cap would
+    have overflowed the window — and an overflow drops from the FRONT, taking the
+    system prompt and the data briefing with it."""
+
+    def _head(self):
+        return [{"role": "system", "content": "SYSTEM"},
+                {"role": "user", "content": "BRIEFING"}]
+
+    def test_under_budget_is_returned_untouched(self):
+        msgs = self._head() + _step(1)
+        assert _compact_messages(msgs, budget=1_000_000) is msgs
+
+    def test_system_prompt_and_briefing_are_never_dropped(self):
+        out = _compact_messages(self._head() + [m for n in range(20) for m in _step(n)],
+                                budget=20_000)
+        assert out[0]["content"] == "SYSTEM"
+        assert out[1]["content"] == "BRIEFING"
+        assert sum(len(m.get("content") or "") for m in out) < 40_000
+
+    def test_no_tool_message_is_left_orphaned(self):
+        """A `tool` message whose `tool_calls` were dropped is a 400, not a saving."""
+        out = _compact_messages(self._head() + [m for n in range(20) for m in _step(n)],
+                                budget=20_000)
+        live = set()
+        for m in out:
+            if m["role"] == "assistant":
+                live |= {tc["id"] for tc in (m.get("tool_calls") or [])}
+            elif m["role"] == "tool":
+                assert m["tool_call_id"] in live, "orphaned tool message"
+
+    def test_the_newest_step_survives_however_tight_the_budget(self):
+        out = _compact_messages(self._head() + [m for n in range(20) for m in _step(n)],
+                                budget=1)
+        assert out[-1]["role"] == "tool"
+        assert out[-1]["tool_call_id"].startswith("c19_")
+
+    def test_the_model_is_told_where_its_state_still_lives(self):
+        out = _compact_messages(self._head() + [m for n in range(20) for m in _step(n)],
+                                budget=20_000)
+        assert "get_agenda" in out[2]["content"] and "elided" in out[2]["content"]
 
 
 class TestNormAssertions:

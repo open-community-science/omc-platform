@@ -78,6 +78,15 @@ ROLE_HOST = {r: os.environ.get(f"{r.upper()}_HOST", "local")
 ROLE_MODEL = {"explore": MODEL, "verify": VERIFY_MODEL, "replicate": REPLICATE_MODEL,
               "adjudicate": ADJUDICATE_MODEL, "write": MODEL}
 
+# Exploration budget. Every bench run so far has ended `interrupted` on the step cap,
+# so we have never seen what a COMPLETE investigation produces — these are env knobs
+# specifically so a run can be given enough rope to finish on its own DONE instead.
+MAX_STEPS = int(os.environ.get("EXPLORER_MAX_STEPS", "48"))
+MAX_FOLLOWUPS = int(os.environ.get("EXPLORER_MAX_FOLLOWUPS", "12"))
+# Claims sent for independent re-derivation per round. The default truncates silently;
+# raise it in step with the step cap or a long run's later claims never get checked.
+MAX_REPLICATE = int(os.environ.get("EXPLORER_MAX_REPLICATE", "12"))
+
 OUT = HERE / "writings"
 OUT.mkdir(exist_ok=True)
 
@@ -149,8 +158,8 @@ async def _run_independent_rounds(ar):
     if not _switch_model(REPLICATE_MODEL, "replicate"):
         print("  load failed — skipping", flush=True)
         return
-    print(f"  {await ar.replicate(defer_judgment=True)} claims independently re-derived",
-          flush=True)
+    print(f"  {await ar.replicate(max_claims=MAX_REPLICATE, defer_judgment=True)} "
+          "claims independently re-derived", flush=True)
 
     print(f"\n=== JUDGE ROUND 2 ({VERIFY_MODEL}) ===", flush=True)
     if _switch_model(VERIFY_MODEL, "verify"):
@@ -158,8 +167,8 @@ async def _run_independent_rounds(ar):
 
     print(f"\n=== ROUND 3: ADJUDICATION ({ADJUDICATE_MODEL}) ===", flush=True)
     if _switch_model(ADJUDICATE_MODEL, "adjudicate"):
-        print(f"  {await ar.adjudicate(defer_judgment=True)} stand-offs given a casting vote",
-              flush=True)
+        print(f"  {await ar.adjudicate(max_claims=MAX_REPLICATE, defer_judgment=True)} "
+              "stand-offs given a casting vote", flush=True)
         print(f"\n=== JUDGE ROUND 3 ({VERIFY_MODEL}) ===", flush=True)
         if _switch_model(VERIFY_MODEL, "verify"):
             print(f"  {await ar.judge_replications()} derivations judged", flush=True)
@@ -203,7 +212,8 @@ def _make_researcher(llm: LLMClient) -> Autoresearcher:
     return Autoresearcher(_data_source(), llm, _executor(), clients=_clients(),
                           explore_model=MODEL, verify_model=VERIFY_MODEL,
                           replicate_model=REPLICATE_MODEL,
-                          adjudicate_model=ADJUDICATE_MODEL)
+                          adjudicate_model=ADJUDICATE_MODEL,
+                          max_steps=MAX_STEPS, max_followups=MAX_FOLLOWUPS)
 
 
 def _supported_results_data(computations, ledger):
