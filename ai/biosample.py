@@ -65,7 +65,9 @@ def fetch_attributes(accessions: Iterable[str], timeout: int = 40,
                     attrs[name] = a.text
             title = s.find(".//Title")
             if title is not None and title.text:
-                attrs.setdefault("biosample_title", title.text)
+                # Bare `title`: consumers prefix by source, and "biosample_title"
+                # here would come out as biosample_biosample_title.
+                attrs.setdefault("title", title.text)
             out[acc] = attrs
     return out
 

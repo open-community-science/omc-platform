@@ -100,6 +100,92 @@ class TestBriefingGroupings:
         text = format_briefing({"meta": {"shape": [63, 4], "columns": ["x"]}})
         assert "COLUMNS THAT GROUP" not in text
 
+    def test_the_source_prefix_convention_is_explained(self):
+        text = format_briefing({
+            "meta": {"shape": [63, 23], "columns": ["pipeline_x"]},
+            "meta_groupings": {"biosample_env_local_scale": {
+                "n_groups": 2, "groups": {"frost flowers": 24, "Brine": 17}}}})
+        for src in ("pipeline_", "sra_", "biosample_"):
+            assert src in text
+        assert "they can disagree" in text
+
+
+class TestSampleAttrition:
+    """#59 — an unreconciled 84 beside a 63-row table does not merely withhold the
+    attrition, it makes an analyst doubt the table. One was last seen concluding its
+    own `counts` frame must be transposed."""
+
+    PROV = {"stages": [{"id": s} for s in ("raw", "filter", "denoise", "final")],
+            "total": {"raw": 100, "final": 60},
+            "samples": {"S1": {"raw": 50, "filter": 40, "denoise": 30, "final": 30},
+                        "S2": {"raw": 50, "filter": 40, "denoise": 30, "final": 30},
+                        "S3": {"raw": 10, "filter": 8, "denoise": 0, "final": 0},
+                        "S4": {"raw": 10, "filter": 0, "denoise": 0, "final": 0},
+                        "S5": {"raw": 10, "filter": 9, "denoise": 5, "final": 0}}}
+
+    def _summary(self):
+        from ai.autoresearch import _provenance_summary
+        return _provenance_summary(self.PROV, n_analysed=2)
+
+    def test_attempted_and_analysed_are_both_reported(self):
+        s = self._summary()
+        assert s["n_samples_attempted"] == 5 and s["n_samples_analysed"] == 2
+
+    def test_each_dropped_sample_is_attributed_to_where_it_was_lost(self):
+        """A run of samples dying at one stage is a finding, not noise."""
+        s = self._summary()
+        assert s["n_dropped"] == 3
+        assert s["dropped_at_stage"] == {"denoise": 1, "filter": 1, "final": 1}
+        assert s["dropped_samples"] == ["S3", "S4", "S5"]
+
+    def test_the_note_says_absent_not_zero(self):
+        """`counts` has no row at all for these — an analyst told "zero reads" could
+        reasonably expect a zero row and go looking for one."""
+        assert "ABSENT" in self._summary()["note"]
+
+    def test_a_run_that_lost_nobody_says_nothing_about_attrition(self):
+        from ai.autoresearch import _provenance_summary
+        prov = {**self.PROV, "samples": {"S1": {"raw": 50, "filter": 40,
+                                                "denoise": 30, "final": 30}}}
+        assert "n_dropped" not in _provenance_summary(prov, n_analysed=1)
+
+    def test_missing_provenance_degrades_rather_than_raising(self):
+        from ai.autoresearch import _provenance_summary
+        s = _provenance_summary({}, n_analysed=63)
+        assert s["n_samples_attempted"] == 0 and s["n_samples_analysed"] == 63
+
+    def test_the_briefing_states_the_attrition_beside_the_axis_rule(self):
+        text = format_briefing({
+            "counts": {"shape": [63, 735], "sample_ids_sample": ["a"],
+                       "asv_ids_sample": ["b"]},
+            "provenance": {"n_samples_attempted": 84, "n_samples_analysed": 63,
+                           "n_dropped": 21, "dropped_at_stage": {"chimera": 11}}})
+        assert "SAMPLE ATTRITION: 63 of 84" in text
+        assert "11 at chimera" in text
+        assert "ABSENT" in text
+        assert text.index("ROWS ARE SAMPLES") < text.index("SAMPLE ATTRITION")
+
+
+class TestSourcePrefixes:
+    """Three sources reach `meta` and they are not interchangeable. Nothing in a value
+    says which one produced it, so the column name has to."""
+
+    def test_the_sandbox_prefixes_every_column_by_source(self):
+        """pipeline_total_reads matches the counts table; sra_read_count is a declared
+        figure that is zero for 19 of these samples. Reading one for the other is a
+        silent error, and nothing in the value gives it away."""
+        import inspect
+        import ai.autoresearch as A
+        src = inspect.getsource(A)
+        assert '("pipeline_" if c in _PIPE else "sra_")' in src
+        assert '"biosample_" + str(c)' in src
+
+    def test_the_prompt_points_at_the_prefixed_columns(self):
+        from ai.autoresearch import EXPLORE_SYSTEM
+        assert "meta['pipeline_x']" in EXPLORE_SYSTEM
+        assert "biosample_collection_date" in EXPLORE_SYSTEM
+        assert "meta['x']" not in EXPLORE_SYSTEM      # the old, now-wrong name
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

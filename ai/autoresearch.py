@@ -126,11 +126,20 @@ When you cannot satisfy one of these (too few samples to rarefy, a test with no 
 family), say so in the claim or a quality_caveat rather than proceeding silently.
 
 KNOW WHAT THE FIELDS MEAN, then think critically about the data:
-- `meta['x']`/`meta['y']` are PRECOMPUTED ORDINATION coordinates, not geographic lat/lon.
-- `meta['collection_date']` is often a database record-creation date, not a verified sampling
-  date. Treat SRA metadata labels — including the stated amplicon target — as unverified: they
-  are frequently wrong. get_dataset('study') gives today's `analysis_date`; judge any date
-  against it (a recent past date is normal, not "future").
+- EVERY `meta` COLUMN IS PREFIXED WITH WHERE IT CAME FROM, and the sources do not agree:
+  `pipeline_` was computed from this data, `sra_` is what the submitter declared to the
+  sequence archive, `biosample_` describes the physical sample. Where two sources carry the
+  same quantity you get both, and choosing between them is your judgment to make and to
+  state — `pipeline_total_reads` is the depth of the table you are analysing, while
+  `sra_read_count` is a declared figure that may be zero or stale. Prefer the source that
+  measured the thing you are claiming about, and say which you used.
+- `meta['pipeline_x']`/`meta['pipeline_y']` are PRECOMPUTED ORDINATION coordinates, not
+  geographic lat/lon. Real coordinates, if any, arrive as `biosample_lat_lon`.
+- `sra_collection_date` is often a database record-creation date, not a verified sampling
+  date; `biosample_collection_date` is usually the real one. Treat SRA metadata labels —
+  including the stated amplicon target — as unverified: they are frequently wrong.
+  get_dataset('study') gives today's `analysis_date`; judge any date against it (a recent
+  past date is normal, not "future").
 - A named test (Mantel, PERMANOVA, ...) must be the test you actually ran; don't upgrade a
   plain correlation to a named test.
 - Sanity-check the data against the stated context in get_dataset('study'). Don't invent
@@ -451,6 +460,18 @@ def format_briefing(b: dict) -> str:
             "    reduces over axis=1. Check your orientation before you trust a number:",
             f"    anything claiming there are {rows} ASVs or {cols} samples has them backwards.",
         ]
+    if (p := b.get("provenance")) and p.get("n_dropped"):
+        # Stated up front and beside the axis rule, because an analyst that meets the
+        # attempted-sample count later, unexplained, concludes its own frame is wrong.
+        at = ", ".join(f"{n} at {s}" for s, n in (p.get("dropped_at_stage") or {}).items())
+        lines += [
+            f"  SAMPLE ATTRITION: {p['n_samples_analysed']} of {p['n_samples_attempted']} "
+            f"samples reached the final table.",
+            f"    The other {p['n_dropped']} produced zero reads ({at}) and are ABSENT "
+            f"from counts — not present as zero rows.",
+            "    So every per-sample statistic here is over the SURVIVORS. Say so when it "
+            "matters, and treat where they were lost as a finding in its own right.",
+        ]
     for key in ("tax", "meta"):
         d = b.get(key)
         if d:
@@ -460,6 +481,10 @@ def format_briefing(b: dict) -> str:
         # Named explicitly for the same reason as the axis rule: an analyst that is not
         # shown the real grouping variable invents one (high vs low sequencing depth),
         # and a claim about an invented grouping is reproducible and pointless.
+        lines.append("  every meta column is prefixed with its SOURCE — pipeline_ "
+                     "(computed from this data), sra_ (declared to the archive), "
+                     "biosample_ (the physical sample). Where two sources carry the "
+                     "same quantity you get both, and they can disagree.")
         lines.append("  COLUMNS THAT GROUP THE SAMPLES — use these before inventing a "
                      "grouping of your own:")
         for col, info in g.items():
@@ -873,6 +898,41 @@ class LLMClient:
 _UNASSIGNED = {"", "na", "unclassified", "unassigned", "incertae sedis", "none"}
 
 
+def _provenance_summary(prov: dict, n_analysed: int) -> dict:
+    """Pipeline stage totals PLUS what happened to the samples that did not make it.
+
+    ``n_samples: 84`` next to a 63-row counts table, with nothing to reconcile them,
+    does not merely withhold the attrition — it makes an analyst doubt the table. One
+    was last seen deciding its own `counts` frame must be transposed, which is the very
+    error the data briefing exists to prevent (#59).
+
+    So say it: how many were attempted, how many survived, and WHERE the rest died.
+    A run of samples collapsing at one stage is a finding in its own right."""
+    per = prov.get("samples") or {}
+    stages = [s.get("id") for s in prov.get("stages", []) if s.get("id")]
+    out = {"total": prov.get("total", {}), "stages": stages,
+           "n_samples_attempted": len(per), "n_samples_analysed": n_analysed}
+    if not per or not stages:
+        return out
+    dropped, where = [], {}
+    for sid, chain in per.items():
+        if chain.get(stages[-1]):
+            continue                       # reached the final table
+        dropped.append(sid)
+        # the first stage at which this sample hit zero is where it was lost
+        lost = next((s for s in stages if not chain.get(s)), stages[-1])
+        where[lost] = where.get(lost, 0) + 1
+    if dropped:
+        out["n_dropped"] = len(dropped)
+        out["dropped_at_stage"] = dict(sorted(where.items(), key=lambda kv: -kv[1]))
+        out["dropped_samples"] = sorted(dropped)
+        out["note"] = (f"{len(dropped)} of {len(per)} samples produced zero reads in the "
+                       f"final table and are ABSENT from `counts` — not present as zero "
+                       f"rows. Every per-sample statistic is over the "
+                       f"{n_analysed} survivors.")
+    return out
+
+
 def _primers_summary(primers: dict | None) -> Optional[dict]:
     """Compact INFERRED-primer view for the `study` dataset: which amplicon design(s)
     the submission appears to use. When more than one design is present, a domain split
@@ -1007,9 +1067,7 @@ class DirDataSource:
                            "for the inferred assay design; confirm against tax Domain."),
             },
             "renorm_stats": self.read_json("renorm_stats") or fx.get("renorm", {}),
-            "provenance": {"total": prov.get("total", {}),
-                           "stages": [s.get("id") for s in prov.get("stages", [])],
-                           "n_samples": len(prov.get("samples", {}))},
+            "provenance": _provenance_summary(prov, len(samples)),
             "samples": {"n": len(samples),
                         "total_reads": sum(s.get("total_reads", 0) for s in samples if isinstance(s, dict))},
             "taxonomy_summary": fx.get("taxonomy_summary", {}),
@@ -1077,18 +1135,22 @@ _lv = _body.get("levels", [])
 tax = pd.DataFrame.from_dict({a: dict(zip(_lv, l)) for a, l in _body.get("assignments", {}).items()},
                             orient="index").reindex(columns=_lv)
 meta = pd.DataFrame(_rj("samples") or [])
-# Per-sample BioSample attributes (#62) — what each sample IS, joined on its accession.
-# Without these the only covariate in `meta` is sequencing depth, and every question
-# about grouping gets answered against depth for want of anything better.
-_sa = _rj("sample_attributes") or {}
-if _sa and "sample_accession" in meta.columns:
-    _at = pd.DataFrame.from_dict(_sa, orient="index")
-    # Where both sources carry a field, keep BOTH and say which is which. They
-    # disagree in ways that matter: SRA's collection_date is often the record-creation
-    # date while BioSample's is when the sample was actually taken.
-    _at.columns = [f"{c}_biosample" if c in meta.columns else c for c in _at.columns]
-    meta = meta.join(_at, on="sample_accession")
 meta = meta.set_index("id") if "id" in meta.columns else meta
+# Every column says where it came from. Three sources reach this frame and they are
+# NOT interchangeable: `pipeline_total_reads` is the post-processing depth and matches
+# the counts table exactly, while `sra_read_count` is what the submitter declared and
+# is zero for 19 of these samples. Reading one for the other is a silent error, and
+# nothing in the value itself gives it away.
+_PIPE = {"x", "y", "total_reads", "n_asvs"}   # computed by the pipeline from the data
+meta.columns = [("pipeline_" if c in _PIPE else "sra_") + str(c) for c in meta.columns]
+# Per-sample BioSample attributes (#62) — what each sample IS. Without these the only
+# covariate is sequencing depth, and every question about grouping gets answered
+# against depth for want of anything better.
+_sa = _rj("sample_attributes") or {}
+if _sa and "sra_sample_accession" in meta.columns:
+    _at = pd.DataFrame.from_dict(_sa, orient="index")
+    _at.columns = ["biosample_" + str(c) for c in _at.columns]
+    meta = meta.join(_at, on="sra_sample_accession")
 import socket
 def _no_net(*a, **k):
     raise OSError("network disabled in analysis sandbox")
@@ -1266,7 +1328,17 @@ class Autoresearcher:
         if self._briefing is None:
             try:
                 ok, res = await self.executor.run(_BRIEFING_CODE)
-                self._briefing = format_briefing(res) if ok and isinstance(res, dict) else ""
+                if ok and isinstance(res, dict):
+                    # The sandbox can only see the frames it was given. How many samples
+                    # were ATTEMPTED lives in provenance, and an unreconciled 84 beside a
+                    # 63-row table makes an analyst doubt the table (#59).
+                    try:
+                        res = {**res, "provenance": self.data.datasets().get("provenance")}
+                    except Exception:
+                        pass
+                    self._briefing = format_briefing(res)
+                else:
+                    self._briefing = ""
             except Exception:
                 self._briefing = ""
         return self._briefing
