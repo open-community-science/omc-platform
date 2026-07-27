@@ -1600,6 +1600,11 @@ class Autoresearcher:
                     hint = ("`fdr`, `clr` and `rarefy` are helpers defined in this "
                             "sandbox, not library functions — they are already bound "
                             "and cannot be imported from anywhere.")
+                elif "boolean index did not match" in err:
+                    hint = ("A boolean mask has to match the axis it indexes. `counts` "
+                            "and `props` are samples (rows) x ASVs (columns): a "
+                            "per-sample mask selects rows, a per-ASV mask selects "
+                            "columns — `df.loc[sample_mask]` vs `df.loc[:, asv_mask]`.")
                 elif "1-dimensional, but 2 were indexed" in err:
                     hint = ("`pdist` returns a CONDENSED 1-D array. `squareform(...)` "
                             "turns it into the square distance matrix.")

@@ -311,6 +311,16 @@ class TestSandboxHints:
         assert r["ok"] is False
         assert "produced no output" in r["error"] and "memory or CPU" in r["error"]
 
+    def test_a_mask_on_the_wrong_axis_is_answered(self):
+        """A 63-long per-sample mask against the 735-ASV axis. The briefing's axis rule
+        covers this in principle; the correction at the point of failure is what has
+        actually been landing."""
+        r = self._run("arr = counts.values.T\n"
+                      "m = (counts.sum(axis=1) > 0).values\n"
+                      "result = {'x': int(arr[m].shape[0])}")
+        assert r["ok"] is False
+        assert "per-sample mask selects rows" in r["hint"]
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")

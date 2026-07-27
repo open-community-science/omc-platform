@@ -4,71 +4,50 @@
   "agenda": [
     {
       "id": "a1",
-      "question": "Is the 25% sample attrition (21 of 84 samples dropped) systematic by environment or submission? Specifically: do the 21 dropped samples (absent from counts, all from SRR389669xx series) disproportionately come from particular biosample_env_local_scale groups (frost flower, brine, ice, seawater, air) or from one submission (SUB16229131 vs SUB16229383)? Test with chi-squared or Fisher's exact tests on contingency tables of dropped vs retained by environment and by submission.",
-      "rationale": "If attrition is non-random \u2014 e.g., brine samples are over-represented among drops \u2014 then any downstream comparison between environments is biased by differential survival through the pipeline, not by ecology. This is a prerequisite validity check before any ecological inference.",
+      "question": "Do Bray-Curtis distances between the 63 samples significantly cluster by `biosample_env_local_scale` (frost flower, brine, ice, seawater, air), and what proportion of total community variance is explained by compartment versus within-group noise?",
+      "rationale": "Tests for habitat filtering in extreme environments; determines whether physical compartment drives community assembly more than technical or temporal factors.",
       "status": "in_progress",
       "parent": null
     },
     {
       "id": "a2",
-      "question": "Does the prokaryote-only filter (414 ASVs, 44 samples, 207,607 reads) introduce a second layer of systematic bias? Test whether the 19 samples lost by the prokaryote filter differ systematically from the 44 retained in terms of total read depth, environment, or submission. Also quantify: what fraction of the 63-sample community's total reads are prokaryotic per sample, and does this fraction correlate with environment?",
-      "rationale": "The renorm_stats show the prokaryote subset is dramatically smaller (44 samples vs 63, 414 ASVs vs 735). If prokaryotic signal is concentrated in certain environments (e.g., frost flowers), then any prokaryote-specific analysis excludes the very environments where prokaryotes are rarest \u2014 a selection artifact that would invert or obscure true ecological patterns.",
+      "question": "How does observed richness and Shannon entropy scale with `pipeline_total_reads`, and do the slopes of these richness-depth relationships differ significantly between high-biomass (brine, frost flower) and low-biomass (air, ice) compartments?",
+      "rationale": "Checks for undersampling bias and reveals whether low-biomass environments have fundamentally different diversity-depth scaling, which impacts how richness should be interpreted.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a3",
-      "question": "Are the eukaryotic communities (317 ASVs, 19 samples, 213,606 reads) structured by the same environmental gradients as prokaryotic communities? For the 19 samples with eukaryotic signal, test whether eukaryotic beta-diversity (Bray-Curtis on eukaryote-only ASV table, CLR-transformed) differs significantly across biosample_env_local_scale groups using PERMANOVA (adonis-style permutation test). Compare the R\u00b2 and p-values to the same test on prokaryote-only data for the same samples.",
-      "rationale": "This is a mixed prokaryote-eukaryote amplicon dataset. If eukaryotes track the same environmental gradient as prokaryotes, it suggests a shared driver (e.g., salinity, temperature, matrix type). If they don't, eukaryotes may respond to different niche axes (e.g., host availability, trophic interactions). Either result is ecologically informative.",
+      "question": "What is the exact overlap of ASVs across the five `biosample_env_local_scale` groups, and does the number of environment-restricted ASVs exceed random expectation after rarefying to a common depth?",
+      "rationale": "Distinguishes ubiquitous cold-adapted taxa from niche specialists; tests for a 'core' microbiome versus strong habitat partitioning.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a4",
-      "question": "Which ASVs (or taxonomic groups) are the strongest indicators of each environment (frost flower, brine, ice, seawater, air)? Perform indicator species analysis (IndVal) or differential abundance testing (e.g., Mann-Whitney U or Kruskal-Wallis per ASV across environments, FDR-corrected) to identify taxa significantly enriched in each environment. Focus on ASVs with high specificity (present in only one or two environments) and high fidelity (present in most samples of that environment).",
-      "rationale": "Indicator taxa are the most directly interpretable ecological signal in an amplicon dataset. They point to taxa that are ecologically associated with specific conditions rather than being generalists. This is the primary mechanism-by-which environments differ.",
+      "question": "Do relative abundances of the top 10 phyla shift significantly across the environmental gradient (air \u2192 frost flower \u2192 ice \u2192 brine \u2192 seawater) when tested against an ordinal index using Spearman rank correlation?",
+      "rationale": "Tests for physiological gradients (e.g., salinity, temperature, oxygen, matrix type) shaping community composition along a predictable continuum.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a5",
-      "question": "Is there a core microbiome shared across environments, and how does it differ from environment-specific taxa? Define core as ASVs present in \u2265X% of samples within each environment (test X = 50%, 75%, 100%). Quantify: (a) the size of the core per environment, (b) the overlap of cores between environments (Jaccard index), and (c) the proportion of total community biomass (reads) captured by the core. Test whether core ASVs differ in their taxonomic composition from environment-specific ASVs.",
-      "rationale": "The concept of a 'core' microbiome is foundational in microbial ecology. In extreme environments like frost flowers and brine, a small core would suggest strong environmental filtering, while a large core would suggest generalist-dominated communities. The overlap between cores reveals shared vs. unique ecological strategies.",
+      "question": "Do `sra_submission_accession` or `sra_collection_date` explain significant variance in CLR-transformed community composition independent of `biosample_env_local_scale`, indicating technical batch effects?",
+      "rationale": "Detects library preparation or sequencing batch artifacts that could confound ecological signals, especially critical given the two distinct submission dates and accessions.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a6",
-      "question": "Do alpha-diversity metrics (observed ASVs, Shannon entropy, evenness) differ across environments after accounting for sequencing depth? Rarefy counts to a common depth (or use depth-independent metrics like Hill numbers) and test for differences across biosample_env_local_scale groups using Kruskal-Wallis (\u22653 groups) or Mann-Whitney U (pairwise). Also test whether alpha diversity correlates with total read depth within each environment.",
-      "rationale": "Extreme environments are often predicted to have lower diversity due to harsher filtering. However, with unbalanced sample sizes (frost flower n=35, air n=2) and varying read depths, naive comparisons are misleading. Proper depth correction is essential.",
+      "question": "Which specific ASVs or taxa are significantly enriched in one compartment relative to the pooled abundance of all others, after applying FDR correction across all tested taxa?",
+      "rationale": "Identifies potential biomarkers for each environment; guides downstream functional or physiological hypotheses about niche adaptation.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a7",
-      "question": "Does beta-diversity (Bray-Curtis dissimilarity) show significant clustering by environment in ordination space, and which taxa drive the separation? Perform PCoA on Bray-Curtis distances (CLR-transformed counts), test significance with PERMANOVA, and then use envfit-style correlation or taxon contribution analysis to identify which ASVs or phyla contribute most to the axes of separation. Also test whether the strength of environmental clustering differs between prokaryotic and eukaryotic communities.",
-      "rationale": "This is the primary test of whether environments harbor distinct communities. The direction and magnitude of separation, and the taxa driving it, are the most direct ecological findings. Comparing prokaryotic vs. eukaryotic patterns tests whether they respond to the same or different gradients.",
-      "status": "pending",
-      "parent": null
-    },
-    {
-      "id": "a8",
-      "question": "Is there a temporal signal: do samples collected on 2026-06-04 (n=44) differ in composition from those collected on 2026-06-21 (n=19), independent of environment? Test with PERMANOVA on Bray-Curtis distances with collection date as the grouping variable, and also test whether the date effect persists after controlling for environment (e.g., by including both in a multivariate model or by comparing within-environment subsets).",
-      "rationale": "Two collection dates separated by 17 days could reflect seasonal shifts, diurnal cycles, or batch effects from different library preparations. Disentangling temporal from environmental signal is critical for interpreting the data.",
-      "status": "pending",
-      "parent": null
-    },
-    {
-      "id": "a9",
-      "question": "Are there consistent co-occurrence patterns among ASVs that persist across environments? Construct SparCC or Pearson correlation networks on CLR-transformed counts for each environment separately, then test whether top co-occurring or mutually exclusive ASV pairs are consistent across environments. Identify 'hub' taxa (highly connected nodes) and test whether their taxonomic identity differs between environments.",
-      "rationale": "Co-occurrence patterns can reveal potential ecological interactions (synergism, competition, shared habitat preference). If hub taxa differ between environments, it suggests environment-specific community architecture. If they are consistent, it suggests a conserved interaction framework.",
-      "status": "pending",
-      "parent": null
-    },
-    {
-      "id": "a10",
-      "question": "What is the phylogenetic structure of communities within and across environments? Calculate Faith's PD and Net Related Index (NRI) / Nearest Taxon Index (NTI) per sample to test whether communities are phylogenetically clustered (indicating environmental filtering) or overdispersed (indicating competitive exclusion). Compare these metrics across environments and test whether phylogenetic clustering correlates with environmental harshness (e.g., brine vs. frost flower vs. air).",
-      "rationale": "Phylogenetic community structure provides a complementary lens to taxonomic composition. Clustering in harsh environments (brine, air) would support environmental filtering; overdispersion in milder environments (frost flower) would support competitive structuring. This tests a fundamental ecological hypothesis about community assembly.",
+      "question": "Do air/chamber air samples contain a significantly higher fraction of singleton/doubleton ASVs and lower Shannon evenness than environmental samples, indicative of reagent contamination in low-biomass libraries?",
+      "rationale": "Critical for interpreting low-biomass samples; distinguishes true environmental signal from background noise or kit contaminants before drawing ecological conclusions.",
       "status": "pending",
       "parent": null
     }
@@ -81,7 +60,7 @@
     "exploration": "hyphal",
     "claims_refused": 0,
     "packages_requested": {},
-    "investigations_total": 10,
+    "investigations_total": 7,
     "replication_attempted": 0,
     "replication_rounds": 0,
     "replication_agreed": 0,
