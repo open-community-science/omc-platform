@@ -1462,6 +1462,9 @@ class Autoresearcher:
         # wasted step and nothing else; a recorded request is evidence about what the
         # sandbox should contain.
         self.package_requests: list[dict] = []
+        # Recent sandbox error signatures. An analyst repeated one identical error four
+        # times without self-correcting, and nothing in the loop knew it was a loop.
+        self._recent_errors: list[str] = []
         # Optional: given a package name, make it available and say what happened. The
         # POLICY of which packages are grantable belongs to whoever owns the sandbox,
         # not here — in production that is a container image, not a pip call.
@@ -1610,6 +1613,18 @@ class Autoresearcher:
                             "turns it into the square distance matrix.")
                 elif "did not set a `result`" in err:
                     hint = "Assign what you want returned to `result`."
+                # A different error each time is debugging; the same one repeatedly is
+                # being stuck, and the two need different advice. Nothing distinguished
+                # them, so a tip could spend its whole budget on one mistake.
+                sig = " ".join(err.split())[:60]
+                self._recent_errors.append(sig)
+                self._recent_errors = self._recent_errors[-5:]
+                if (n := self._recent_errors.count(sig)) >= 2:
+                    hint = ((hint + " ") if hint else "") + (
+                        f"This is the same error {n} times running — the approach is "
+                        "not working, so change it rather than adjusting it. Inspect "
+                        "the shapes you are indexing, or take a simpler route to the "
+                        "same answer.")
                 return {"ok": False, "error": err, **({"hint": hint} if hint else {})}
             cid = f"c{len(self.computations) + 1}"
             # Store the FULL sandbox result (verification re-derives from it); show

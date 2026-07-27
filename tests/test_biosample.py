@@ -321,6 +321,28 @@ class TestSandboxHints:
         assert r["ok"] is False
         assert "per-sample mask selects rows" in r["hint"]
 
+    def test_the_same_error_twice_escalates(self):
+        """An analyst repeated one identical error four times without self-correcting,
+        and nothing in the loop knew it was a loop. A different error each time is
+        debugging; the same one repeatedly is being stuck."""
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        bad = ("arr = counts.values.T\nm = (counts.sum(axis=1) > 0).values\n"
+               "result = {'x': int(arr[m].shape[0])}")
+        first = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": bad}))
+        second = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": bad}))
+        assert "same error" not in first["hint"]
+        assert "same error 2 times" in second["hint"]
+        assert "change it rather than adjusting it" in second["hint"]
+        # a DIFFERENT error is not treated as a loop
+        third = asyncio.run(ar._exec_tool("run_analysis", {"label": "t",
+                                                           "code": "result = 1/0"}))
+        assert "same error" not in (third.get("hint") or "")
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")
