@@ -54,11 +54,30 @@ print(f"submission {slug}: {study.get('title')} / {study.get('study_name')} ({st
 # analysis sandbox has no network and the experimental design — what each sample
 # actually was — lives nowhere else. `--refresh-meta` re-pulls.
 sys.path.insert(0, str(HERE.parent.parent))
-from ai.biosample import design_columns, write_attributes  # noqa: E402
+from ai.biosample import design_columns, resolve_runs, write_attributes  # noqa: E402
 _samples = json.loads((data_dir / "samples.json").read_text()) \
     if (data_dir / "samples.json").exists() else []
-_attrs = write_attributes(data_dir, [s.get("sample_accession") for s in _samples],
-                          refresh="--refresh-meta" in flags)
+# EVERY submitted run, not just the ones that produced reads. samples.json lists the
+# survivors, so the dropped runs had no route to their own metadata and "is the
+# attrition biased by treatment?" could not be answered from inside the sandbox.
+_prov = json.loads((data_dir / "provenance.json").read_text()) \
+    if (data_dir / "provenance.json").exists() else {}
+_all_runs = sorted(set(_prov.get("samples") or {}) | {s.get("id") for s in _samples})
+_runmap_path = data_dir / "sample_runs.json"
+if _all_runs and (not _runmap_path.exists() or "--refresh-meta" in flags):
+    try:
+        _runmap_path.write_text(json.dumps(resolve_runs(_all_runs), indent=2,
+                                           sort_keys=True) + "\n")
+    except Exception as _e:
+        print(f"run map unavailable ({_e}); metadata limited to samples.json")
+_runmap = json.loads(_runmap_path.read_text()) if _runmap_path.exists() else {}
+_accs = ([s.get("sample_accession") for s in _samples]
+         + [v.get("biosample") for v in _runmap.values()])
+_attrs = write_attributes(data_dir, _accs, refresh="--refresh-meta" in flags)
+if _runmap:
+    _dropped = len(_all_runs) - len(_samples)
+    print(f"submitted runs: {len(_all_runs)} ({len(_samples)} in counts, "
+          f"{_dropped} dropped but carried through with their metadata)")
 if _attrs:
     print(f"sample attributes: {len(_attrs)} BioSamples, grouping columns: "
           f"{', '.join(design_columns(_attrs)[:6]) or '(none vary)'}")

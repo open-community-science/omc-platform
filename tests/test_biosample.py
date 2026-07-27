@@ -194,6 +194,28 @@ class TestRawAndRelative:
         assert "props" not in format_briefing({"tax": {"shape": [7, 6], "columns": ["a"]}})
 
 
+class TestEverySubmittedSample:
+    """Every sample submitted through the portal reaches the analysis, whether or not
+    it produced reads. samples.json lists survivors, so "is the attrition biased by
+    treatment?" was unanswerable from inside — the dropped runs were bare ids."""
+
+    def test_the_sandbox_builds_meta_over_every_submitted_run(self):
+        import inspect
+        import ai.autoresearch as A
+        src = inspect.getsource(A)
+        assert "_every = sorted(set(meta.index) | set(_chain) | set(_runmap))" in src
+        assert '"pipeline_in_counts"' in src
+
+    def test_the_mislabelled_centre_column_is_renamed_not_dropped(self):
+        """samples.json's `center_name` holds a SUB submission accession, copied
+        faithfully from ENA. Renaming it frees the name for the real centre."""
+        import inspect
+        import ai.autoresearch as A
+        src = inspect.getsource(A)
+        assert '"sra_center_name": "sra_submission_accession"' in src
+        assert '("sra_center_name", "center_name")' in src
+
+
 class TestSourcePrefixes:
     """Three sources reach `meta` and they are not interchangeable. Nothing in a value
     says which one produced it, so the column name has to."""

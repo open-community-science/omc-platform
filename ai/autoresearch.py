@@ -1179,6 +1179,19 @@ tax = pd.DataFrame.from_dict({a: dict(zip(_lv, l)) for a, l in _body.get("assign
                             orient="index").reindex(columns=_lv)
 meta = pd.DataFrame(_rj("samples") or [])
 meta = meta.set_index("id") if "id" in meta.columns else meta
+# EVERY SUBMITTED RUN gets a row, not just the ones that produced reads. `samples.json`
+# holds survivors only, so a question like "is the attrition biased by treatment?" was
+# unanswerable from inside — the dropped runs existed in provenance as bare ids with no
+# environment attached. `counts` still holds only the runs with reads; this frame is the
+# submission, and `pipeline_in_counts` says which is which.
+_prov_all = _rj("provenance") or {}
+_chain = _prov_all.get("samples") or {}
+_runmap = _rj("sample_runs") or {}
+_stage_ids = [x.get("id") for x in _prov_all.get("stages", []) if x.get("id")]
+_every = sorted(set(meta.index) | set(_chain) | set(_runmap))
+if len(_every) > len(meta.index):
+    meta = meta.reindex(_every)
+    meta.index.name = "id"
 # Every column says where it came from. Three sources reach this frame and they are
 # NOT interchangeable: `pipeline_total_reads` is the post-processing depth and matches
 # the counts table exactly, while `sra_read_count` is what the submitter declared and
@@ -1189,6 +1202,22 @@ meta.columns = [("pipeline_" if c in _PIPE else "sra_") + str(c) for c in meta.c
 # Per-sample BioSample attributes (#62) — what each sample IS. Without these the only
 # covariate is sequencing depth, and every question about grouping gets answered
 # against depth for want of anything better.
+# Per-run pipeline chain, and the accession/library for runs samples.json never held.
+for _st in _stage_ids:
+    meta["pipeline_reads_" + _st] = [(_chain.get(_i) or {}).get(_st) for _i in meta.index]
+if _stage_ids:
+    meta["pipeline_in_counts"] = [bool((_chain.get(_i) or {}).get(_stage_ids[-1]))
+                                  for _i in meta.index]
+# The pipeline's `center_name` carries a SUB submission accession, not a centre. Named
+# for what it holds, so the real centre can take the name it belongs to.
+if "sra_center_name" in meta.columns:
+    meta = meta.rename(columns={"sra_center_name": "sra_submission_accession"})
+if _runmap:
+    for _c, _k in (("sra_sample_accession", "biosample"), ("sra_library_name", "library_name"),
+                   ("sra_experiment_title", "title"), ("sra_center_name", "center_name"),
+                   ("sra_submitter_accession", "submitter_acc")):
+        _fill = pd.Series({_i: (_runmap.get(_i) or {}).get(_k) for _i in meta.index})
+        meta[_c] = meta[_c].fillna(_fill) if _c in meta.columns else _fill
 _sa = _rj("sample_attributes") or {}
 if _sa and "sra_sample_accession" in meta.columns:
     _at = pd.DataFrame.from_dict(_sa, orient="index")

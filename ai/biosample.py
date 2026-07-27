@@ -12,7 +12,10 @@ than from inside the analysis sandbox, which has no network by design.
 """
 from __future__ import annotations
 
+import html
 import json
+import re
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -20,6 +23,7 @@ from pathlib import Path
 from typing import Iterable
 
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+NCBI_PAUSE = 0.4      # ~3 requests/second, the unauthenticated eutils limit
 
 # Attributes that say what a sample IS rather than how it was sequenced. Not a
 # whitelist — everything is kept — but these are the ones worth pointing an analyst at.
@@ -28,9 +32,65 @@ DESIGN_HINTS = ("env_broad_scale", "env_local_scale", "env_medium", "host",
                 "depth", "temp", "salinity", "ph", "treatment", "tissue")
 
 
-def _get(url: str, timeout: int) -> str:
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        return r.read().decode()
+def _get(url: str, timeout: int, tries: int = 4) -> str:
+    """One paced eutils call. NCBI allows ~3 requests/second without an API key and
+    answers 429 above it; a submission with many runs walks straight into that, so the
+    pause is part of the call rather than the caller's problem to remember."""
+    for attempt in range(tries):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as r:
+                body = r.read().decode()
+            time.sleep(NCBI_PAUSE)
+            return body
+        except Exception:
+            if attempt == tries - 1:
+                raise
+            time.sleep(2 * (attempt + 1))
+    raise RuntimeError("unreachable")
+
+
+def resolve_runs(run_accessions: Iterable[str], timeout: int = 60,
+                 chunk: int = 30) -> dict[str, dict]:
+    """Run accession -> {biosample, library_name, title}, for EVERY run given.
+
+    `samples.json` lists only the runs that produced reads, so the ones that dropped out
+    have no local row and no route to their metadata. This is that route: they are still
+    in the archive, and for this submission all 21 dropped runs map to BioSamples the
+    surviving runs already brought in."""
+    runs = sorted({r for r in run_accessions if r})
+    out: dict[str, dict] = {}
+    for i in range(0, len(runs), chunk):
+        batch = runs[i:i + chunk]
+        term = urllib.parse.quote(" OR ".join(batch))
+        ids = json.loads(_get(
+            f"{EUTILS}/esearch.fcgi?db=sra&term={term}&retmax={len(batch) * 4}"
+            "&retmode=json", timeout))["esearchresult"]["idlist"]
+        if not ids:
+            continue
+        res = json.loads(_get(
+            f"{EUTILS}/esummary.fcgi?db=sra&id={','.join(ids)}&retmode=json", timeout))
+        for uid in res.get("result", {}).get("uids", []):
+            rec = res["result"][uid]
+            x = html.unescape(rec.get("expxml", "")) + html.unescape(rec.get("runs", ""))
+            info = {
+                "biosample": _first(r"<Biosample>(SAM[ND]\d+)</Biosample>", x),
+                "library_name": _first(r"<LIBRARY_NAME>([^<]+)", x),
+                "title": _first(r"<Title>([^<]+)", x),
+                # The submitting institution. Worth carrying because the pipeline's
+                # `center_name` holds a SUB submission accession instead, and an
+                # analyst reading that column reported "two submission centers".
+                "center_name": _first(r'<Submitter[^>]*center_name="([^"]+)"', x),
+                "submitter_acc": _first(r'<Submitter acc="([^"]+)"', x),
+            }
+            # One experiment can carry several runs; each is a row in the analysis.
+            for run in re.findall(r'<Run acc="(SRR\d+)"', x):
+                out[run] = dict(info)
+    return out
+
+
+def _first(pattern: str, text: str):
+    m = re.search(pattern, text)
+    return m.group(1) if m else None
 
 
 def fetch_attributes(accessions: Iterable[str], timeout: int = 40,
