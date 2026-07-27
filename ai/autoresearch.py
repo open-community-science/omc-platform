@@ -1315,6 +1315,7 @@ class Autoresearcher:
                  write_model: str | None = None, replicate_model: str | None = None,
                  adjudicate_model: str | None = None,
                  clients: dict | None = None,
+                 package_installer: Optional[Callable[[str], dict]] = None,
                  max_steps: int = 48, max_followups: int = 12, max_tokens: int = 4000,
                  on_progress: Optional[Callable[[str, Any], Awaitable]] = None):
         self.data = data
@@ -1357,6 +1358,10 @@ class Autoresearcher:
         # wasted step and nothing else; a recorded request is evidence about what the
         # sandbox should contain.
         self.package_requests: list[dict] = []
+        # Optional: given a package name, make it available and say what happened. The
+        # POLICY of which packages are grantable belongs to whoever owns the sandbox,
+        # not here — in production that is a container image, not a pip call.
+        self.package_installer = package_installer
         # Hyphal growth (#58): the agenda item the ACTIVE TIP is working. In the linear
         # explore() this stays None and the agenda's own statuses decide; under
         # explore_hyphal() each tip owns one item for its whole (short) life, so claims
@@ -1515,9 +1520,26 @@ class Autoresearcher:
                 "investigation": self._current_investigation(),
                 "by": self.explore_model})
             n = sum(r["package"] == pkg for r in self.package_requests)
+            outcome = {}
+            if self.package_installer is not None:
+                try:
+                    outcome = self.package_installer(pkg) or {}
+                except Exception as e:                     # noqa: BLE001
+                    outcome = {"installed": False, "available": False, "reason": str(e)}
+            self.package_requests[-1].update(
+                {k: outcome.get(k) for k in ("installed", "available", "reason")})
+            await self._emit("package_installed" if outcome.get("installed")
+                             else "package_refused",
+                             {"package": pkg, **outcome})
+            if outcome.get("available"):
+                return {"recorded": True, "package": pkg, "times_requested_this_run": n,
+                        "available_this_run": True, "note":
+                        f"{pkg} is now importable in run_analysis "
+                        f"({outcome.get('reason', 'available')}) — go ahead and use it."}
             return {"recorded": True, "package": pkg, "times_requested_this_run": n,
                     "available_this_run": False,
-                    "note": "not installed for this run; carry on with what is in scope"}
+                    "note": (f"not available this run ({outcome.get('reason', 'no installer')}); "
+                             "carry on with what is in scope")}
         if name == "record_assumption":
             assumption = {"id": f"as{len(self.assumptions) + 1}",
                           "statement": args.get("statement", ""),

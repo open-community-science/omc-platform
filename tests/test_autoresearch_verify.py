@@ -1395,6 +1395,91 @@ class TestPackageRequests:
         assert "request_package" not in names(SWEEP_TOOLS)
 
 
+class TestPackageGranting:
+    """The allowlist is the whole security control: a model names a package and, if the
+    name matches, pip runs against the interpreter the sandbox executes in."""
+
+    def test_the_model_string_is_a_lookup_never_an_argument(self, monkeypatch):
+        """Nothing the model writes may reach the command line — no version pins, no
+        extras, no index URLs, no VCS or local paths."""
+        from ai import sandbox_packages as sp
+        calls = []
+        monkeypatch.setattr(sp.subprocess, "run",
+                            lambda cmd, **k: calls.append(cmd) or _Proc())
+        monkeypatch.setattr(sp, "is_available", lambda n: False)
+        for hostile in ("skbio==0.5.9", "skbio --index-url http://elsewhere",
+                        "skbio; rm -rf /", "git+https://example/skbio", "./skbio",
+                        "skbio[all]", "requests"):
+            out = sp.install(hostile)
+            assert out["installed"] is False
+            assert out["reason"] == "not on the sandbox allowlist"
+        assert calls == []                       # pip was never invoked
+
+    def test_the_distribution_name_comes_from_the_file(self, monkeypatch):
+        """The import name and the PyPI name differ; the request supplies neither."""
+        from ai import sandbox_packages as sp
+        calls = []
+        monkeypatch.setattr(sp.subprocess, "run",
+                            lambda cmd, **k: calls.append(cmd) or _Proc())
+        monkeypatch.setattr(sp, "is_available", lambda n: n == "skbio" and bool(calls))
+        sp.install("skbio")
+        assert calls[0][-1] == "scikit-bio"
+        assert calls[0][:5] == [sys.executable, "-m", "pip", "install", "--quiet"]
+
+    def test_an_already_present_package_is_not_reinstalled(self, monkeypatch):
+        from ai import sandbox_packages as sp
+        monkeypatch.setattr(sp.subprocess, "run",
+                            lambda *a, **k: pytest.fail("should not have run pip"))
+        monkeypatch.setattr(sp, "is_available", lambda n: True)
+        assert sp.install("skbio") == {"installed": False, "available": True,
+                                       "reason": "already available"}
+
+    def test_a_failed_install_leaves_the_analyst_where_it_was(self, monkeypatch):
+        from ai import sandbox_packages as sp
+        monkeypatch.setattr(sp, "is_available", lambda n: False)
+        monkeypatch.setattr(sp.subprocess, "run",
+                            lambda *a, **k: _Proc(rc=1, err="no matching distribution"))
+        out = sp.install("skbio")
+        assert out["installed"] is False and "failed" in out["reason"]
+
+    def test_a_granted_request_tells_the_analyst_it_can_use_it(self):
+        ar = _hyphal(_ScriptedClient())
+        ar.package_installer = lambda p: {"installed": True, "available": True,
+                                          "reason": "installed"}
+        r = asyncio.run(ar._exec_tool("request_package", {"package": "skbio"}))
+        assert r["available_this_run"] is True and "go ahead" in r["note"]
+        assert ar.package_requests[0]["installed"] is True
+
+    def test_a_refused_request_is_still_recorded(self):
+        """The list should grow by review, not by demand — so refusals are the data."""
+        ar = _hyphal(_ScriptedClient())
+        ar.package_installer = lambda p: {"installed": False, "available": False,
+                                          "reason": "not on the sandbox allowlist"}
+        r = asyncio.run(ar._exec_tool("request_package", {"package": "torch"}))
+        assert r["available_this_run"] is False
+        assert ar.package_requests[0]["reason"] == "not on the sandbox allowlist"
+
+    def test_an_installer_that_throws_does_not_take_the_tip_down(self):
+        ar = _hyphal(_ScriptedClient())
+
+        def boom(p):
+            raise RuntimeError("pip exploded")
+
+        ar.package_installer = boom
+        r = asyncio.run(ar._exec_tool("request_package", {"package": "skbio"}))
+        assert r["recorded"] is True and r["available_this_run"] is False
+
+    def test_with_no_installer_nothing_is_granted(self):
+        ar = _hyphal(_ScriptedClient())
+        r = asyncio.run(ar._exec_tool("request_package", {"package": "skbio"}))
+        assert r["available_this_run"] is False
+
+
+class _Proc:
+    def __init__(self, rc=0, out="", err=""):
+        self.returncode, self.stdout, self.stderr = rc, out, err
+
+
 class TestLiveVerification:
     """#61 — the judge runs on the other machine while the analyst explores, and the
     verdicts it returns seed the contexts that come after."""

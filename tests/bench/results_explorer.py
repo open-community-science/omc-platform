@@ -47,6 +47,7 @@ from ai.autoresearch import (
     dag_mermaid, _flatten_numbers,
 )
 from ai.manuscript_checks import check_numbers_supported
+from ai.sandbox_packages import ALLOWED as GRANTABLE_PACKAGES, install as install_package
 from fixtures import load_fixture, STUDY_GROUNDED, DATA_DIR
 from run_bench import _unload_all, _lms_load
 
@@ -252,10 +253,11 @@ async def _print_progress(event: str, detail: dict):
         print(f"      + {detail['result']['claim_id']} {detail.get('label')}", flush=True)
     elif event == "add_followup" and (detail.get("result") or {}).get("added"):
         print(f"      ↳ {detail['result']['added']}: {detail.get('label')}", flush=True)
-    elif event == "request_package" and (detail.get("result") or {}).get("recorded"):
-        r = detail["result"]
-        print(f"      ? wants {r['package']} (x{r['times_requested_this_run']}) "
-              f"— {detail.get('label')}", flush=True)
+    elif event == "package_installed":
+        print(f"      + installed {detail['package']} ({detail.get('distribution')}) "
+              "— now importable", flush=True)
+    elif event == "package_refused":
+        print(f"      ? wants {detail['package']} — {detail.get('reason')}", flush=True)
     elif event == "truncated":
         print(f"      ! reply cut off at the token limit ({detail.get('tip')})", flush=True)
     elif event == "germinate_failed":
@@ -289,7 +291,11 @@ def _make_researcher(llm: LLMClient) -> Autoresearcher:
                         replicate_model=REPLICATE_MODEL,
                         adjudicate_model=ADJUDICATE_MODEL,
                         max_steps=MAX_STEPS, max_followups=MAX_FOLLOWUPS,
-                        max_tokens=MAX_TOKENS)
+                        max_tokens=MAX_TOKENS,
+                        # The bench sandbox is this interpreter, so a grantable request
+                        # can simply be granted. Production's is a container image and
+                        # would wire something else here, or nothing.
+                        package_installer=install_package)
     ar.on_progress = _progress_for(ar)      # needs the researcher it reports on
     return ar
 
