@@ -252,6 +252,10 @@ async def _print_progress(event: str, detail: dict):
         print(f"      + {detail['result']['claim_id']} {detail.get('label')}", flush=True)
     elif event == "add_followup" and (detail.get("result") or {}).get("added"):
         print(f"      ↳ {detail['result']['added']}: {detail.get('label')}", flush=True)
+    elif event == "request_package" and (detail.get("result") or {}).get("recorded"):
+        r = detail["result"]
+        print(f"      ? wants {r['package']} (x{r['times_requested_this_run']}) "
+              f"— {detail.get('label')}", flush=True)
     elif event == "truncated":
         print(f"      ! reply cut off at the token limit ({detail.get('tip')})", flush=True)
     elif event == "germinate_failed":
@@ -314,7 +318,8 @@ def _ledger_dict(ar: Autoresearcher, completed: bool | None) -> dict:
     One shape for the live snapshot and the final artifact, so anything that can read
     a finished run can read a running one without knowing the difference."""
     return {"claims": ar.ledger, "computations": ar.computations, "agenda": ar.agenda,
-            "assumptions": ar.assumptions, "run": ar.run_summary(completed)}
+            "assumptions": ar.assumptions, "package_requests": ar.package_requests,
+            "run": ar.run_summary(completed)}
 
 
 def _write_json(path: Path, payload: dict):

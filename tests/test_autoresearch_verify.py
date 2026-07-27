@@ -1339,6 +1339,62 @@ class TestPromptsDoNotDictateTheAgenda:
         assert "stand on its own" in GERMINATE_SYSTEM
 
 
+class TestPackageRequests:
+    """A ModuleNotFoundError is a wasted step and nothing else. A recorded request is
+    evidence about what the sandbox should contain."""
+
+    def test_a_request_is_recorded_and_counted(self):
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[("request_package", {"package": "skbio",
+                                                       "why": "PERMANOVA"})],
+                                 [("mark_done", {})], [("mark_done", {})]])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=6))
+        assert [r["package"] for r in ar.package_requests] == ["skbio"]
+        assert ar.package_requests[0]["why"] == "PERMANOVA"
+
+    def test_the_request_attributes_to_the_investigation_that_needed_it(self):
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[("request_package", {"package": "skbio"})],
+                                 [("mark_done", {})], [("mark_done", {})]])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=6))
+        assert ar.package_requests[0]["investigation"] == "a1"
+
+    def test_the_reply_says_it_is_not_coming_this_run(self):
+        """Otherwise an analyst may wait for it, or assume the import will now work."""
+        ar = _hyphal(_ScriptedClient())
+        r = asyncio.run(ar._exec_tool("request_package", {"package": "skbio"}))
+        assert r["available_this_run"] is False
+        assert "carry on" in r["note"]
+
+    def test_repeat_requests_are_counted_not_deduplicated(self):
+        """Three analysts each reaching for the same package is the signal."""
+        ar = _hyphal(_ScriptedClient())
+        for _ in range(3):
+            r = asyncio.run(ar._exec_tool("request_package", {"package": "skbio"}))
+        assert r["times_requested_this_run"] == 3
+        assert ar.run_summary()["packages_requested"] == {"skbio": 3}
+
+    def test_a_nameless_request_is_refused(self):
+        ar = _hyphal(_ScriptedClient())
+        r = asyncio.run(ar._exec_tool("request_package", {"why": "stats"}))
+        assert r["recorded"] is False
+
+    def test_the_summary_ranks_by_how_many_analysts_wanted_it(self):
+        ar = _hyphal(_ScriptedClient())
+        for pkg in ("skbio", "statsmodels", "skbio", "skbio", "statsmodels"):
+            asyncio.run(ar._exec_tool("request_package", {"package": pkg}))
+        assert list(ar.run_summary()["packages_requested"]) == ["skbio", "statsmodels"]
+
+    def test_planning_and_the_sweep_cannot_request_packages(self):
+        from ai.autoresearch import GERMINATE_TOOLS, SWEEP_TOOLS, TIP_TOOLS
+        names = lambda ts: {t["function"]["name"] for t in ts}   # noqa: E731
+        assert "request_package" in names(TIP_TOOLS)
+        assert "request_package" not in names(GERMINATE_TOOLS)
+        assert "request_package" not in names(SWEEP_TOOLS)
+
+
 class TestLiveVerification:
     """#61 — the judge runs on the other machine while the analyst explores, and the
     verdicts it returns seed the contexts that come after."""

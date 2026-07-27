@@ -375,6 +375,17 @@ TOOLS = [
             "kind": {"type": "string", "enum": ["observation", "pattern", "anomaly", "quality_caveat"]}},
             "required": ["statement", "assertions", "antecedents"]}}},
     {"type": "function", "function": {
+        "name": "request_package",
+        "description": ("When an analysis needs a library that is not in scope, record the "
+                        "request instead of working around it silently. The sandbox will not "
+                        "gain it during this run — say what you did instead, or leave the "
+                        "question open — but the request is kept, so a package that analysts "
+                        "keep reaching for can be added."),
+        "parameters": {"type": "object", "properties": {
+            "package": {"type": "string", "description": "importable name, e.g. 'skbio'"},
+            "why": {"type": "string", "description": "the analysis it would let you run, and what you can or cannot do without it"}},
+            "required": ["package"]}}},
+    {"type": "function", "function": {
         "name": "record_assumption",
         "description": ("When you must proceed despite something you CANNOT confirm from the data or the "
                         "stated context, record the assumption. This is not a verifiable claim — it "
@@ -403,7 +414,8 @@ def tools_for(*names: str) -> list[dict]:
 
 GERMINATE_TOOLS = tools_for("list_datasets", "get_dataset", "propose_agenda")
 TIP_TOOLS = tools_for("get_agenda", "add_followup", "mark_done", "get_dataset",
-                      "list_datasets", "run_analysis", "record_claim", "record_assumption")
+                      "list_datasets", "run_analysis", "record_claim", "record_assumption",
+                      "request_package")
 SWEEP_TOOLS = tools_for("get_agenda", "record_assumption")
 
 
@@ -1341,6 +1353,10 @@ class Autoresearcher:
         self.results_prose_by: str | None = None  # model that wrote the prose
         self._briefing: str | None = None         # cached data-shape briefing
         self.refused_claims: int = 0              # claims rejected as uncheckable
+        # Libraries analysts asked for and did not have. A ModuleNotFoundError is a
+        # wasted step and nothing else; a recorded request is evidence about what the
+        # sandbox should contain.
+        self.package_requests: list[dict] = []
         # Hyphal growth (#58): the agenda item the ACTIVE TIP is working. In the linear
         # explore() this stays None and the agenda's own statuses decide; under
         # explore_hyphal() each tip owns one item for its whole (short) life, so claims
@@ -1489,6 +1505,19 @@ class Autoresearcher:
             if self._verify_queue is not None:
                 self._verify_queue.put_nowait(claim["id"])   # judged while we carry on
             return {"recorded": True, "claim_id": claim["id"], "n_claims": len(self.ledger)}
+        if name == "request_package":
+            pkg = (args.get("package") or "").strip()
+            if not pkg:
+                return {"recorded": False, "error": "name the package"}
+            self.package_requests.append({
+                "id": f"pkg{len(self.package_requests) + 1}", "package": pkg,
+                "why": args.get("why", ""),
+                "investigation": self._current_investigation(),
+                "by": self.explore_model})
+            n = sum(r["package"] == pkg for r in self.package_requests)
+            return {"recorded": True, "package": pkg, "times_requested_this_run": n,
+                    "available_this_run": False,
+                    "note": "not installed for this run; carry on with what is in scope"}
         if name == "record_assumption":
             assumption = {"id": f"as{len(self.assumptions) + 1}",
                           "statement": args.get("statement", ""),
@@ -1601,7 +1630,7 @@ class Autoresearcher:
                     continue
                 result = await self._exec_tool(tc.function.name, args)
                 label = (args.get("label") or args.get("name") or args.get("question")
-                         or (args.get("statement") or ""))
+                         or args.get("why") or (args.get("statement") or ""))
                 await self._emit(tc.function.name, {"step": step, "label": _clean_label(label),
                                                     "result": result})
                 messages.append({"role": "tool", "tool_call_id": tc.id,
@@ -1664,7 +1693,7 @@ class Autoresearcher:
                     continue
                 result = await self._exec_tool(tc.function.name, args)
                 label = (args.get("label") or args.get("name") or args.get("question")
-                         or (args.get("statement") or ""))
+                         or args.get("why") or (args.get("statement") or ""))
                 await self._emit(tc.function.name, {"step": step, "label": _clean_label(label),
                                                     "tip": tag, "result": result,
                                                     "error": result.get("error")})
@@ -2546,6 +2575,12 @@ class Autoresearcher:
                 # checkable assertions just looks unproductive, which is a different
                 # problem with a different fix.
                 "claims_refused": self.refused_claims,
+                # What analysts reached for and did not have, most-wanted first.
+                "packages_requested": {
+                    p: sum(r["package"] == p for r in self.package_requests)
+                    for p in sorted({r["package"] for r in self.package_requests},
+                                    key=lambda p: -sum(r["package"] == p
+                                                       for r in self.package_requests))},
                 "investigations_total": len(self.agenda),
                 # Clean-room pass (#50): how many claims a second analyst re-derived
                 # from the raw data, and how many of those agreed.
