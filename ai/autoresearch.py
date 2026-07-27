@@ -1023,8 +1023,16 @@ class DirDataSource:
         prok = renorm.get("prokaryote", {})
         return {
             "asv_summary": {
-                "total_asvs": prok.get("n_asvs", len(assignments)),
-                "n_samples": prok.get("n_samples", len(samples)),
+                # The WHOLE table, which is what `counts` holds. This reported the
+                # prokaryote sub-table's dimensions (414 ASVs, 44 samples) while listing
+                # all 63 sample ids beside them, so an analyst comparing it with a
+                # 63 x 735 `counts` found a contradiction and started doubting the frame.
+                "total_asvs": len(assignments),
+                "n_samples": len(samples),
+                # The per-domain split is real and stays available — correctly labelled.
+                "by_category": {k: {"n_asvs": v.get("n_asvs"), "n_samples": v.get("n_samples"),
+                                    "n_reads": v.get("n_reads")}
+                                for k, v in (renorm or {}).items() if isinstance(v, dict)},
                 "samples": [s.get("id") for s in samples if isinstance(s, dict)],
             },
             "taxonomy_summary": {
@@ -1279,7 +1287,7 @@ class Autoresearcher:
                  write_model: str | None = None, replicate_model: str | None = None,
                  adjudicate_model: str | None = None,
                  clients: dict | None = None,
-                 max_steps: int = 48, max_followups: int = 12,
+                 max_steps: int = 48, max_followups: int = 12, max_tokens: int = 4000,
                  on_progress: Optional[Callable[[str, Any], Awaitable]] = None):
         self.data = data
         self.llm = llm
@@ -1303,6 +1311,10 @@ class Autoresearcher:
         self.adjudicate_model = adjudicate_model or self.replicate_model
         self.max_steps = max_steps
         self.max_followups = max_followups
+        # Generation budget per turn. 2500 was set for a non-reasoning model; a model
+        # that thinks before answering can spend the whole budget thinking and return
+        # no tool call at all, which costs a step and looks like the model refusing.
+        self.max_tokens = max_tokens
         self.on_progress = on_progress
         # per-run state (was module globals in the prototype)
         self.computations: dict[str, Any] = {}   # cid -> {label, code, result}
@@ -1527,7 +1539,8 @@ class Autoresearcher:
         for step in range(self.max_steps):
             messages = _compact_messages(messages)
             r = await self._chat("explore", messages, model=self.explore_model, tools=TOOLS,
-                                    tool_choice="auto", temperature=0.25, max_tokens=2500)
+                                    tool_choice="auto", temperature=0.25,
+                                 max_tokens=self.max_tokens)
             msg = r.choices[0].message
             if not msg.tool_calls:
                 content = _strip_think(msg.content or "")
@@ -1602,9 +1615,20 @@ class Autoresearcher:
         for step in range(max_steps):
             messages = _compact_messages(messages)   # a well-behaved tip never needs this
             r = await self._chat("explore", messages, model=self.explore_model, tools=tools,
-                                 tool_choice="auto", temperature=0.25, max_tokens=2500)
+                                 tool_choice="auto", temperature=0.25,
+                                 max_tokens=self.max_tokens)
             msg = r.choices[0].message
+            cut = getattr(r.choices[0], "finish_reason", None) == "length"
             if not msg.tool_calls:
+                if cut:
+                    # Out of generation budget mid-thought. Saying so beats the generic
+                    # nudge, which reads as "you did nothing" and invites a repeat.
+                    await self._emit("truncated", {"tip": tag, "step": step})
+                    messages.append({"role": "assistant", "content": msg.content or ""})
+                    messages.append({"role": "user", "content":
+                        "Your reply was cut off at the token limit before you called a "
+                        "tool. Keep the reasoning short and make the call."})
+                    continue
                 if "DONE" in _strip_think(msg.content or "").upper():
                     return step + 1
                 messages.append({"role": "assistant", "content": msg.content or ""})
@@ -1626,7 +1650,8 @@ class Autoresearcher:
                 label = (args.get("label") or args.get("name") or args.get("question")
                          or (args.get("statement") or ""))
                 await self._emit(tc.function.name, {"step": step, "label": _clean_label(label),
-                                                    "tip": tag, "result": result})
+                                                    "tip": tag, "result": result,
+                                                    "error": result.get("error")})
                 messages.append({"role": "tool", "tool_call_id": tc.id,
                                  "content": json.dumps(result, default=str)[:3500]})
             if stop is not None and stop():

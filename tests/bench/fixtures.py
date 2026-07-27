@@ -101,8 +101,16 @@ def build_pipeline_outputs(data_dir: Path = DATA_DIR) -> dict:
 
     return {
         "asv_summary": {
-            "total_asvs": prok.get("n_asvs", len(assignments)),
-            "n_samples": prok.get("n_samples", len(samples)),
+            # The WHOLE table, which is what `counts` holds. This reported the
+            # prokaryote sub-table's dimensions (414 ASVs, 44 samples) while listing
+            # all 63 sample ids beside them, so an analyst comparing it with a
+            # 63 x 735 `counts` found a contradiction and started doubting the frame.
+            "total_asvs": len(assignments),
+            "n_samples": len(samples),
+            # The per-domain split is real and stays available — correctly labelled.
+            "by_category": {k: {"n_asvs": v.get("n_asvs"), "n_samples": v.get("n_samples"),
+                                "n_reads": v.get("n_reads")}
+                            for k, v in (renorm or {}).items() if isinstance(v, dict)},
             "samples": [s["id"] for s in samples],
         },
         "taxonomy_summary": {
@@ -114,7 +122,10 @@ def build_pipeline_outputs(data_dir: Path = DATA_DIR) -> dict:
             "phyla": top_phyla,
         },
         "filtering": {
-            "n_samples": len(provenance.get("samples", {})),
+            # Samples ATTEMPTED. Named apart from asv_summary.n_samples, which counts
+            # the ones that reached the table; the bare name in both places put 84 and
+            # 63 side by side with nothing to say they measure different things.
+            "n_samples_attempted": len(provenance.get("samples", {})),
             "reads_input": reads_in,
             "reads_retained": reads_out,
             "retention_pct": round(100 * reads_out / reads_in, 1) if reads_in else 0,

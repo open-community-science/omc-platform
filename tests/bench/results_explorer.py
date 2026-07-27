@@ -100,6 +100,9 @@ TIP_STEPS = int(os.environ.get("EXPLORER_TIP_STEPS", "16"))
 # explores — which only pays off when that host is not the analyst's.
 EPOCHS = int(os.environ.get("EXPLORER_EPOCHS", "1"))
 MAX_CLAIMS_PER_ITEM = int(os.environ.get("EXPLORER_MAX_CLAIMS_PER_ITEM", "6"))
+# Generation budget per turn. A reasoning model can spend the whole of a small budget
+# thinking and return no tool call, which costs a step and reads as a refusal.
+MAX_TOKENS = int(os.environ.get("EXPLORER_MAX_TOKENS", "6000"))
 
 OUT = HERE / "writings"
 OUT.mkdir(exist_ok=True)
@@ -241,11 +244,16 @@ async def _print_progress(event: str, detail: dict):
         # indistinguishable from a hang.
         res = detail.get("result") or {}
         mark = res.get("computation_id", "failed")
-        print(f"      · {mark} {detail.get('label')}", flush=True)
+        # Carry the sandbox error. "failed" alone hides whether the analysis was wrong,
+        # the frame was misread, or the code never ran — three different problems.
+        err = f"  — {detail['error']}" if detail.get("error") else ""
+        print(f"      · {mark} {detail.get('label')}{err}", flush=True)
     elif event == "record_claim" and (detail.get("result") or {}).get("recorded"):
         print(f"      + {detail['result']['claim_id']} {detail.get('label')}", flush=True)
     elif event == "add_followup" and (detail.get("result") or {}).get("added"):
         print(f"      ↳ {detail['result']['added']}: {detail.get('label')}", flush=True)
+    elif event == "truncated":
+        print(f"      ! reply cut off at the token limit ({detail.get('tip')})", flush=True)
     elif event == "germinate_failed":
         print(f"  !! germination proposed no agenda after {detail['steps']} steps — "
               "nothing to explore; stopping", flush=True)
@@ -276,7 +284,8 @@ def _make_researcher(llm: LLMClient) -> Autoresearcher:
                         explore_model=MODEL, verify_model=VERIFY_MODEL,
                         replicate_model=REPLICATE_MODEL,
                         adjudicate_model=ADJUDICATE_MODEL,
-                        max_steps=MAX_STEPS, max_followups=MAX_FOLLOWUPS)
+                        max_steps=MAX_STEPS, max_followups=MAX_FOLLOWUPS,
+                        max_tokens=MAX_TOKENS)
     ar.on_progress = _progress_for(ar)      # needs the researcher it reports on
     return ar
 
