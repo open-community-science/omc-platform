@@ -199,6 +199,43 @@ class TestLedgerEnrichment:
         assert self.st["from_ledger"] is True
 
 
+class TestRecordPath:
+    """A run publishes `run_state.json` while it works and `claims_ledger.json` when
+    it finishes. Pointing the viewer at the output dir has to cover both, because the
+    interesting moment is usually before the run is over."""
+
+    def _dir(self, tmp_path, *names):
+        for n in names:
+            (tmp_path / n).write_text("{}")
+        return tmp_path
+
+    def test_the_live_state_is_used_while_a_run_is_going(self, tmp_path):
+        from hyphal_viz import _record_path
+        d = self._dir(tmp_path, "run_state.json")
+        assert _record_path(d).name == "run_state.json"
+
+    def test_the_finished_ledger_wins_once_it_exists(self, tmp_path):
+        from hyphal_viz import _record_path
+        d = self._dir(tmp_path, "run_state.json", "claims_ledger.json")
+        assert _record_path(d).name == "claims_ledger.json"
+
+    def test_an_empty_output_dir_is_not_an_error(self, tmp_path):
+        from hyphal_viz import _record_path
+        assert _record_path(tmp_path) is None
+
+    def test_an_explicit_file_is_honoured(self, tmp_path):
+        from hyphal_viz import _record_path
+        p = tmp_path / "somewhere_else.json"
+        p.write_text("{}")
+        assert _record_path(p) == p
+
+    def test_a_path_that_does_not_exist_yet_is_not_an_error(self, tmp_path):
+        """The viewer is normally started BEFORE the run writes anything."""
+        from hyphal_viz import _record_path
+        assert _record_path(tmp_path / "claims_ledger.json") is None
+        assert _record_path(None) is None
+
+
 def test_an_empty_log_yields_an_empty_colony():
     st = parse("")
     assert st["tips"] == [] and st["claims"] == [] and st["order"] == []

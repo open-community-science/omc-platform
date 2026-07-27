@@ -1254,6 +1254,26 @@ class TestHyphalGrowth:
         assert "first thing" in seed and "second thing" in seed
         assert [a["statement"] for a in ar.assumptions] == ["counts are raw"]
 
+    def test_the_events_a_watcher_snapshots_on_are_actually_emitted(self):
+        """The bench publishes the run's state on these events. If one is renamed and
+        nothing notices, a run goes back to leaving no record until it finishes."""
+        seen = []
+
+        async def on_progress(event, detail):
+            seen.append(event)
+
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[_claim_call("x", "1")], [("mark_done", {})],
+                                 [("add_followup", {"question": "deeper?"})],
+                                 [("mark_done", {})], [("mark_done", {})]],
+                            sweep=[[("record_assumption", {"statement": "raw counts"})]])
+        ar = _hyphal(c)
+        ar.on_progress = on_progress
+        asyncio.run(ar.explore_hyphal(tip_steps=4))
+        assert {"germinate", "tip", "tip_done", "record_claim", "add_followup",
+                "sweep", "hyphal_done"} <= set(seen)
+        assert seen.index("tip") < seen.index("tip_done")     # a tip opens before it closes
+
     def test_a_parent_cycle_does_not_hang_the_ancestry_walk(self):
         ar = _hyphal(_ScriptedClient())
         ar.agenda = [{"id": "a1", "question": "Q1", "status": "pending", "parent": "a2"},

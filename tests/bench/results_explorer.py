@@ -245,13 +245,31 @@ async def _print_progress(event: str, detail: dict):
               f"{detail['steps']} steps", flush=True)
 
 
+def _progress_for(ar: Autoresearcher):
+    """Print the structural events, and publish the run's own state as it goes.
+
+    The ledger used to reach disk exactly once, at the very end. Everything watching
+    a run in progress therefore had to read the LOG, which is a summary by
+    construction — and a tip's transcript is discarded when the tip ends, so nothing
+    else survived either. A run that died at hour three left nothing but its printout.
+    Snapshotting at each structural event makes the authoritative record continuously
+    available, to a viewer and to a post-mortem alike."""
+    async def _progress(event: str, detail: dict):
+        await _print_progress(event, detail)
+        if event in ("tip_done", "sweep", "hyphal_done") or (
+                event == "record_claim" and (detail.get("result") or {}).get("recorded")):
+            _write_json(OUT / "run_state.json", _ledger_dict(ar, None))
+    return _progress
+
+
 def _make_researcher(llm: LLMClient) -> Autoresearcher:
-    return Autoresearcher(_data_source(), llm, _executor(), clients=_clients(),
-                          explore_model=MODEL, verify_model=VERIFY_MODEL,
-                          replicate_model=REPLICATE_MODEL,
-                          adjudicate_model=ADJUDICATE_MODEL,
-                          max_steps=MAX_STEPS, max_followups=MAX_FOLLOWUPS,
-                          on_progress=_print_progress)
+    ar = Autoresearcher(_data_source(), llm, _executor(), clients=_clients(),
+                        explore_model=MODEL, verify_model=VERIFY_MODEL,
+                        replicate_model=REPLICATE_MODEL,
+                        adjudicate_model=ADJUDICATE_MODEL,
+                        max_steps=MAX_STEPS, max_followups=MAX_FOLLOWUPS)
+    ar.on_progress = _progress_for(ar)      # needs the researcher it reports on
+    return ar
 
 
 def _supported_results_data(computations, ledger):
@@ -272,13 +290,26 @@ def _supported_results_data(computations, ledger):
             "computed_support": sorted(set(forms))}
 
 
+def _ledger_dict(ar: Autoresearcher, completed: bool | None) -> dict:
+    """Claims, computations, agenda, assumptions and the run summary.
+
+    One shape for the live snapshot and the final artifact, so anything that can read
+    a finished run can read a running one without knowing the difference."""
+    return {"claims": ar.ledger, "computations": ar.computations, "agenda": ar.agenda,
+            "assumptions": ar.assumptions, "run": ar.run_summary(completed)}
+
+
+def _write_json(path: Path, payload: dict):
+    """Write via a temp file and rename. A viewer polls this every few seconds, and a
+    half-written file is a parse error at exactly the moment something interesting
+    just happened."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, default=str) + "\n")
+    tmp.replace(path)
+
+
 def _write_ledger(ar: Autoresearcher, completed: bool):
-    """Ledger snapshot: claims, computations, agenda, assumptions, and the run
-    summary (which now includes the clean-room replication counts)."""
-    (OUT / "claims_ledger.json").write_text(json.dumps(
-        {"claims": ar.ledger, "computations": ar.computations, "agenda": ar.agenda,
-         "assumptions": ar.assumptions, "run": ar.run_summary(completed)},
-        indent=2, default=str) + "\n")
+    _write_json(OUT / "claims_ledger.json", _ledger_dict(ar, completed))
 
 
 def _write_dag(ar: Autoresearcher, verified: int, status: str):

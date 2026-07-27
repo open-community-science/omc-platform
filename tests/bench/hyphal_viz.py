@@ -193,12 +193,28 @@ def read_state(log: Path, pid: int | None = None, ledger: Path | None = None) ->
     # the process itself can say whether quiet means working or gone.
     st["alive"] = _alive(pid) if pid else None
     st["from_ledger"] = False
-    if ledger:
+    if src := _record_path(ledger):
         try:
-            st = enrich(st, json.loads(ledger.read_text()))
+            st = enrich(st, json.loads(src.read_text()))
         except (OSError, ValueError):
-            pass          # not written yet, or half-written — the log still stands
+            pass          # not written yet, or mid-rename — the log still stands
     return st
+
+
+def _record_path(ledger: Path | None) -> Path | None:
+    """The run's own record, if it has written one.
+
+    Given a directory, prefer the finished ``claims_ledger.json`` and fall back to the
+    live ``run_state.json`` a run publishes as it goes — so one invocation covers a
+    run in progress and the same run tomorrow."""
+    if ledger is None:
+        return None
+    if ledger.is_dir():
+        for name in ("claims_ledger.json", "run_state.json"):
+            if (p := ledger / name).exists():
+                return p
+        return None
+    return ledger if ledger.exists() else None
 
 
 def _alive(pid: int) -> bool:
@@ -546,9 +562,11 @@ def main():
     ap.add_argument("--open", action="store_true", help="open a browser")
     ap.add_argument("--pid", type=int, help="run's pid, so a quiet log can be told "
                                             "from a dead one")
-    ap.add_argument("--ledger", type=Path, help="claims_ledger.json; once the run has "
-                                                "written one it replaces what the log "
-                                                "could only summarise")
+    ap.add_argument("--ledger", type=Path, help="the run's output dir (or a ledger "
+                                                "file). Its own record replaces what "
+                                                "the log could only summarise — live "
+                                                "from run_state.json, final from "
+                                                "claims_ledger.json")
     ap.add_argument("--dump", action="store_true", help="print parsed state and exit")
     a = ap.parse_args()
     if a.dump:
