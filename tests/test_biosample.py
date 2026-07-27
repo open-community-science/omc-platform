@@ -269,6 +269,13 @@ class TestSandboxHints:
         r = self._run("D = pdist(counts.values); result = {'d': float(D[0, 1])}")
         assert "squareform" in r["hint"]
 
+    def test_a_silently_killed_analysis_says_what_happened(self):
+        """A child killed on a resource limit prints no traceback. The analyst saw the
+        bare word "error" — the one failure whose cause it cannot see from inside."""
+        r = self._run("import os; os._exit(9)")
+        assert r["ok"] is False
+        assert "produced no output" in r["error"] and "memory or CPU" in r["error"]
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")

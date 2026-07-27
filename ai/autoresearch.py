@@ -1353,7 +1353,20 @@ class SubprocessExecutor:
             # 400, not 200: pandas puts the part that says WHICH axis failed at the
             # end of the message, and a truncated KeyError is indistinguishable from
             # any other KeyError.
-            return False, ((p.stderr or p.stdout or "no output").strip().splitlines() or ["error"])[-1][:400]
+            return False, ((p.stderr or p.stdout or "no output").strip().splitlines()
+                           or ["error"])[-1][:400]
+        if not r:
+            # No output at all and no traceback: the child died without saying so —
+            # killed on a resource limit, or a native crash inside numpy/scipy. A bare
+            # "error" told the analyst nothing it could act on, and this is the one
+            # failure it cannot see the cause of from inside.
+            why = (p.stderr or "").strip().splitlines()
+            sig = f" (exit {p.returncode})" if p.returncode else ""
+            return False, (f"the analysis process produced no output{sig} — it was "
+                           "killed before finishing, most often by the memory or CPU "
+                           "limit on this sandbox. Try it on a smaller subset, or with "
+                           "fewer permutations."
+                           + (f" stderr: {why[-1][:200]}" if why else ""))
         return (True, r["__ok__"]) if "__ok__" in r else (False, r.get("__err__", "error"))
 
     async def run(self, code: str, timeout: int = 30) -> tuple[bool, Any]:
