@@ -9,7 +9,12 @@ argparse, and file writing — so the offline eval stays reproducible:
 
     python tests/bench/results_explorer.py            # fresh model run
     python tests/bench/results_explorer.py --replicate   # + clean-room re-derivation
+    python tests/bench/results_explorer.py --hyphal      # branching tips, not one session
     python tests/bench/results_explorer.py --reverify [--reconcile]
+
+``--hyphal`` explores by growing one short-lived tip per investigation (#58) instead
+of one long-lived session: each tip is seeded from the shared ledger and discarded
+when its item is done. `EXPLORER_TIP_STEPS` sizes a tip.
 
 ``--replicate`` runs the clean-room pass (#50): a second analyst re-derives each
 strong claim from the raw data WITHOUT seeing the original code. Set
@@ -86,6 +91,9 @@ MAX_FOLLOWUPS = int(os.environ.get("EXPLORER_MAX_FOLLOWUPS", "12"))
 # Claims sent for independent re-derivation per round. The default truncates silently;
 # raise it in step with the step cap or a long run's later claims never get checked.
 MAX_REPLICATE = int(os.environ.get("EXPLORER_MAX_REPLICATE", "12"))
+# --hyphal (#58): steps ONE tip gets for its own investigation. Its context is seeded
+# fresh, so this is the whole size of a tip — not a share of a growing transcript.
+TIP_STEPS = int(os.environ.get("EXPLORER_TIP_STEPS", "16"))
 
 OUT = HERE / "writings"
 OUT.mkdir(exist_ok=True)
@@ -208,12 +216,33 @@ def _executor() -> SubprocessExecutor:
     return SubprocessExecutor(DATA_DIR)
 
 
+async def _print_progress(event: str, detail: dict):
+    """Exploration used to print NOTHING until it finished, which on a multi-hour run
+    is indistinguishable from a hang. Keep it to the structural events."""
+    if event == "germinate":
+        print("  germinating agenda…", flush=True)
+    elif event == "tip":
+        parent = f" ⤶ {detail['parent']}" if detail.get("parent") else ""
+        print(f"  ▸ {detail['id']}{parent}: {str(detail.get('question'))[:70]} "
+              f"({detail.get('claims_seen')} claims in hand)", flush=True)
+    elif event == "sweep":
+        print(f"  sweeping {detail.get('claims')} claims for assumptions…", flush=True)
+    elif event == "record_claim" and (detail.get("result") or {}).get("recorded"):
+        print(f"      + {detail['result']['claim_id']} {str(detail.get('label'))[:60]}", flush=True)
+    elif event == "add_followup" and (detail.get("result") or {}).get("added"):
+        print(f"      ↳ {detail['result']['added']}: {str(detail.get('label'))[:60]}", flush=True)
+    elif event == "hyphal_done":
+        print(f"  {detail['tips']} tips, {detail['claims']} claims, "
+              f"{detail['steps']} steps", flush=True)
+
+
 def _make_researcher(llm: LLMClient) -> Autoresearcher:
     return Autoresearcher(_data_source(), llm, _executor(), clients=_clients(),
                           explore_model=MODEL, verify_model=VERIFY_MODEL,
                           replicate_model=REPLICATE_MODEL,
                           adjudicate_model=ADJUDICATE_MODEL,
-                          max_steps=MAX_STEPS, max_followups=MAX_FOLLOWUPS)
+                          max_steps=MAX_STEPS, max_followups=MAX_FOLLOWUPS,
+                          on_progress=_print_progress)
 
 
 def _supported_results_data(computations, ledger):
@@ -301,11 +330,13 @@ def reverify_saved(client=None):
 
 
 async def _main_async(llm: LLMClient):
+    hyphal = "--hyphal" in sys.argv
     print(f"model: {MODEL} @ {BASE_URL}")
-    print("=== EXPLORE (agenda-driven, recursive) ===")
+    print(f"=== EXPLORE ({'hyphal — branching short-lived tips (#58)' if hyphal else
+                          'agenda-driven, one long-lived session'}) ===", flush=True)
     t0 = time.time()
     ar = _make_researcher(llm)
-    completed = await ar.explore()
+    completed = await (ar.explore_hyphal(tip_steps=TIP_STEPS) if hyphal else ar.explore())
     print(f"\n=== VERIFY (judged by {VERIFY_MODEL}) ===", flush=True)
     _switch_model(VERIFY_MODEL, "verify")
     await ar.verify()

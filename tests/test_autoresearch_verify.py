@@ -9,6 +9,7 @@ No LLM and no sandbox: the executor and the reconciler are stubs, so the whole f
 runs in the fast (`-m "not ai"`) suite.
 """
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -20,6 +21,9 @@ from ai.autoresearch import _norm_assertions  # noqa: E402
 from ai.autoresearch import (  # noqa: E402
     Autoresearcher, JUDGE_SYSTEM, LLMClient, MODEL_VIEW_CAP, REPLICATE_SYSTEM,
     _compact_messages, _jsonify, _usable_derivation, format_briefing,
+)
+from ai.autoresearch import (  # noqa: E402
+    GERMINATE_SYSTEM, GERMINATE_TOOLS, SWEEP_SYSTEM, SWEEP_TOOLS, TIP_SYSTEM, TIP_TOOLS,
 )
 
 
@@ -1042,6 +1046,219 @@ result = {'depths': sorted(set(r1.sum(1).tolist())), 'kept': list(r1.index),
             " kept, dropped = rarefy(df, depth=50, seed=0);"
             " result = {'kept': list(kept.index), 'dropped': dropped}", tmp_path)
         assert ok and r["kept"] == ["deep"] and r["dropped"] == ["shallow"]
+
+
+class _ScriptedClient:
+    """A chat stub driven by a per-PHASE script of turns, dispatched on the system
+    prompt. A turn is either text (no tool calls) or a list of ``(tool, args)``.
+
+    Hyphal growth runs three different short contexts, so what matters in these tests
+    is not call order overall but which phase a call belongs to and what it was seeded
+    with — every call is kept in ``self.calls`` for that."""
+
+    def __init__(self, germinate=(), tip=(), sweep=()):
+        self.script = {"germinate": list(germinate), "tip": list(tip), "sweep": list(sweep)}
+        self.used = {k: 0 for k in self.script}
+        self.calls = []                      # (phase, messages, tools) per invocation
+        self.chat = self._Chat(self)
+
+    def _phase(self, system):
+        return {GERMINATE_SYSTEM: "germinate", TIP_SYSTEM: "tip",
+                SWEEP_SYSTEM: "sweep"}.get(system, "other")
+
+    class _Chat:
+        def __init__(self, outer):
+            self.completions = _ScriptedClient._Completions(outer)
+
+    class _Completions:
+        def __init__(self, outer):
+            self.outer = outer
+
+        async def create(self, **kw):
+            o = self.outer
+            phase = o._phase(kw["messages"][0]["content"])
+            o.calls.append((phase, list(kw["messages"]),
+                            [t["function"]["name"] for t in (kw.get("tools") or [])]))
+            turns = o.script.get(phase) or []
+            i = o.used.get(phase, 0)
+            o.used[phase] = i + 1
+            turn = turns[i] if i < len(turns) else "DONE"
+            if callable(turn):
+                turn = turn(kw["messages"])
+            return _reply(turn, i)
+
+
+def _reply(turn, i):
+    """Build the OpenAI-shaped response object `_agent_loop` reads."""
+    class _Fn:
+        def __init__(self, name, args):
+            self.name, self.arguments = name, json.dumps(args)
+
+    class _TC:
+        def __init__(self, k, name, args):
+            self.id, self.type, self.function = f"t{i}_{k}", "function", _Fn(name, args)
+
+        def model_dump(self):
+            return {"id": self.id, "type": "function",
+                    "function": {"name": self.function.name,
+                                 "arguments": self.function.arguments}}
+
+    class M:
+        content = turn if isinstance(turn, str) else ""
+        tool_calls = (None if isinstance(turn, str)
+                      else [_TC(k, n, a) for k, (n, a) in enumerate(turn)])
+
+    class C:
+        message = M()
+
+    class R:
+        choices = [C()]
+    return R()
+
+
+_AGENDA2 = [("propose_agenda", {"items": [{"question": "Q1", "rationale": "R1"},
+                                          {"question": "Q2", "rationale": "R2"}]})]
+
+
+def _claim_call(label, value, statement="a finding"):
+    """A record_claim tool call for the scripted client. Named apart from the
+    `_claim` fixture above — a module-level redefinition silently rebinds it for
+    every test in the file, which took out the whole round-3 suite once."""
+    return ("record_claim", {"statement": statement, "kind": "pattern",
+                             "assertions": [{"label": label, "value": value}]})
+
+
+def _hyphal(client, results=None):
+    return Autoresearcher(_StubData(), LLMClient(client, "stub-model"),
+                          _StubExecutor(results or {}))
+
+
+class TestHyphalGrowth:
+    """#58 — branching short-lived tips instead of one long-lived session. The state
+    lives on the researcher, so what has to hold is that each tip is seeded from that
+    state, attributes its work to its own branch, and cannot fake completion."""
+
+    def test_germination_cannot_start_analysing(self):
+        """Given run_analysis, the planning phase runs the investigation it was
+        supposed to be planning — so it is not given run_analysis."""
+        names = {t["function"]["name"] for t in GERMINATE_TOOLS}
+        assert "propose_agenda" in names
+        assert not names & {"run_analysis", "record_claim", "add_followup", "mark_done"}
+
+    def test_a_tip_cannot_repropose_the_agenda(self):
+        names = {t["function"]["name"] for t in TIP_TOOLS}
+        assert "propose_agenda" not in names
+        assert {"run_analysis", "record_claim", "mark_done", "add_followup"} <= names
+
+    def test_the_sweep_records_assumptions_and_nothing_else(self):
+        names = {t["function"]["name"] for t in SWEEP_TOOLS}
+        assert names == {"get_agenda", "record_assumption"}
+
+    def test_each_tip_starts_from_a_fresh_context(self):
+        """The whole point: a tip's context is seed-sized, not run-sized."""
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[_claim_call("n_asvs", "735")], [("mark_done", {})],
+                                 [("mark_done", {})]])
+        asyncio.run(_hyphal(c).explore_hyphal(tip_steps=4))
+        firsts = [m for phase, m, _ in c.calls if phase == "tip" and len(m) == 2]
+        assert len(firsts) == 2                     # one fresh opening per tip
+        # the second tip never sees the first tip's turns, only its recorded claim
+        second = firsts[1][1]["content"]
+        assert "a finding" in second and "record_claim" not in second
+
+    def test_a_tip_attributes_its_claims_to_its_own_investigation(self):
+        """With items still pending, the linear rule would attribute a claim to the
+        first pending item — the wrong branch. A live tip owns its item outright."""
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[_claim_call("x", "1")], [("mark_done", {})],
+                                 [_claim_call("y", "2")], [("mark_done", {})]])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=4))
+        assert [k["investigation"] for k in ar.ledger] == ["a1", "a2"]
+
+    def test_a_claim_recorded_after_mark_done_stays_on_its_branch(self):
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[("mark_done", {}), _claim_call("x", "1")],
+                                 [("mark_done", {})]])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=4))
+        assert ar.ledger[0]["investigation"] == "a1"
+
+    def test_a_tip_does_not_promote_the_next_item(self):
+        """mark_done in the linear loop advances to the next item. A tip must not —
+        it will never see that item, and leaving it in_progress strands it."""
+        c = _ScriptedClient(germinate=[_AGENDA2], tip=[[("mark_done", {})]])
+        ar = _hyphal(c)
+        asyncio.run(ar._germinate())
+        item = ar._next_tip(None)
+        asyncio.run(ar._grow_tip(item, max_steps=2))
+        assert [a["status"] for a in ar.agenda] == ["done", "pending"]
+
+    def test_followups_branch_depth_first(self):
+        a = [{"id": "a1", "question": "Q1", "status": "done", "parent": None},
+             {"id": "a2", "question": "Q2", "status": "pending", "parent": None},
+             {"id": "a3", "question": "Q3", "status": "pending", "parent": "a1"}]
+        ar = _hyphal(_ScriptedClient())
+        ar.agenda = a
+        assert ar._next_tip("a1")["id"] == "a3"      # grow from the branch just finished
+        assert ar._next_tip("a2")["id"] == "a2"      # no child: fall back to agenda order
+        assert ar._next_tip(None)["id"] == "a2"
+
+    def test_a_followup_is_seeded_with_its_parents_findings(self):
+        ar = _hyphal(_ScriptedClient())
+        ar.agenda = [{"id": "a1", "question": "parent Q", "status": "done", "parent": None},
+                     {"id": "a2", "question": "child Q", "status": "pending", "parent": "a1"}]
+        ar.ledger = [{"id": "k1", "statement": "parent found this", "value": "n=7",
+                      "kind": "pattern", "investigation": "a1"},
+                     {"id": "k2", "statement": "someone else found this", "value": "n=9",
+                      "kind": "pattern", "investigation": "a9"}]
+        seed = asyncio.run(ar._tip_seed(ar.agenda[1]))
+        assert "child Q" in seed and "branched off" in seed and "parent Q" in seed
+        # the ancestor's claim is offered to build on; the unrelated one only as context
+        before_context = seed.split("Findings from the other investigations")[0]
+        assert "parent found this" in before_context
+        assert "someone else found this" not in before_context
+        assert "someone else found this" in seed
+
+    def test_an_unfinished_tip_leaves_its_item_outstanding(self):
+        """A tip that runs out of steps without mark_done is interrupted work. Marking
+        it done anyway is how a partial run comes to look complete."""
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[("run_analysis", {"code": "x"})]] * 8)
+        ar = _hyphal(c)
+        completed = asyncio.run(ar.explore_hyphal(tip_steps=2))
+        assert not completed
+        assert [a["status"] for a in ar.agenda] == ["interrupted", "interrupted"]
+
+    def test_a_worked_agenda_reports_complete(self):
+        c = _ScriptedClient(germinate=[_AGENDA2], tip=[[("mark_done", {})]] * 4)
+        ar = _hyphal(c)
+        assert asyncio.run(ar.explore_hyphal(tip_steps=3))
+        assert ar.run_summary()["exploration"] == "hyphal"
+
+    def test_the_step_budget_is_a_budget(self):
+        c = _ScriptedClient(germinate=[_AGENDA2], tip=[[("run_analysis", {"code": "x"})]] * 40)
+        ar = _hyphal(c)
+        completed = asyncio.run(ar.explore_hyphal(tip_steps=3, max_total_steps=5))
+        assert not completed
+        assert sum(1 for phase, _, _ in c.calls if phase == "tip") <= 5
+
+    def test_the_sweep_sees_every_claim_at_once(self):
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[_claim_call("x", "1", "first thing")], [("mark_done", {})],
+                                 [_claim_call("y", "2", "second thing")], [("mark_done", {})]],
+                            sweep=[[("record_assumption", {"statement": "counts are raw"})]])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=4))
+        seed = next(m for phase, m, _ in c.calls if phase == "sweep")[1]["content"]
+        assert "first thing" in seed and "second thing" in seed
+        assert [a["statement"] for a in ar.assumptions] == ["counts are raw"]
+
+    def test_a_parent_cycle_does_not_hang_the_ancestry_walk(self):
+        ar = _hyphal(_ScriptedClient())
+        ar.agenda = [{"id": "a1", "question": "Q1", "status": "pending", "parent": "a2"},
+                     {"id": "a2", "question": "Q2", "status": "pending", "parent": "a1"}]
+        assert [a["id"] for a in ar._ancestry(ar.agenda[0])] == ["a1", "a2"]
 
 
 if __name__ == "__main__":

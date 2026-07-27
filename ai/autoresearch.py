@@ -43,14 +43,18 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional, Protocol, runtime_checkable
 
 # ── Prompts (moved verbatim from the prototype) ───────────────────────────────
-EXPLORE_SYSTEM = """You are a curious microbial ecologist REANALYZING an existing 16S/18S
+_ANALYST_ROLE = """You are a curious microbial ecologist REANALYZING an existing 16S/18S
 amplicon dataset as an independent scientist. Your job is not to restate summary statistics —
 it is to TEST HYPOTHESES and find PATTERNS, RELATIONSHIPS, and ANOMALIES a scientist would care
 about, then ground each in a re-runnable computation. Report what the data show; do not presume
 the original collectors' intent, study design, or prior hypotheses — every claim is grounded in
-the data itself, not a presumed backstory.
+the data itself, not a presumed backstory."""
 
-Work systematically and recursively:
+
+# How the linear explore() works its way through the agenda. A hyphal tip gets a
+# different workflow (it is handed ONE item and never sees the rest), but the same
+# role, the same claim craft, and the same statistical rules — so those are shared.
+_LINEAR_WORKFLOW = """Work systematically and recursively:
 1. FIRST call propose_agenda with the analyses/hypothesis tests worth running here — the
    standard microbial-ecology toolkit AND less obvious ideas. Think across: alpha diversity
    (richness, Shannon, Simpson, Pielou evenness) and its dependence on sequencing depth;
@@ -62,8 +66,10 @@ Work systematically and recursively:
 2. Work the agenda item by item. For each: run_analysis over `counts`/`tax`/`meta` to test
    it, then record_claim(s) with the exact value(s) and antecedents. mark_done and move on.
 3. RECURSE: whenever a result is surprising or opens a question, add_followup — that is how
-   you go deeper (a cluster in ordination → its driver taxa → are they contamination?).
-4. WRITE CLAIMS THAT CAN BE REPRODUCED. Every claim you record will be handed to an
+   you go deeper (a cluster in ordination → its driver taxa → are they contamination?)."""
+
+
+_CLAIM_CRAFT = """WRITE CLAIMS THAT CAN BE REPRODUCED. Every claim you record will be handed to an
    independent analyst who gets the raw data and your claim — but NOT your code — and must
    re-derive it. A vague claim is one you lose.
    Break each claim into `assertions`: one entry per number you are asserting, each with a
@@ -92,7 +98,7 @@ Work systematically and recursively:
    caveats and anomalies collegially and matter-of-factly — a mislabel, mix-up, or
    contamination is a routine good-faith observation to note neutrally (likely an honest
    accident), not a failing to flag with alarm or suspicion.
-5. SURFACE YOUR ASSUMPTIONS. Real analysis always rests on things you can't confirm — an
+SURFACE YOUR ASSUMPTIONS. Real analysis always rests on things you can't confirm — an
    unstated normalization, an inferred grouping, an ambiguous field's meaning, the stated
    amplicon target/primers, a database version. Every time you proceed past one, call
    record_assumption right then (not silently). Assumptions are not claims; they make explicit
@@ -129,10 +135,76 @@ KNOW WHAT THE FIELDS MEAN, then think critically about the data:
   plain correlation to a named test.
 - Sanity-check the data against the stated context in get_dataset('study'). Don't invent
   effects the data doesn't support; equally, don't accept a label the data contradicts —
-  where they disagree, the contradiction is itself a grounded finding worth recording.
+  where they disagree, the contradiction is itself a grounded finding worth recording."""
+
+
+EXPLORE_SYSTEM = f"""{_ANALYST_ROLE}
+
+{_LINEAR_WORKFLOW}
+
+{_CLAIM_CRAFT}
 
 Keep going until the agenda (including follow-ups) is worked through AND you have recorded the
 assumptions your findings rest on, then reply DONE."""
+
+
+# ── Hyphal growth (#58) ───────────────────────────────────────────────────────
+# Three short contexts instead of one long-lived session. Nothing here needs the
+# transcript to persist: the agenda, ledger and assumptions live on the researcher,
+# so each phase is seeded from that state and discarded when it finishes.
+
+GERMINATE_SYSTEM = f"""{_ANALYST_ROLE}
+
+Right now you are PLANNING ONLY. Propose the agenda of analyses and hypothesis tests worth
+running on this dataset — the standard microbial-ecology toolkit AND the less obvious ideas.
+Think across: alpha diversity (richness, Shannon, Simpson, Pielou evenness) and its dependence
+on sequencing depth; dominance and the rare biosphere; beta-diversity structure (Bray-Curtis/
+Jaccard, ordination) and WHICH taxa drive it; differential abundance / indicator taxa between
+sample groups; co-occurrence; the prokaryote-vs-eukaryote split (use `tax` Domain); core vs
+transient taxa (prevalence); and a contamination screen for known kit/reagent genera (e.g.
+Ralstonia, Bradyrhizobium, Cutibacterium, Pelomonas, Delftia).
+
+Each item will be worked SEPARATELY by an analyst who sees that item and the findings so far,
+but not the others — so make each question stand on its own, and don't split one test across
+two items. Look at the data first if it helps you plan (list_datasets/get_dataset), then call
+propose_agenda once. Do not start analysing."""
+
+
+TIP_SYSTEM = f"""{_ANALYST_ROLE}
+
+You have been handed ONE investigation from a larger agenda. Work it, record what you find,
+and stop. Other analysts are working the other items; you will not see them and they will not
+see your reasoning — only the claims you record. That is why the claims must stand alone.
+
+1. Test the question you were given with run_analysis over `counts`/`tax`/`meta`.
+2. record_claim for each finding, with exact values and antecedents.
+3. If a result is surprising or opens a deeper question, add_followup — a fresh analyst will
+   be given that question, seeded with your claims. Add it; do not chase it yourself.
+4. Call mark_done when this investigation is finished, then reply DONE.
+
+Stay on your own question. Findings from the other investigations are given to you as context
+so you can build on them and avoid repeating them — not as work to redo.
+
+{_CLAIM_CRAFT}"""
+
+
+SWEEP_SYSTEM = f"""{_ANALYST_ROLE}
+
+The investigation is finished. You are doing the final pass over the WHOLE body of findings,
+which several analysts produced separately. Your only job now is to surface the assumptions
+those findings rest on.
+
+Look over every claim and call record_assumption for EACH thing that had to be taken for
+granted but could not be confirmed from the data or the stated context. Every real analysis
+makes some — whether counts are raw or normalized, what an ambiguous field means, an inferred
+grouping, the stated amplicon target/primers, a database version, or that a named test's
+assumptions held. Assumptions already on record are listed for you; do NOT re-record those.
+
+You are also the only reader who sees all the findings at once, so note any assumption that is
+only visible from that vantage — two investigations depending on incompatible readings of the
+same field, for instance.
+
+Record each one, then reply DONE. Do not record claims and do not run analyses."""
 
 
 JUDGE_SYSTEM = """You are a strict verification auditor. You are given a CLAIM broken into
@@ -306,6 +378,24 @@ TOOLS = [
             "impact": {"type": "string", "description": "how the findings would change if it is wrong (optional)"}},
             "required": ["statement"]}}},
 ]
+
+
+def tools_for(*names: str) -> list[dict]:
+    """The subset of TOOLS with these names, in TOOLS order.
+
+    Hyphal growth (#58) runs three different kinds of short context and each needs a
+    different surface: germination proposes the agenda and nothing else, a tip works
+    one item, the sweep only records assumptions. Offering a tool the phase must not
+    use is an invitation to use it — germination given `run_analysis` starts the
+    investigation it was supposed to be planning."""
+    want = set(names)
+    return [t for t in TOOLS if t["function"]["name"] in want]
+
+
+GERMINATE_TOOLS = tools_for("list_datasets", "get_dataset", "propose_agenda")
+TIP_TOOLS = tools_for("get_agenda", "add_followup", "mark_done", "get_dataset",
+                      "list_datasets", "run_analysis", "record_claim", "record_assumption")
+SWEEP_TOOLS = tools_for("get_agenda", "record_assumption")
 
 
 # Read the real shape of the data instead of describing it in prose. An analyst
@@ -1102,6 +1192,12 @@ class Autoresearcher:
         self.results_prose_by: str | None = None  # model that wrote the prose
         self._briefing: str | None = None         # cached data-shape briefing
         self.refused_claims: int = 0              # claims rejected as uncheckable
+        # Hyphal growth (#58): the agenda item the ACTIVE TIP is working. In the linear
+        # explore() this stays None and the agenda's own statuses decide; under
+        # explore_hyphal() each tip owns one item for its whole (short) life, so claims
+        # and assumptions attribute to the branch that produced them.
+        self._active_tip: str | None = None
+        self.exploration: str = "linear"          # or "hyphal" — recorded in run_summary
 
     # -- data briefing ----------------------------------------------------------
     async def data_briefing(self) -> str:
@@ -1133,7 +1229,13 @@ class Autoresearcher:
 
     # -- agenda helpers ---------------------------------------------------------
     def _current_investigation(self) -> str | None:
-        """The investigation being worked (first in-progress, else first pending)."""
+        """The investigation being worked (first in-progress, else first pending).
+
+        A live tip answers this outright: it owns exactly one item, and it keeps
+        owning it after ``mark_done`` so a trailing ``record_claim`` still lands on
+        the branch that earned it rather than on whatever came next."""
+        if self._active_tip is not None:
+            return self._active_tip
         for st in ("in_progress", "pending"):
             for a in self.agenda:
                 if a["status"] == st:
@@ -1169,6 +1271,11 @@ class Autoresearcher:
             for a in self.agenda:
                 if a["id"] == cur:
                     a["status"] = "done"
+            if self._active_tip is not None:
+                # A tip closes its own item and stops; promoting the next one is the
+                # scheduler's job, not this tip's — it will never see that item.
+                return {"done": cur, "remaining": sum(
+                    a["status"] in ("pending", "in_progress") for a in self.agenda)}
             nxt = self._current_investigation()
             for a in self.agenda:
                 if a["id"] == nxt and a["status"] == "pending":
@@ -1337,6 +1444,195 @@ class Autoresearcher:
             if a["status"] == "in_progress":
                 a["status"] = "interrupted"
         return not any(a["status"] in ("pending", "in_progress", "interrupted") for a in self.agenda)
+
+    # -- hyphal growth (#58) ----------------------------------------------------
+    async def _agent_loop(self, *, system: str, seed: str, tools: list, max_steps: int,
+                          nudge: str, stop=None, tag: str = "") -> int:
+        """One bounded tool-calling loop in its OWN context. Returns steps used.
+
+        This is the plumbing the linear ``explore`` grew organically — parse the tool
+        arguments, run the tool, emit progress, feed the result back — with the loop's
+        *purpose* (which tools, what seeds it, what ends it) supplied by the caller.
+        Every hyphal phase is one of these; none of them outlives its own return."""
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": seed}]
+        for step in range(max_steps):
+            messages = _compact_messages(messages)   # a well-behaved tip never needs this
+            r = await self._chat("explore", messages, model=self.explore_model, tools=tools,
+                                 tool_choice="auto", temperature=0.25, max_tokens=2500)
+            msg = r.choices[0].message
+            if not msg.tool_calls:
+                if "DONE" in _strip_think(msg.content or "").upper():
+                    return step + 1
+                messages.append({"role": "assistant", "content": msg.content or ""})
+                messages.append({"role": "user", "content": nudge})
+                continue
+            messages.append({"role": "assistant", "content": msg.content or "",
+                             "tool_calls": [tc.model_dump() for tc in msg.tool_calls]})
+            for tc in msg.tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError as e:
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(
+                        {"error": f"could not parse tool arguments as JSON ({e}); "
+                                  "re-send this call with valid, complete JSON arguments"})})
+                    await self._emit(tc.function.name, {"step": step, "label": "bad arguments",
+                                                        "tip": tag, "result": {"error": "unparseable args"}})
+                    continue
+                result = await self._exec_tool(tc.function.name, args)
+                label = (args.get("label") or args.get("name") or args.get("question")
+                         or (args.get("statement") or "")[:40])
+                await self._emit(tc.function.name, {"step": step, "label": str(label)[:80],
+                                                    "tip": tag, "result": result})
+                messages.append({"role": "tool", "tool_call_id": tc.id,
+                                 "content": json.dumps(result, default=str)[:3500]})
+            if stop is not None and stop():
+                return step + 1
+        return max_steps
+
+    def _ancestry(self, item: dict) -> list[dict]:
+        """The agenda items this one branched from, oldest first."""
+        by_id = {a["id"]: a for a in self.agenda}
+        chain, cur, seen = [], by_id.get(item.get("parent") or ""), set()
+        while cur is not None and cur["id"] not in seen:
+            seen.add(cur["id"])            # a malformed parent cycle must not hang the run
+            chain.append(cur)
+            cur = by_id.get(cur.get("parent") or "")
+        return list(reversed(chain))
+
+    def _claim_lines(self, claims: list[dict]) -> str:
+        return "\n".join(
+            f"  {c['id']} [{c.get('kind', 'observation')}] {c['statement']} — {c.get('value', '')}"
+            for c in claims) or "  (none yet)"
+
+    async def _tip_seed(self, item: dict) -> str:
+        """What a tip is handed instead of the whole conversation: the data briefing,
+        its own question, the branch it grew from, and the colony's findings so far.
+
+        The findings are the shared medium — a tip that cannot see them would redo
+        work and miss connections, which is the one real thing a single long session
+        buys. Claims are a snapshot taken when the tip is seeded, so a tip's input is
+        fixed at birth even though other tips keep recording."""
+        ancestors = self._ancestry(item)
+        anc_ids = {a["id"] for a in ancestors}
+        mine = [c for c in self.ledger if c.get("investigation") in anc_ids]
+        others = [c for c in self.ledger if c.get("investigation") not in anc_ids]
+        briefing = await self.data_briefing()
+        parts = [f"{briefing}\n" if briefing else ""]
+        parts.append("YOUR INVESTIGATION — work this one and only this one:\n"
+                     f"  {item['id']}: {item['question']}")
+        if item.get("rationale"):
+            parts.append(f"  why it matters: {item['rationale']}")
+        if ancestors:
+            parts.append("\nThis question branched off an earlier one:\n" + "\n".join(
+                f"  {a['id']}: {a['question']}" for a in ancestors)
+                + f"\n\nWhat that line of investigation found — build DIRECTLY on these:\n"
+                  f"{self._claim_lines(mine)}")
+        parts.append("\nFindings from the other investigations, for context — do not repeat "
+                     f"them and do not redo them:\n{self._claim_lines(others)}")
+        parts.append("\nAssumptions already on record — do NOT re-record these:\n" + ("\n".join(
+            f"  {a['id']}: {a['statement']}" for a in self.assumptions) or "  (none yet)"))
+        parts.append("\nWork your question now.")
+        return "\n".join(parts)
+
+    def _next_tip(self, last: str | None) -> dict | None:
+        """Which pending item to grow next.
+
+        Depth-first off the branch that just finished: a follow-up is at its most
+        valuable while the findings that provoked it are the freshest thing in the
+        ledger. Falls back to agenda order once a branch is exhausted."""
+        pending = [a for a in self.agenda if a["status"] == "pending"]
+        if not pending:
+            return None
+        if last is not None:
+            for a in pending:
+                if a.get("parent") == last:
+                    return a
+        return pending[0]
+
+    async def explore_hyphal(self, tip_steps: int = 16,
+                             max_total_steps: int | None = None) -> bool:
+        """Explore by branching growth rather than one long-lived session (#58).
+
+        Germinate an agenda, then grow one short-lived tip per investigation, each
+        seeded from the shared ledger and discarded when its item is done. Follow-ups
+        branch: a tip that finds something surprising adds the question and a fresh
+        tip is grown for it, seeded with the parent's claims.
+
+        Returns True only when the agenda was actually worked through, exactly as
+        ``explore`` does — a step budget is still a budget, and an item left standing
+        is still reported as outstanding."""
+        self.exploration = "hyphal"
+        budget = self.max_steps if max_total_steps is None else max_total_steps
+        used = await self._germinate(max_steps=min(6, budget))
+        last: str | None = None
+        while used < budget:
+            item = self._next_tip(last)
+            if item is None:
+                break
+            used += await self._grow_tip(item, max_steps=min(tip_steps, budget - used))
+            last = item["id"]
+        if used < budget:
+            used += await self._sweep_assumptions(max_steps=min(6, budget - used))
+        await self._emit("hyphal_done", {"steps": used, "tips": len(self.agenda),
+                                         "claims": len(self.ledger)})
+        return not any(a["status"] in ("pending", "in_progress", "interrupted")
+                       for a in self.agenda)
+
+    async def _germinate(self, max_steps: int = 6) -> int:
+        """Propose the agenda in a context that can do nothing else. Given
+        ``run_analysis`` this phase starts the investigation it was meant to plan."""
+        briefing = await self.data_briefing()
+        seed = (f"{briefing}\n\n" if briefing else "") + (
+            "Propose the agenda of microbial-ecology analyses and hypothesis tests worth "
+            "running on this dataset.")
+        await self._emit("germinate", {"phase": "agenda"})
+        used = await self._agent_loop(
+            system=GERMINATE_SYSTEM, seed=seed, tools=GERMINATE_TOOLS, max_steps=max_steps,
+            nudge="Call propose_agenda with your agenda items now.",
+            stop=lambda: bool(self.agenda), tag="germinate")
+        # propose_agenda promotes its first item for the linear loop's benefit. Here the
+        # scheduler decides what gets grown, and it only looks at pending — leaving that
+        # promotion in place would strand item 1 as permanently in_progress, unworked.
+        for a in self.agenda:
+            if a["status"] == "in_progress":
+                a["status"] = "pending"
+        return used
+
+    async def _grow_tip(self, item: dict, max_steps: int) -> int:
+        """Grow one tip: a fresh short context working exactly one agenda item.
+
+        The item is marked ``interrupted`` rather than ``done`` when the tip runs out
+        of steps without calling mark_done — a tip that stopped early is outstanding
+        work, and faking it done is how a partial run comes to look complete."""
+        item["status"] = "in_progress"
+        self._active_tip = item["id"]
+        await self._emit("tip", {"id": item["id"], "question": item["question"],
+                                 "parent": item.get("parent"), "claims_seen": len(self.ledger)})
+        try:
+            return await self._agent_loop(
+                system=TIP_SYSTEM, seed=await self._tip_seed(item), tools=TIP_TOOLS,
+                max_steps=max_steps,
+                nudge="Continue with this investigation, or call mark_done if it is finished.",
+                stop=lambda: item["status"] == "done", tag=item["id"])
+        finally:
+            if item["status"] != "done":
+                item["status"] = "interrupted"
+            self._active_tip = None
+
+    async def _sweep_assumptions(self, max_steps: int = 6) -> int:
+        """The one context that sees every finding at once. Several analysts each
+        recorded what THEY had to assume; only this pass can see an assumption that
+        exists between them."""
+        if not self.ledger:
+            return 0
+        seed = ("Every claim on record:\n" + self._claim_lines(self.ledger)
+                + "\n\nAssumptions already recorded:\n" + ("\n".join(
+                    f"  {a['id']}: {a['statement']}" for a in self.assumptions) or "  (none yet)")
+                + "\n\nRecord the assumptions these findings rest on.")
+        await self._emit("sweep", {"claims": len(self.ledger)})
+        return await self._agent_loop(
+            system=SWEEP_SYSTEM, seed=seed, tools=SWEEP_TOOLS, max_steps=max_steps,
+            nudge="Call record_assumption for each one, then reply DONE.", tag="sweep")
 
     # -- verify -----------------------------------------------------------------
     def _evidence_for(self, claim, comp_cache: dict) -> str:
@@ -1876,6 +2172,9 @@ class Autoresearcher:
         for c in self.ledger:
             models |= {r.get("by") for r in (c.get("replications") or [])}
         return {"completed": completed, "investigations_done": done,
+                # How the exploration was run: one long-lived session, or branching
+                # short-lived tips (#58). The two produce very different ledgers.
+                "exploration": self.exploration,
                 # Refused claims are otherwise invisible: a claimant that cannot produce
                 # checkable assertions just looks unproductive, which is a different
                 # problem with a different fix.
@@ -1968,6 +2267,7 @@ class Autoresearcher:
         ar.assumptions = list(snap.get("assumptions", []))
         ar.computations = dict(snap.get("computations", {}))
         ar.agenda = list(snap.get("agenda", []))
+        ar.exploration = (snap.get("run") or {}).get("exploration", "linear")
         return ar
 
 
