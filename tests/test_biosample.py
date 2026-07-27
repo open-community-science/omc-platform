@@ -207,6 +207,24 @@ class TestRawAndRelative:
         assert "clr(df, pseudocount=0.5) ->" in text
         assert "rarefy(df, depth=None, seed=0) ->" in text
 
+    def test_a_worked_example_is_shown_not_just_prohibited(self):
+        """"Do not read files" failed in four separate contexts. A claim-sized context
+        cannot inherit the correction its predecessor got, so the cost is paid once per
+        context — one line of working code is the cheapest thing that might land."""
+        text = format_briefing({"available": ["counts", "meta"]})
+        assert "a complete analysis looks like" in text
+        assert "result = {" in text and "counts.loc[" in text
+
+    def test_the_worked_example_actually_runs(self):
+        """An example that does not execute is worse than none."""
+        import asyncio
+        from ai.autoresearch import SubprocessExecutor
+        ok, r = asyncio.run(SubprocessExecutor("/data/dev/testdata/1543a4c1").run(
+            "sub = counts.loc[meta.index[meta['pipeline_in_counts']]]\n"
+            "result = {'n_samples': int(sub.shape[0]), "
+            "'mean_richness': float((sub > 0).sum(axis=1).mean())}"))
+        assert ok and r["n_samples"] == 63
+
     def test_a_dataset_without_counts_says_nothing_about_props(self):
         assert "props" not in format_briefing({"tax": {"shape": [7, 6], "columns": ["a"]}})
 

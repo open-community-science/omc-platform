@@ -521,6 +521,15 @@ def format_briefing(b: dict) -> str:
             "'n_tests': int, 'alpha': float}",
             "    clr(df, pseudocount=0.5) -> DataFrame, same axes",
             "    rarefy(df, depth=None, seed=0) -> (DataFrame, [ids dropped below depth])",
+            # Shown, not prohibited. "Do not read files" has now failed in four
+            # separate contexts, and a claim-sized context cannot inherit the
+            # correction its predecessor was given — each one starts naive, so the
+            # cost is paid once per context rather than once per run. One line of
+            # working code is the cheapest thing that has a chance of landing.
+            "    a complete analysis looks like:",
+            "      sub = counts.loc[meta.index[meta['pipeline_in_counts']]]",
+            "      result = {'n_samples': int(sub.shape[0]), "
+            "'mean_richness': float((sub > 0).sum(axis=1).mean())}",
         ]
     for key in ("tax", "meta"):
         d = b.get(key)
