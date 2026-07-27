@@ -438,8 +438,17 @@ if meta is not None and getattr(meta, "size", 0):
         if 2 <= len(_vc) <= max(2, min(12, len(meta) // 4)):
             _g[str(_c)] = {"n_groups": int(len(_vc)),
                            "groups": {str(k): int(v) for k, v in _vc.head(8).items()}}
+    _rank = {"biosample_": 0, "pipeline_": 1, "sra_": 2}
+    def _order(_kv):
+        _p = 1
+        for _k, _v in _rank.items():
+            if _kv[0].startswith(_k):
+                _p = _v
+        return (_p, _kv[1]["n_groups"])
     if _g:
-        _b["meta_groupings"] = dict(sorted(_g.items(), key=lambda kv: kv[1]["n_groups"])[:12])
+        _b["meta_groupings"] = dict(sorted(_g.items(), key=_order)[:12])
+_b["available"] = sorted(k for k in list(globals())
+                         if not k.startswith("_") and k not in ("result", "sys", "json", "os"))
 result = _b
 """
 
@@ -474,6 +483,11 @@ def format_briefing(b: dict) -> str:
             f"    The other {p['n_dropped']} produced zero reads ({at}) and are ABSENT "
             f"from counts — not present as zero rows.",
         ]
+    if av := b.get("available"):
+        # Named because it was being discovered by failing into it — a tip lost a step
+        # to `import skbio` and had no way to know what was in scope.
+        lines.append(f"  IN SCOPE for run_analysis (nothing else is importable): "
+                     f"{', '.join(av)}")
     for key in ("tax", "meta"):
         d = b.get(key)
         if d:
@@ -1029,10 +1043,12 @@ class DirDataSource:
                 # 63 x 735 `counts` found a contradiction and started doubting the frame.
                 "total_asvs": len(assignments),
                 "n_samples": len(samples),
-                # The per-domain split is real and stays available — correctly labelled.
-                "by_category": {k: {"n_asvs": v.get("n_asvs"), "n_samples": v.get("n_samples"),
-                                    "n_reads": v.get("n_reads")}
-                                for k, v in (renorm or {}).items() if isinstance(v, dict)},
+                # The per-domain split from renorm_stats was surfaced here as `by_category`.
+                # Removed: its `n_samples` means different things per row. prokaryote 44 and
+                # eukaryote 19 partition the samples by assay, but chloroplast 11 does not
+                # describe this table at all — 46 chloroplast-labelled ASVs appear in 30 of its
+                # samples. An analyst read that row as "11 chloroplast samples". The numbers stay
+                # under get_dataset('renorm_stats'), named for the step that produced them.
                 "samples": [s.get("id") for s in samples if isinstance(s, dict)],
             },
             "taxonomy_summary": {

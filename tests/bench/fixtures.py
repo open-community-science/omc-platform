@@ -107,10 +107,12 @@ def build_pipeline_outputs(data_dir: Path = DATA_DIR) -> dict:
             # 63 x 735 `counts` found a contradiction and started doubting the frame.
             "total_asvs": len(assignments),
             "n_samples": len(samples),
-            # The per-domain split is real and stays available — correctly labelled.
-            "by_category": {k: {"n_asvs": v.get("n_asvs"), "n_samples": v.get("n_samples"),
-                                "n_reads": v.get("n_reads")}
-                            for k, v in (renorm or {}).items() if isinstance(v, dict)},
+            # The per-domain split from renorm_stats was surfaced here as `by_category`.
+            # Removed: its `n_samples` means different things per row. prokaryote 44 and
+            # eukaryote 19 partition the samples by assay, but chloroplast 11 does not
+            # describe this table at all — 46 chloroplast-labelled ASVs appear in 30 of its
+            # samples. An analyst read that row as "11 chloroplast samples". The numbers stay
+            # under get_dataset('renorm_stats'), named for the step that produced them.
             "samples": [s["id"] for s in samples],
         },
         "taxonomy_summary": {
