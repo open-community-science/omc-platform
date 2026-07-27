@@ -664,6 +664,18 @@ def _jsonify(v, depth=0, cap=MODEL_VIEW_CAP):
 EXPLORE_CHAR_BUDGET = 140_000    # ≈35k tokens of transcript at ~4 chars/token
 
 
+def _clean_label(label: Any) -> str:
+    """A progress event's human-readable label.
+
+    Kept WHOLE. This used to be cut to 40 characters at the claim and 80 at the
+    event, which meant a watcher could only ever show "Read abundance is nearly
+    evenly split be" — the text was gone before anything downstream could choose
+    how to display it. Truncating for a screen is the screen's job. Newlines are
+    flattened because consumers are line-oriented, and there is a generous ceiling
+    only so a runaway argument can't flood a progress stream."""
+    return " ".join(str(label).split())[:400]
+
+
 def _msg_chars(m: dict) -> int:
     n = len(m.get("content") or "")
     for tc in (m.get("tool_calls") or []):
@@ -1433,8 +1445,8 @@ class Autoresearcher:
                     continue
                 result = await self._exec_tool(tc.function.name, args)
                 label = (args.get("label") or args.get("name") or args.get("question")
-                         or (args.get("statement") or "")[:40])
-                await self._emit(tc.function.name, {"step": step, "label": str(label)[:80],
+                         or (args.get("statement") or ""))
+                await self._emit(tc.function.name, {"step": step, "label": _clean_label(label),
                                                     "result": result})
                 messages.append({"role": "tool", "tool_call_id": tc.id,
                                  "content": json.dumps(result, default=str)[:3500]})
@@ -1480,8 +1492,8 @@ class Autoresearcher:
                     continue
                 result = await self._exec_tool(tc.function.name, args)
                 label = (args.get("label") or args.get("name") or args.get("question")
-                         or (args.get("statement") or "")[:40])
-                await self._emit(tc.function.name, {"step": step, "label": str(label)[:80],
+                         or (args.get("statement") or ""))
+                await self._emit(tc.function.name, {"step": step, "label": _clean_label(label),
                                                     "tip": tag, "result": result})
                 messages.append({"role": "tool", "tool_call_id": tc.id,
                                  "content": json.dumps(result, default=str)[:3500]})

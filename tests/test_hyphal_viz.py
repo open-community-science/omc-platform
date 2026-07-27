@@ -135,6 +135,70 @@ class TestFullRun:
         assert self.tips["a2"]["question"] == "How does alpha diversity vary?"
 
 
+class TestLedgerEnrichment:
+    """The log is a progress feed; the ledger is the record. Once a run writes one,
+    the viewer must show the real text rather than whatever the printer summarised."""
+
+    LEDGER = {
+        "claims": [
+            {"id": "k1", "statement": "Eukaryota dominate at 74% of reads, and the "
+                                      "dominance is strongest in the ten deepest samples",
+             "value": "mean_prop=0.7407", "verdict": "replicated", "investigation": "a1"},
+            {"id": "k4", "statement": "richness tracks depth at rho=0.63",
+             "value": "rho=0.63", "verdict": "overturned", "investigation": "a2"}],
+        "agenda": [
+            {"id": "a1", "question": "What is the domain composition of this dataset, "
+                                     "and does the taxonomy assignment look sound?",
+             "status": "done", "parent": None},
+            {"id": "a2", "question": "How does alpha diversity vary?",
+             "status": "interrupted", "parent": None},
+            {"id": "a7", "question": "Never reached", "status": "pending", "parent": "a1"}],
+        "assumptions": [{"id": "as1", "statement": "counts are raw reads"}],
+        "run": {"exploration": "hyphal", "completed": False}}
+
+    def setup_method(self):
+        from hyphal_viz import enrich
+        self.st = enrich(parse(MID_RUN), self.LEDGER)
+        self.tips = {t["id"]: t for t in self.st["tips"]}
+
+    def test_the_full_statement_replaces_the_logs_summary(self):
+        k1 = next(c for c in self.st["claims"] if c["id"] == "k1")
+        assert k1["statement"].endswith("strongest in the ten deepest samples")
+        assert k1["value"] == "mean_prop=0.7407"
+
+    def test_the_full_question_replaces_the_truncated_one(self):
+        assert self.tips["a1"]["question"].endswith("look sound?")
+
+    def test_verdicts_and_real_statuses_arrive(self):
+        assert self.tips["a2"]["status"] == "interrupted"
+        assert next(c for c in self.st["claims"]
+                    if c["id"] == "k4")["verdict"] == "overturned"
+
+    def test_an_investigation_never_grown_still_joins_the_colony(self):
+        assert self.tips["a7"]["status"] == "pending"
+        assert self.tips["a7"]["parent"] == "a1"
+
+    def test_a_claim_the_ledger_never_mentions_is_kept_not_dropped(self):
+        """Enrichment may only add detail. Silently losing k2/k3 — which this log
+        saw and the ledger fixture does not list — would make the viewer disagree
+        with the run it is reporting on."""
+        assert {"k1", "k2", "k3"} <= {c["id"] for c in self.st["claims"]}
+        assert "k2" in self.tips["a1"]["claims"]
+
+    def test_a_claim_only_the_ledger_saw_still_appears(self):
+        """The printer is selective; the ledger is not. A claim recorded during a
+        phase the log said nothing about is still a claim."""
+        assert self.tips["a2"]["claims"] == ["k4"]
+
+    def test_claims_reattribute_to_the_investigation_the_ledger_names(self):
+        assert self.tips["a1"]["claims"][0] == "k1"
+
+    def test_assumptions_and_run_block_come_along(self):
+        assert self.st["assumptions"][0]["id"] == "as1"
+        assert self.st["run"]["exploration"] == "hyphal"
+        assert self.st["from_ledger"] is True
+
+
 def test_an_empty_log_yields_an_empty_colony():
     st = parse("")
     assert st["tips"] == [] and st["claims"] == [] and st["order"] == []

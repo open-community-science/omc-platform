@@ -130,7 +130,55 @@ def parse(text: str) -> dict:
             "events": events[-60:], "active": current}
 
 
-def read_state(log: Path, pid: int | None = None) -> dict:
+def enrich(st: dict, ledger: dict) -> dict:
+    """Overlay the finished run's ledger onto what the log could show.
+
+    The log is a progress feed, not a record — it carries whatever the printer chose
+    to print. The ledger is the record. Once a run has written one, prefer it: full
+    claim statements, full questions, real per-item statuses, and verdicts. Anything
+    the ledger does not mention is left exactly as the log had it, so this can only
+    add detail, never quietly drop a tip the ledger never knew about."""
+    claims = {c["id"]: c for c in ledger.get("claims", []) if c.get("id")}
+    agenda = {a["id"]: a for a in ledger.get("agenda", []) if a.get("id")}
+    # Claims recorded during a phase the printer said nothing about are still claims.
+    seen = {c["id"] for c in st["claims"]}
+    for kid, lc in claims.items():
+        if kid not in seen:
+            st["claims"].append({"id": kid, "tip": lc.get("investigation"),
+                                 "statement": lc.get("statement", ""), "verdict": None})
+    by_tip: dict[str, list] = {}
+    for c in st["claims"]:
+        if lc := claims.get(c["id"]):
+            c["statement"] = lc.get("statement") or c["statement"]
+            c["verdict"] = lc.get("verdict") or c["verdict"]
+            c["value"] = lc.get("value")
+            c["tip"] = lc.get("investigation") or c["tip"]
+        by_tip.setdefault(c["tip"], []).append(c)
+    for t in st["tips"]:
+        if la := agenda.get(t["id"]):
+            t["question"] = la.get("question") or t["question"]
+            t["status"] = la.get("status") or t["status"]
+            t["parent"] = la.get("parent", t["parent"])
+        t["claim_detail"] = by_tip.get(t["id"], t.get("claim_detail", []))
+        t["claims"] = [c["id"] for c in t["claim_detail"]]
+    # Investigations the log never saw start (never grown) still belong on the colony.
+    known = {t["id"] for t in st["tips"]}
+    for aid, la in agenda.items():
+        if aid not in known:
+            detail = by_tip.get(aid, [])
+            st["tips"].append({"id": aid, "parent": la.get("parent"),
+                               "question": la.get("question", ""),
+                               "status": la.get("status", "pending"),
+                               "claims": [c["id"] for c in detail],
+                               "claim_detail": detail, "seeded_with": None, "analyses": 0,
+                               "seq": len(st["tips"])})
+    st["assumptions"] = ledger.get("assumptions", [])
+    st["run"] = ledger.get("run", {})
+    st["from_ledger"] = True
+    return st
+
+
+def read_state(log: Path, pid: int | None = None, ledger: Path | None = None) -> dict:
     try:
         text = log.read_text(errors="replace")
         mtime = os.path.getmtime(log)
@@ -144,6 +192,12 @@ def read_state(log: Path, pid: int | None = None) -> dict:
     # A quiet log is normal — a tip can spend many minutes inside run_analysis. Only
     # the process itself can say whether quiet means working or gone.
     st["alive"] = _alive(pid) if pid else None
+    st["from_ledger"] = False
+    if ledger:
+        try:
+            st = enrich(st, json.loads(ledger.read_text()))
+        except (OSError, ValueError):
+            pass          # not written yet, or half-written — the log still stands
     return st
 
 
@@ -395,10 +449,13 @@ function panel(st) {
 const ICON = {tip:'▸', claim:'+', followup:'↳', phase:'—', sweep:'∴',
               germinate:'∘', tip_done:'✓', analysis:'·'};
 function ticker(st) {
+  /* The full text goes in the DOM and the CSS ellipsis handles the width, so nothing
+     is lost — hover (or widen the pane) to read a line in full. */
   document.getElementById('events').innerHTML =
     (st.events || []).slice().reverse().map(e =>
-      `<div class="ev">${ICON[e.kind] || '·'} ${e.id ? `<b>${e.id}</b> ` : ''}${
-        esc((e.text || '').slice(0, 64))}</div>`).join('') || '<div class="empty">…</div>';
+      `<div class="ev" title="${esc(e.text || '')}">${ICON[e.kind] || '·'} ${
+        e.id ? `<b>${e.id}</b> ` : ''}${esc(e.text || '')}</div>`).join('')
+    || '<div class="empty">…</div>';
 }
 
 async function poll() {
@@ -428,11 +485,12 @@ addEventListener('resize', () => { if (!userMoved) render(last); });
 """
 
 
-def serve(log: Path, port: int, open_browser: bool, pid: int | None = None) -> None:
+def serve(log: Path, port: int, open_browser: bool, pid: int | None = None,
+          ledger: Path | None = None) -> None:
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path.startswith("/state.json"):
-                body = json.dumps(read_state(log, pid), default=str).encode()
+                body = json.dumps(read_state(log, pid, ledger), default=str).encode()
                 ctype = "application/json"
             else:
                 body, ctype = PAGE.encode(), "text/html; charset=utf-8"
@@ -465,12 +523,15 @@ def main():
     ap.add_argument("--open", action="store_true", help="open a browser")
     ap.add_argument("--pid", type=int, help="run's pid, so a quiet log can be told "
                                             "from a dead one")
+    ap.add_argument("--ledger", type=Path, help="claims_ledger.json; once the run has "
+                                                "written one it replaces what the log "
+                                                "could only summarise")
     ap.add_argument("--dump", action="store_true", help="print parsed state and exit")
     a = ap.parse_args()
     if a.dump:
-        print(json.dumps(read_state(a.log, a.pid), indent=2, default=str))
+        print(json.dumps(read_state(a.log, a.pid, a.ledger), indent=2, default=str))
         return
-    serve(a.log, a.port, a.open, a.pid)
+    serve(a.log, a.port, a.open, a.pid, a.ledger)
 
 
 if __name__ == "__main__":

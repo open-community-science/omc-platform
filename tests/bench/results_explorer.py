@@ -223,7 +223,7 @@ async def _print_progress(event: str, detail: dict):
         print("  germinating agenda…", flush=True)
     elif event == "tip":
         parent = f" ⤶ {detail['parent']}" if detail.get("parent") else ""
-        print(f"  ▸ {detail['id']}{parent}: {str(detail.get('question'))[:70]} "
+        print(f"  ▸ {detail['id']}{parent}: {detail.get('question')} "
               f"({detail.get('claims_seen')} claims in hand)", flush=True)
     elif event == "tip_done":
         print(f"    ✓ {detail['id']} {detail['status']} ({detail.get('claims')} claims)", flush=True)
@@ -235,11 +235,11 @@ async def _print_progress(event: str, detail: dict):
         # indistinguishable from a hang.
         res = detail.get("result") or {}
         mark = res.get("computation_id", "failed")
-        print(f"      · {mark} {str(detail.get('label'))[:56]}", flush=True)
+        print(f"      · {mark} {detail.get('label')}", flush=True)
     elif event == "record_claim" and (detail.get("result") or {}).get("recorded"):
-        print(f"      + {detail['result']['claim_id']} {str(detail.get('label'))[:60]}", flush=True)
+        print(f"      + {detail['result']['claim_id']} {detail.get('label')}", flush=True)
     elif event == "add_followup" and (detail.get("result") or {}).get("added"):
-        print(f"      ↳ {detail['result']['added']}: {str(detail.get('label'))[:60]}", flush=True)
+        print(f"      ↳ {detail['result']['added']}: {detail.get('label')}", flush=True)
     elif event == "hyphal_done":
         print(f"  {detail['tips']} tips, {detail['claims']} claims, "
               f"{detail['steps']} steps", flush=True)
