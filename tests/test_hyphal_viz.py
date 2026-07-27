@@ -48,6 +48,42 @@ FULL_RUN = MID_RUN + """\
 """
 
 
+PROPOSED = """\
+=== EXPLORE (hyphal — branching short-lived tips (#58)) ===
+  germinating agenda…
+  agenda for round 1 — 3 investigations:
+    · a1: Is attrition biased by environment?
+    · a2: Does beta-diversity differ across environments?
+    · a3: Which taxa drive any separation?
+  ▸ a1: Is attrition biased by environment?  (0 claims in hand)
+      · c1 attrition table
+"""
+
+
+class TestProposedAgenda:
+    """A tip only appeared in the log when it STARTED, so a run showed one item for
+    its first ten minutes and revealed the rest one at a time over hours."""
+
+    def setup_method(self):
+        self.st = parse(PROPOSED)
+        self.tips = {t["id"]: t for t in self.st["tips"]}
+
+    def test_the_whole_agenda_is_visible_before_it_is_worked(self):
+        assert set(self.tips) == {"a1", "a2", "a3"}
+
+    def test_items_not_yet_grown_are_pending(self):
+        assert self.tips["a2"]["status"] == "pending"
+        assert self.tips["a3"]["status"] == "pending"
+
+    def test_the_one_being_worked_is_still_growing(self):
+        assert self.tips["a1"]["status"] == "growing"
+
+    def test_an_analysis_line_is_not_read_as_an_agenda_item(self):
+        """Both start with the same bullet; only one carries an aNN id and a colon."""
+        assert "c1" not in self.tips
+        assert self.tips["a1"]["analyses"] == 1
+
+
 class TestMidRun:
     def setup_method(self):
         self.st = parse(MID_RUN)

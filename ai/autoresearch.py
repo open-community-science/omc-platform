@@ -1522,7 +1522,22 @@ class Autoresearcher:
         if name == "run_analysis":
             ok, res = await self.executor.run(args.get("code", ""))
             if not ok:
-                return {"ok": False, "error": res}
+                # Correct the mistake where it was made. The briefing says the frames
+                # are already bound and so does this tool's description, and analyses
+                # still opened counts.csv — a hint ten minutes upstream loses to a
+                # habit. This one arrives attached to the traceback that proves it.
+                err = str(res)
+                hint = None
+                if "FileNotFoundError" in err or "No such file" in err:
+                    hint = ("Nothing is read from disk here. `counts`, `props`, `tax` "
+                            "and `meta` are already bound as pandas DataFrames — use "
+                            "them directly instead of opening a file.")
+                elif "is not defined" in err:
+                    hint = ("Only the names listed in the briefing exist in this "
+                            "sandbox; nothing else can be imported or loaded.")
+                elif "did not set a `result`" in err:
+                    hint = "Assign what you want returned to `result`."
+                return {"ok": False, "error": err, **({"hint": hint} if hint else {})}
             cid = f"c{len(self.computations) + 1}"
             # Store the FULL sandbox result (verification re-derives from it); show
             # the model a re-capped view so context economy doesn't cost the verifier
@@ -2028,6 +2043,9 @@ class Autoresearcher:
         for a in self.agenda:
             if a["status"] == "in_progress":
                 a["status"] = "pending"
+        await self._emit("agenda", {"epoch": epoch, "items": [
+            {"id": a["id"], "question": a["question"], "parent": a.get("parent")}
+            for a in self.agenda]})
         return used
 
     async def _grow_tip(self, item: dict, max_steps: int, one_claim: bool = False) -> int:

@@ -29,6 +29,7 @@ RE_PHASE = re.compile(r"^=== (.+?) ===")
 RE_GERM = re.compile(r"^\s*germinating agenda")
 RE_TIP = re.compile(r"^\s*▸\s+(a\d+)(?:\s*⤶\s*(a\d+))?:\s*(.*?)\s*\((\d+) claims in hand\)\s*$")
 RE_TIP_DONE = re.compile(r"^\s*✓\s+(a\d+)\s+(\w+)\s*\((\d+) claims\)")
+RE_AGENDA_ITEM = re.compile(r"^\s*·\s+(a\d+):\s*(.+)$")
 RE_CLAIM = re.compile(r"^\s*\+\s+(k\d+)\s*(.*)$")
 RE_ANALYSIS = re.compile(r"^\s*·\s+(\S+)\s*(.*)$")
 RE_FOLLOWUP = re.compile(r"^\s*↳\s+(a\d+):\s*(.*)$")
@@ -88,6 +89,12 @@ def parse(text: str) -> dict:
             if current == tid:
                 current = None
             events.append({"kind": "tip_done", "id": tid, "text": status})
+        elif m := RE_AGENDA_ITEM.match(line):
+            # Proposed but not yet grown: the colony's shape is known from germination,
+            # not discovered one tip at a time over the following hours.
+            tid, question = m.groups()
+            tip(tid, question=question)
+            events.append({"kind": "proposed", "id": tid, "text": question})
         elif m := RE_ANALYSIS.match(line):
             cid, label = m.groups()
             if current:
@@ -486,7 +493,7 @@ function panel(st) {
     + `<h2 style="margin-top:14px">claims</h2>${cl}`;
 }
 
-const ICON = {tip:'▸', claim:'+', followup:'↳', phase:'—', sweep:'∴',
+const ICON = {tip:'▸', claim:'+', followup:'↳', phase:'—', sweep:'∴', proposed:'·',
               germinate:'∘', tip_done:'✓', analysis:'·'};
 function ticker(st) {
   /* The full text goes in the DOM and the CSS ellipsis handles the width, so nothing

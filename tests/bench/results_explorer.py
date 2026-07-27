@@ -229,11 +229,21 @@ def _executor() -> SubprocessExecutor:
     return SubprocessExecutor(DATA_DIR)
 
 
+_ANNOUNCED: set = set()      # agenda ids already printed, so epoch 2 lists only its own
+
+
 async def _print_progress(event: str, detail: dict):
     """Exploration used to print NOTHING until it finished, which on a multi-hour run
     is indistinguishable from a hang. Keep it to the structural events."""
     if event == "germinate":
         print("  germinating agenda…", flush=True)
+    elif event == "agenda":
+        print(f"  agenda for round {detail.get('epoch', 0) + 1} — "
+              f"{len(detail['items'])} investigations:", flush=True)
+        for it in detail["items"]:
+            if it["id"] not in _ANNOUNCED:
+                _ANNOUNCED.add(it["id"])
+                print(f"    · {it['id']}: {it['question']}", flush=True)
     elif event == "tip":
         parent = f" ⤶ {detail['parent']}" if detail.get("parent") else ""
         print(f"  ▸ {detail['id']}{parent}: {detail.get('question')} "
@@ -282,7 +292,7 @@ def _progress_for(ar: Autoresearcher):
     available, to a viewer and to a post-mortem alike."""
     async def _progress(event: str, detail: dict):
         await _print_progress(event, detail)
-        if event in ("tip_done", "sweep", "hyphal_done") or (
+        if event in ("agenda", "tip", "tip_done", "sweep", "hyphal_done") or (
                 event == "record_claim" and (detail.get("result") or {}).get("recorded")):
             _write_json(OUT / "run_state.json", _ledger_dict(ar, None))
     return _progress

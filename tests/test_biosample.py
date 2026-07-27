@@ -224,6 +224,38 @@ class TestEverySubmittedSample:
         assert '("sra_center_name", "center_name")' in src
 
 
+class TestSandboxHints:
+    """A briefing line read ten minutes upstream loses to a habit. These arrive
+    attached to the traceback that proves the habit wrong."""
+
+    def _run(self, code):
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        return asyncio.run(ar._exec_tool("run_analysis", {"code": code, "label": "t"}))
+
+    def test_reading_a_file_is_answered_with_the_frames_in_scope(self):
+        r = self._run("import pandas as pd; df = pd.read_csv('counts.csv')")
+        assert r["ok"] is False
+        assert "already bound" in r["hint"] and "counts" in r["hint"]
+
+    def test_an_unknown_name_is_answered_with_what_exists(self):
+        r = self._run("result = skbio.stats()")
+        assert "listed in the briefing" in r["hint"]
+
+    def test_forgetting_result_is_answered_plainly(self):
+        r = self._run("x = counts.sum()")
+        assert r["hint"] == "Assign what you want returned to `result`."
+
+    def test_an_ordinary_error_gets_no_invented_hint(self):
+        """A hint that fires on everything teaches nothing."""
+        r = self._run("result = 1 / 0")
+        assert r["ok"] is False and "hint" not in r
+
+
 class TestSourcePrefixes:
     """Three sources reach `meta` and they are not interchangeable. Nothing in a value
     says which one produced it, so the column name has to."""
