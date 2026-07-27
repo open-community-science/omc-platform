@@ -297,7 +297,7 @@ PAGE = r"""<!doctype html>
 <script>
 const SVG = document.getElementById('svg');
 const NS = 'http://www.w3.org/2000/svg';
-let sel = null, view = {x:0, y:0, k:1}, userMoved = false, last = null;
+let sel = null, view = {x:0, y:0, k:1}, userMoved = false, last = null, lastSig = null;
 
 const el = (n, a={}) => { const e = document.createElementNS(NS, n);
   for (const [k,v] of Object.entries(a)) e.setAttribute(k, v); return e; };
@@ -307,9 +307,23 @@ const esc = s => (s??'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&g
    given an angular slice proportional to how much of the colony it accounts for. */
 function layout(tips) {
   const byId = Object.fromEntries(tips.map(t => [t.id, t]));
-  const kids = id => tips.filter(t => t.parent === id);
-  const roots = tips.filter(t => !t.parent || !byId[t.parent]);
-  const size = t => 1 + kids(t.id).reduce((n, k) => n + size(k), 0);
+  /* Children and subtree sizes are indexed once. Filtering the whole array per node
+     and recomputing sizes on every recursion is fine at ten tips and silly at forty. */
+  const kidsOf = new Map(tips.map(t => [t.id, []]));
+  const roots = [];
+  for (const t of tips) {
+    const k = kidsOf.get(t.parent);
+    (t.parent && k ? k : roots).push(t);
+  }
+  const kids = id => kidsOf.get(id) || [];
+  const sizes = new Map();
+  const size = t => {
+    if (sizes.has(t.id)) return sizes.get(t.id);
+    sizes.set(t.id, 1);                       // guards a malformed parent cycle
+    const n = 1 + kids(t.id).reduce((a, k) => a + size(k), 0);
+    sizes.set(t.id, n);
+    return n;
+  };
   const pos = {};
   const place = (t, a0, a1, depth) => {
     const a = (a0 + a1) / 2, r = depth === 0 ? 0 : 96 + (depth - 1) * 118;
@@ -372,7 +386,7 @@ function render(st) {
     const p = pos[t.id], n = (t.claims || []).length;
     const g = el('g', {class:'node' + (sel === t.id ? ' sel' : ''),
                        transform:`translate(${p.x},${p.y})`});
-    g.addEventListener('click', e => { e.stopPropagation(); sel = t.id; render(last); });
+    g.addEventListener('click', e => { e.stopPropagation(); sel = t.id; paint(); });
     if (t.status === 'growing' || t.status === 'in_progress')
       g.appendChild(el('circle', {class:'pulse', r:26, fill:'var(--grow)', opacity:.25}));
     /* claims bud around the tip that recorded them */
@@ -418,8 +432,12 @@ SVG.addEventListener('wheel', e => { e.preventDefault(); userMoved = true;
   const r = SVG.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
   view.x = mx - (mx - view.x) * f; view.y = my - (my - view.y) * f; view.k *= f; apply();
 }, {passive:false});
-SVG.addEventListener('click', () => { sel = null; render(last); });
-document.getElementById('fit').onclick = () => { userMoved = false; render(last); };
+SVG.addEventListener('click', () => { sel = null; paint(); });
+document.getElementById('fit').onclick = () => { userMoved = false; paint(); };
+
+/* Selection is a local interaction; it must never wait on the poll. Everything that
+   changes `sel` repaints immediately, and the poll only repaints when the RUN moved. */
+function paint() { if (!last) return; render(last); panel(last); }
 
 function panel(st) {
   const d = document.getElementById('detail'), h = document.getElementById('dtitle');
@@ -476,11 +494,16 @@ async function poll() {
     document.getElementById('idle').innerHTML =
       `<span class="${st.alive === false ? 'dead' : ''}">${live}</span>`
       + `<span class="quiet"> · last line ${ago} ago</span>`;
-    render(st); panel(st); ticker(st);
+    /* Only rebuild when the RUN changed. Repainting every 3s regardless threw away
+       whatever you were reading — text selection, hover, scroll position in the
+       ticker — for a poll that usually returns the same colony. */
+    const sig = JSON.stringify([st.phase, st.alive, st.from_ledger, st.tips,
+                                st.claims, st.events]);
+    if (sig !== lastSig) { lastSig = sig; render(st); panel(st); ticker(st); }
   } catch (e) { document.getElementById('idle').textContent = 'viewer disconnected'; }
 }
 poll(); setInterval(poll, 3000);
-addEventListener('resize', () => { if (!userMoved) render(last); });
+addEventListener('resize', () => { if (!userMoved) paint(); });
 </script>
 """
 
