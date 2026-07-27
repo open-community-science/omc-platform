@@ -57,7 +57,9 @@ import results_explorer as R  # noqa: E402 (builds DATASETS/COUNTS from OMC_BENC
 R.STUDY_GROUNDED = study
 # Hyphal runs write beside the linear ones rather than over them — the two modes are
 # only worth running if their ledgers can be put side by side afterwards (#58).
-R.OUT = HERE / "writings" / (f"real_{slug}_hyphal" if "--hyphal" in flags else f"real_{slug}")
+R.OUT = HERE / "writings" / (
+    f"real_{slug}_epoch" if "--one-claim" in flags else
+    f"real_{slug}_hyphal" if "--hyphal" in flags else f"real_{slug}")
 R.OUT.mkdir(parents=True, exist_ok=True)
 
 # Offline reproduction of THIS submission's committed ledger (no fresh model run):
@@ -71,6 +73,7 @@ if "--reverify" in flags:
 else:
     # Fresh run: hide OUR flags from R.main(), but pass through the ones it owns
     # (--replicate). Blanket-stripping silently disabled replication here.
-    sys.argv = [sys.argv[0]] + [f for f in _args if f in ("--replicate", "--hyphal")]
+    sys.argv = [sys.argv[0]] + [f for f in _args
+                                if f in ("--replicate", "--hyphal", "--one-claim")]
     R.main()
 print(f"\noutputs in {R.OUT}")

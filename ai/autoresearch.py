@@ -1210,6 +1210,12 @@ class Autoresearcher:
         # and assumptions attribute to the branch that produced them.
         self._active_tip: str | None = None
         self.exploration: str = "linear"          # or "hyphal" — recorded in run_summary
+        # Re-executed computations, cached for the life of the run so a claim judged
+        # live during exploration and the end-of-run pass never re-run the same code.
+        self._comp_cache: dict[str, tuple[bool, Any]] = {}
+        # Claims awaiting live judgment. Set only while a live verifier is running;
+        # `record_claim` posts to it, a task on the VERIFY host drains it (#61).
+        self._verify_queue: Optional[asyncio.Queue] = None
 
     # -- data briefing ----------------------------------------------------------
     async def data_briefing(self) -> str:
@@ -1333,6 +1339,8 @@ class Autoresearcher:
                      "investigation": self._current_investigation(),
                      "by": self.explore_model}  # model that recorded this claim
             self.ledger.append(claim)
+            if self._verify_queue is not None:
+                self._verify_queue.put_nowait(claim["id"])   # judged while we carry on
             return {"recorded": True, "claim_id": claim["id"], "n_claims": len(self.ledger)}
         if name == "record_assumption":
             assumption = {"id": f"as{len(self.assumptions) + 1}",
@@ -1517,9 +1525,29 @@ class Autoresearcher:
         return list(reversed(chain))
 
     def _claim_lines(self, claims: list[dict]) -> str:
-        return "\n".join(
-            f"  {c['id']} [{c.get('kind', 'observation')}] {c['statement']} — {c.get('value', '')}"
-            for c in claims) or "  (none yet)"
+        """Claims as an analyst is shown them, carrying a verdict once one exists.
+
+        The judge's reasoning comes along whatever the verdict. It is what a later
+        analyst can actually act on — "cited a number its antecedent never produced"
+        stops the next one doing the same. Showing it does let the claimant learn what
+        its checker wants, but judging, replication and adjudication are three
+        different models, so there is no single checker to learn."""
+        out = []
+        for c in claims:
+            line = (f"  {c['id']} [{c.get('kind', 'observation')}] {c['statement']} "
+                    f"— {c.get('value', '')}")
+            verdict = c.get("verdict_round1") or c.get("verdict")
+            if verdict:
+                line += f"\n      VERDICT: {verdict}"
+                if bad := c.get("unsupported_numbers"):
+                    line += f" — these did not hold: {', '.join(bad)}"
+                if verdict == "unverifiable":
+                    line += " — its antecedents produced no evidence at all"
+                notes = (c.get("judgment") or {}).get("notes") or {}
+                if why := [f"{l}: {n}" for l, n in notes.items() if n]:
+                    line += f"\n      the judge said: {'; '.join(why)[:300]}"
+            out.append(line)
+        return "\n".join(out) or "  (none yet)"
 
     async def _tip_seed(self, item: dict, one_claim: bool = False) -> str:
         """What a tip is handed instead of the whole conversation: the data briefing,
@@ -1587,32 +1615,78 @@ class Autoresearcher:
     async def explore_hyphal(self, tip_steps: int = 16,
                              max_total_steps: int | None = None,
                              one_claim: bool = False,
-                             max_claims_per_item: int = 6) -> bool:
-        """Explore by branching growth rather than one long-lived session (#58).
+                             max_claims_per_item: int = 6,
+                             live_verify: bool = False,
+                             epochs: int = 1) -> bool:
+        """Explore by branching growth rather than one long-lived session (#58, #61).
 
-        Germinate an agenda, then grow one short-lived tip per investigation, each
-        seeded from the shared ledger and discarded when its item is done. Follow-ups
-        branch: a tip that finds something surprising adds the question and a fresh
-        tip is grown for it, seeded with the parent's claims.
+        Germinate an agenda, then grow short-lived tips, each seeded from the shared
+        ledger and discarded when its work is done. Follow-ups branch: a tip that finds
+        something surprising adds the question and a fresh tip is grown for it.
 
-        Returns True only when the agenda was actually worked through, exactly as
-        ``explore`` does — a step budget is still a budget, and an item left standing
-        is still reported as outstanding."""
+        With ``live_verify`` the judge runs alongside on its own host, so verdicts land
+        in the ledger while the analyst is still working and later tips are seeded
+        knowing which earlier claims held. With ``epochs`` > 1 the whole thing repeats:
+        a new agenda is proposed once the last one is worked out, written by a
+        germinator that can now see what survived rather than guessing before any data
+        was seen.
+
+        Returns True only when every agenda item was actually worked through, exactly
+        as ``explore`` does — a step budget is still a budget, and an item left
+        standing is still reported as outstanding."""
         self.exploration = "hyphal"
         budget = self.max_steps if max_total_steps is None else max_total_steps
-        # Germination is the root of everything and costs one model call when it goes
-        # well; starving it to save six steps risks the entire run. Size it like a tip.
-        used = await self._germinate(max_steps=min(tip_steps, budget))
+        q: asyncio.Queue | None = asyncio.Queue() if live_verify else None
+        self._verify_queue = q
+        judge = asyncio.create_task(self._verify_stream(q)) if q is not None else None
+        used = 0
+        try:
+            for epoch in range(max(1, epochs)):
+                if used >= budget:
+                    break
+                grew = await self._grow_epoch(epoch, budget, used, tip_steps,
+                                              one_claim, max_claims_per_item)
+                used += grew
+                if not self.agenda:
+                    return False
+                if not any(a["status"] == "pending" for a in self.agenda) and \
+                        epoch + 1 >= epochs:
+                    break
+            if used < budget:
+                # Sized like a tip, not like germination: the sweep records one
+                # assumption per step more often than not, and reads the whole ledger.
+                used += await self._sweep_assumptions(
+                    max_steps=min(tip_steps, budget - used))
+        finally:
+            self._verify_queue = None
+            if judge is not None:
+                q.put_nowait(None)          # sentinel lands behind every queued claim
+                await judge
+        await self._emit("hyphal_done", {"steps": used, "tips": len(self.agenda),
+                                         "claims": len(self.ledger)})
+        return bool(self.agenda) and not any(
+            a["status"] in ("pending", "in_progress", "interrupted") for a in self.agenda)
+
+    async def _grow_epoch(self, epoch: int, budget: int, spent: int, tip_steps: int,
+                          one_claim: bool, max_claims_per_item: int) -> int:
+        """One epoch: propose an agenda, then work it to exhaustion. Returns steps used.
+
+        Epoch 0 germinates from the data alone. Later epochs germinate from the data
+        AND the ledger, so the agenda stops being a single guess made before anything
+        was known — the questions worth asking second are mostly the ones the first
+        round turned up."""
+        used = await self._germinate(max_steps=min(tip_steps, budget - spent),
+                                     epoch=epoch)
         if not self.agenda:
-            await self._emit("germinate_failed", {"steps": used})
-            return False
+            await self._emit("germinate_failed", {"steps": used, "epoch": epoch})
+            return used
         last: str | None = None
-        while used < budget:
+        while spent + used < budget:
             item = self._next_tip(last)
             if item is None:
                 break
-            used += await self._grow_tip(item, max_steps=min(tip_steps, budget - used),
-                                         one_claim=one_claim)
+            used += await self._grow_tip(
+                item, max_steps=min(tip_steps, budget - spent - used), one_claim=one_claim)
             # An investigation that keeps banking claims would spawn successors forever.
             # The cap closes it; it is a budget, so it closes as `interrupted`, not done.
             if (one_claim and item["status"] == "pending"
@@ -1622,23 +1696,59 @@ class Autoresearcher:
                 await self._emit("tip_capped", {"id": item["id"],
                                                 "claims": max_claims_per_item})
             last = item["id"]
-        if used < budget:
-            # Sized like a tip, not like germination: the sweep records one assumption
-            # per step more often than not, and it is reading the whole ledger.
-            used += await self._sweep_assumptions(max_steps=min(tip_steps, budget - used))
-        await self._emit("hyphal_done", {"steps": used, "tips": len(self.agenda),
-                                         "claims": len(self.ledger)})
-        return bool(self.agenda) and not any(
-            a["status"] in ("pending", "in_progress", "interrupted") for a in self.agenda)
+        return used
 
-    async def _germinate(self, max_steps: int = 6) -> int:
+    async def _verify_stream(self, q: asyncio.Queue) -> int:
+        """Judge claims as they are recorded, while the analyst keeps exploring (#61).
+
+        This runs on the VERIFY host, which is not the host the analyst occupies, so
+        the two never contend for a card — the judge's GPU used to sit at 0% for the
+        whole exploration and then the analyst's would idle in turn.
+
+        A failure here must never take the exploration down with it: an unjudged claim
+        is picked up by the end-of-run pass, whereas a crashed run loses everything."""
+        judged = 0
+        while True:
+            cid = await q.get()
+            try:
+                if cid is None:
+                    return judged
+                claim = next((c for c in self.ledger if c["id"] == cid), None)
+                if claim is not None and not claim.get("verdict_round1"):
+                    await self._verify_one(claim)
+                    judged += 1
+            except Exception as e:                       # noqa: BLE001 — see docstring
+                await self._emit("verify_error", {"claim": cid, "error": str(e)})
+            finally:
+                q.task_done()
+
+    async def _germinate(self, max_steps: int = 6, epoch: int = 0) -> int:
         """Propose the agenda in a context that can do nothing else. Given
-        ``run_analysis`` this phase starts the investigation it was meant to plan."""
+        ``run_analysis`` this phase starts the investigation it was meant to plan.
+
+        From epoch 1 on, the germinator is shown what the last round produced and how
+        it fared. An agenda written after seeing the data beats one written before it,
+        and a refuted claim is often a better lead than a verified one — it says the
+        question was worth asking and the approach was wrong."""
         briefing = await self.data_briefing()
         seed = (f"{briefing}\n\n" if briefing else "") + (
             "Propose the agenda of microbial-ecology analyses and hypothesis tests worth "
             "running on this dataset.")
-        await self._emit("germinate", {"phase": "agenda"})
+        if epoch:
+            worked = "\n".join(
+                f"  [{a['status']}] {a['id']}: {a['question']}" for a in self.agenda)
+            seed = (
+                f"{briefing}\n\n" if briefing else "") + (
+                f"This is round {epoch + 1}. Earlier rounds already investigated:\n"
+                f"{worked}\n\nand recorded these claims, with how each one fared when "
+                f"an independent check was run against it:\n"
+                f"{self._claim_lines(self.ledger)}\n\n"
+                "Propose the NEXT agenda: the questions this body of work has opened "
+                "up. Go deeper rather than broader — follow the anomalies, the "
+                "caveats, and the claims that did not survive (a refuted claim often "
+                "means the question was right and the approach was wrong). Do NOT "
+                "re-propose anything above.")
+        await self._emit("germinate", {"phase": "agenda", "epoch": epoch})
         used = await self._agent_loop(
             system=GERMINATE_SYSTEM, seed=seed, tools=GERMINATE_TOOLS, max_steps=max_steps,
             nudge="Call propose_agenda with your agenda items now.",
@@ -1805,66 +1915,78 @@ class Autoresearcher:
         parameter (a 999-permutation count, a >=50%% threshold, an n=44), nor
         silence from contradiction, nor see that ``bacteria_F: 14.61`` IS the F the
         claim asserts. Two independent models once reproduced a claim exactly and
-        the matcher graded it overturned."""
-        comp_cache: dict[str, tuple[bool, Any]] = {}
+        the matcher graded it overturned.
 
-        async def _rerun(cid: str) -> tuple[bool, Any]:
-            if cid not in comp_cache:
-                comp_cache[cid] = await self.executor.run(self.computations[cid]["code"])
-            return comp_cache[cid]
-
+        Claims already judged — by the live verifier running alongside exploration
+        (#61) — are skipped, so this is a drain of whatever is left rather than a
+        second opinion on work already done."""
         for c in self.ledger:
-            c["antecedents"] = _norm_antecedents(c["antecedents"])
-            checked, have_evidence = [], False
-            for ant in c["antecedents"]:
-                if ant in self.computations:
-                    good, _ = await _rerun(ant)
-                    have_evidence = have_evidence or good
-                    checked.append(f"{ant}:{'run' if good else 'err'}")
-                else:
-                    found, _ = self.data.navigate(ant)
-                    have_evidence = have_evidence or found
-                    checked.append(f"{ant}:{'ok' if found else 'nopath'}")
-            c["checked"] = checked
+            if not c.get("verdict_round1"):
+                await self._verify_one(c)
 
-            if not have_evidence:
-                c["verdict"] = "unverifiable"
-            elif self.client_for("verify").client is None:
-                # No model: the evidence is still re-derived (that half stays
-                # deterministic), but nothing can judge it. Leave the prior grade
-                # rather than inventing one.
-                c["method"] = "evidence-only"
-                await self._emit("verify", {"claim": c["id"], "verdict": "not judged"})
-                continue
+    async def _rerun(self, cid: str) -> tuple[bool, Any]:
+        """Re-execute a cited computation, once per run. The cache is per-RESEARCHER
+        rather than per-verify-pass so a claim judged live during exploration and the
+        end-of-run pass never pay for the same computation twice."""
+        if cid not in self._comp_cache:
+            self._comp_cache[cid] = await self.executor.run(self.computations[cid]["code"])
+        return self._comp_cache[cid]
+
+    async def _verify_one(self, c: dict) -> None:
+        """Re-derive one claim's evidence and judge it. Split out of ``verify`` so a
+        claim can be judged the moment it is recorded, on the machine that is not
+        exploring, instead of waiting for the whole run to finish (#61)."""
+        c["antecedents"] = _norm_antecedents(c["antecedents"])
+        checked, have_evidence = [], False
+        for ant in c["antecedents"]:
+            if ant in self.computations:
+                good, _ = await self._rerun(ant)
+                have_evidence = have_evidence or good
+                checked.append(f"{ant}:{'run' if good else 'err'}")
             else:
-                assertions = c.setdefault(
-                    "assertions", _norm_assertions(None, c.get("value", "")))
-                j = await self._judge(
-                    JUDGE_SYSTEM,
-                    f"CLAIM: {c['statement']}\n\nASSERTIONS TO GRADE:\n"
-                    f"{_format_assertions(assertions)}\n\n"
-                    f"PARAMETERS (context — do not grade): "
-                    f"{json.dumps(c.get('parameters') or {}, default=str)}\n\n"
-                    f"INDEPENDENT EVIDENCE (re-executed from the raw data):\n"
-                    f"{self._evidence_for(c, comp_cache)}",
-                    self.verify_model, assertions)
-                c["judgment"] = j
-                c["assertion_verdicts"] = j["per"]
-                roll = self._roll_up(j["per"], "supported", "contradicted")
-                c["verdict"] = {"all": "verified", "mixed": "partial", "none": "refuted",
-                                "unaddressed": "unverifiable"}[roll]
-                # Which assertions actually failed — what the writer must not restate,
-                # and what a reader needs in order to judge the rest.
-                c["unsupported_numbers"] = [
-                    f"{lbl}={next((a['value'] for a in assertions if a['label'] == lbl), '')}"
-                    for lbl, v in j["per"].items() if v == "contradicted"]
-            c["method"] = "judged"
-            # `partial` counts as reproduced: its findings came back out of its own
-            # antecedents with one element in question, which is a different thing from
-            # a claim the antecedents never produced at all.
-            c["reproduced"] = c["verdict"] in ("verified", "partial")
-            c["verdict_round1"] = c["verdict"]
-            await self._emit("verify", {"claim": c["id"], "verdict": c["verdict"]})
+                found, _ = self.data.navigate(ant)
+                have_evidence = have_evidence or found
+                checked.append(f"{ant}:{'ok' if found else 'nopath'}")
+        c["checked"] = checked
+
+        if not have_evidence:
+            c["verdict"] = "unverifiable"
+        elif self.client_for("verify").client is None:
+            # No model: the evidence is still re-derived (that half stays
+            # deterministic), but nothing can judge it. Leave the prior grade
+            # rather than inventing one.
+            c["method"] = "evidence-only"
+            await self._emit("verify", {"claim": c["id"], "verdict": "not judged"})
+            return
+        else:
+            assertions = c.setdefault(
+                "assertions", _norm_assertions(None, c.get("value", "")))
+            j = await self._judge(
+                JUDGE_SYSTEM,
+                f"CLAIM: {c['statement']}\n\nASSERTIONS TO GRADE:\n"
+                f"{_format_assertions(assertions)}\n\n"
+                f"PARAMETERS (context — do not grade): "
+                f"{json.dumps(c.get('parameters') or {}, default=str)}\n\n"
+                f"INDEPENDENT EVIDENCE (re-executed from the raw data):\n"
+                f"{self._evidence_for(c, self._comp_cache)}",
+                self.verify_model, assertions)
+            c["judgment"] = j
+            c["assertion_verdicts"] = j["per"]
+            roll = self._roll_up(j["per"], "supported", "contradicted")
+            c["verdict"] = {"all": "verified", "mixed": "partial", "none": "refuted",
+                            "unaddressed": "unverifiable"}[roll]
+            # Which assertions actually failed — what the writer must not restate,
+            # and what a reader needs in order to judge the rest.
+            c["unsupported_numbers"] = [
+                f"{lbl}={next((a['value'] for a in assertions if a['label'] == lbl), '')}"
+                for lbl, v in j["per"].items() if v == "contradicted"]
+        c["method"] = "judged"
+        # `partial` counts as reproduced: its findings came back out of its own
+        # antecedents with one element in question, which is a different thing from
+        # a claim the antecedents never produced at all.
+        c["reproduced"] = c["verdict"] in ("verified", "partial")
+        c["verdict_round1"] = c["verdict"]
+        await self._emit("verify", {"claim": c["id"], "verdict": c["verdict"]})
 
     # -- clean-room replication -------------------------------------------------
     def _replication_candidates(self) -> list[dict]:

@@ -1120,11 +1120,12 @@ _AGENDA2 = [("propose_agenda", {"items": [{"question": "Q1", "rationale": "R1"},
                                           {"question": "Q2", "rationale": "R2"}]})]
 
 
-def _claim_call(label, value, statement="a finding"):
+def _claim_call(label, value, statement="a finding", antecedents=()):
     """A record_claim tool call for the scripted client. Named apart from the
     `_claim` fixture above — a module-level redefinition silently rebinds it for
     every test in the file, which took out the whole round-3 suite once."""
     return ("record_claim", {"statement": statement, "kind": "pattern",
+                             "antecedents": list(antecedents),
                              "assertions": [{"label": label, "value": value}]})
 
 
@@ -1306,6 +1307,149 @@ class TestHyphalGrowth:
         ar.agenda = [{"id": "a1", "question": "Q1", "status": "pending", "parent": "a2"},
                      {"id": "a2", "question": "Q2", "status": "pending", "parent": "a1"}]
         assert [a["id"] for a in ar._ancestry(ar.agenda[0])] == ["a1", "a2"]
+
+
+class TestLiveVerification:
+    """#61 — the judge runs on the other machine while the analyst explores, and the
+    verdicts it returns seed the contexts that come after."""
+
+    def _client(self, tip_turns, judge=SUPPORTED):
+        """A scripted analyst whose JUDGE_SYSTEM calls are answered too — live
+        verification means both are in flight during the same explore_hyphal call."""
+        outer = _ScriptedClient(germinate=[_AGENDA2], tip=tip_turns)
+        real = outer.chat.completions.create
+
+        async def create(**kw):
+            if kw["messages"][0]["content"] == JUDGE_SYSTEM:
+                class M: content, tool_calls = judge, None
+                class C: message = M()
+                class R: choices = [C()]
+                return R()
+            return await real(**kw)
+
+        outer.chat.completions.create = create
+        return outer
+
+    ANALYSE = ("run_analysis", {"code": "code_a", "label": "x"})
+
+    def test_a_claim_is_judged_while_exploration_continues(self):
+        c = self._client([[self.ANALYSE], [_claim_call("x", "1", antecedents=["c1"])],
+                          [("mark_done", {})], [("mark_done", {})]])
+        ar = _hyphal(c, results={"code_a": {"x": 1}})
+        asyncio.run(ar.explore_hyphal(tip_steps=6, live_verify=True))
+        assert ar.ledger[0]["verdict_round1"]        # judged without a batch verify()
+
+    def test_the_batch_pass_does_not_re_judge_what_was_judged_live(self):
+        c = self._client([[self.ANALYSE], [_claim_call("x", "1", antecedents=["c1"])],
+                          [("mark_done", {})], [("mark_done", {})]])
+        ar = _hyphal(c, results={"code_a": {"x": 1}})
+        asyncio.run(ar.explore_hyphal(tip_steps=6, live_verify=True))
+        before = ar.ledger[0]["judgment"]
+        asyncio.run(ar.verify())
+        assert ar.ledger[0]["judgment"] is before    # same object: never re-judged
+
+    def test_a_judge_that_throws_does_not_take_the_run_down(self):
+        """An unjudged claim is picked up by the end-of-run pass. A crashed run loses
+        everything, so the live verifier must swallow its own failures."""
+        outer = _ScriptedClient(germinate=[_AGENDA2],
+                                tip=[[self.ANALYSE],
+                                     [_claim_call("x", "1", antecedents=["c1"])],
+                                     [("mark_done", {})], [("mark_done", {})]])
+        real = outer.chat.completions.create
+
+        async def create(**kw):
+            if kw["messages"][0]["content"] == JUDGE_SYSTEM:
+                raise RuntimeError("judge host fell over")
+            return await real(**kw)
+
+        outer.chat.completions.create = create
+        ar = _hyphal(outer, results={"code_a": {"x": 1}})
+        asyncio.run(ar.explore_hyphal(tip_steps=6, live_verify=True))
+        assert len(ar.ledger) == 1                   # exploration finished regardless
+        assert not ar.ledger[0].get("verdict_round1")
+
+    def test_without_live_verify_nothing_is_judged_during_exploration(self):
+        c = self._client([[self.ANALYSE], [_claim_call("x", "1", antecedents=["c1"])],
+                          [("mark_done", {})], [("mark_done", {})]])
+        ar = _hyphal(c, results={"code_a": {"x": 1}})
+        asyncio.run(ar.explore_hyphal(tip_steps=6))
+        assert not ar.ledger[0].get("verdict_round1")
+
+
+class TestVerdictFeedback:
+    """What a later analyst is told about an earlier claim."""
+
+    def _ledger(self, verdict, **kw):
+        return [{"id": "k1", "statement": "richness tracks depth", "value": "rho=0.63",
+                 "kind": "pattern", "investigation": "a1", "verdict_round1": verdict,
+                 **kw}]
+
+    def test_a_refuted_claim_carries_why(self):
+        ar = _hyphal(_ScriptedClient())
+        ar.ledger = self._ledger(
+            "refuted", unsupported_numbers=["rho=0.63"],
+            assertion_verdicts={"rho": "contradicted"},
+            judgment={"notes": {"rho": "the antecedent gives 0.21, not 0.63"}})
+        lines = ar._claim_lines(ar.ledger)
+        assert "VERDICT: refuted" in lines
+        assert "rho=0.63" in lines
+        assert "the antecedent gives 0.21" in lines
+
+    def test_a_claim_that_held_carries_the_reasoning_too(self):
+        """Judging, replication and adjudication are three different models, so there
+        is no single checker for the claimant to learn — and the reasoning is the part
+        a later analyst can act on."""
+        ar = _hyphal(_ScriptedClient())
+        ar.ledger = self._ledger("verified",
+                                 judgment={"notes": {"rho": "matches exactly"}})
+        lines = ar._claim_lines(ar.ledger)
+        assert "VERDICT: verified" in lines
+        assert "matches exactly" in lines
+
+    def test_an_unjudged_claim_carries_no_verdict_at_all(self):
+        ar = _hyphal(_ScriptedClient())
+        ar.ledger = [{"id": "k1", "statement": "s", "value": "v", "kind": "pattern",
+                      "investigation": "a1"}]
+        assert "VERDICT" not in ar._claim_lines(ar.ledger)
+
+
+class TestEpochs:
+    """#61 — after a round is worked out, a new agenda is proposed by a germinator
+    that can see what the last round found."""
+
+    def test_a_second_epoch_proposes_a_second_agenda(self):
+        second = [("propose_agenda", {"items": [{"question": "Q3"}]})]
+        c = _ScriptedClient(germinate=[_AGENDA2, second],
+                            tip=[[("mark_done", {})]] * 6)
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=3, epochs=2))
+        assert [a["question"] for a in ar.agenda] == ["Q1", "Q2", "Q3"]
+
+    def test_the_second_germinator_sees_what_the_first_round_found(self):
+        second = [("propose_agenda", {"items": [{"question": "Q3"}]})]
+        c = _ScriptedClient(germinate=[_AGENDA2, second],
+                            tip=[[_claim_call("x", "1", "first round found this")],
+                                 [("mark_done", {})], [("mark_done", {})]])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=4, epochs=2))
+        seeds = [m[1]["content"] for phase, m, _ in c.calls
+                 if phase == "germinate" and len(m) == 2]
+        assert "first round found this" in seeds[-1]
+        assert "round 2" in seeds[-1]
+        assert "Do NOT re-propose" in seeds[-1]
+
+    def test_one_epoch_is_the_default_and_germinates_once(self):
+        c = _ScriptedClient(germinate=[_AGENDA2], tip=[[("mark_done", {})]] * 4)
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=3))
+        assert sum(1 for phase, _, _ in c.calls if phase == "germinate") == 1
+
+    def test_epochs_respect_the_overall_step_budget(self):
+        c = _ScriptedClient(germinate=[_AGENDA2] * 5,
+                            tip=[[("run_analysis", {"code": "x"})]] * 90)
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=3, max_total_steps=8, epochs=5))
+        assert sum(1 for phase, _, _ in c.calls if phase == "tip") <= 8
 
 
 class TestClaimSizedContexts:

@@ -94,6 +94,12 @@ MAX_REPLICATE = int(os.environ.get("EXPLORER_MAX_REPLICATE", "12"))
 # --hyphal (#58): steps ONE tip gets for its own investigation. Its context is seeded
 # fresh, so this is the whole size of a tip — not a share of a growing transcript.
 TIP_STEPS = int(os.environ.get("EXPLORER_TIP_STEPS", "16"))
+# --one-claim (#61): the analyst's context dies when it banks a claim and a successor
+# carries the same investigation on. EPOCHS re-germinates an agenda that can see what
+# the previous round found. LIVE_VERIFY judges on the verify host WHILE the analyst
+# explores — which only pays off when that host is not the analyst's.
+EPOCHS = int(os.environ.get("EXPLORER_EPOCHS", "1"))
+MAX_CLAIMS_PER_ITEM = int(os.environ.get("EXPLORER_MAX_CLAIMS_PER_ITEM", "6"))
 
 OUT = HERE / "writings"
 OUT.mkdir(exist_ok=True)
@@ -374,12 +380,23 @@ def reverify_saved(client=None):
 
 async def _main_async(llm: LLMClient):
     hyphal = "--hyphal" in sys.argv
+    one_claim = "--one-claim" in sys.argv
+    # Judging concurrently is only a win when the judge has its own machine. On one
+    # host it would fight the analyst for the card, which is what phasing avoids.
+    live = one_claim and ROLE_HOST["verify"] != ROLE_HOST["explore"]
     print(f"model: {MODEL} @ {BASE_URL}")
-    print(f"=== EXPLORE ({'hyphal — branching short-lived tips (#58)' if hyphal else
-                          'agenda-driven, one long-lived session'}) ===", flush=True)
+    mode = ("hyphal — branching short-lived tips (#58)" if not one_claim else
+            f"hyphal, claim-sized contexts, {EPOCHS} epoch(s)"
+            + (f", judging live on {ROLE_HOST['verify']}" if live else ""))
+    print(f"=== EXPLORE ({mode if hyphal else 'agenda-driven, one long-lived session'}) ===",
+          flush=True)
+    if one_claim and not live:
+        print("  (verify shares the explorer's host — judging stays batched)", flush=True)
     t0 = time.time()
     ar = _make_researcher(llm)
-    completed = await (ar.explore_hyphal(tip_steps=TIP_STEPS) if hyphal else ar.explore())
+    completed = await (ar.explore_hyphal(
+        tip_steps=TIP_STEPS, one_claim=one_claim, live_verify=live, epochs=EPOCHS,
+        max_claims_per_item=MAX_CLAIMS_PER_ITEM) if hyphal else ar.explore())
     print(f"\n=== VERIFY (judged by {VERIFY_MODEL}) ===", flush=True)
     _switch_model(VERIFY_MODEL, "verify")
     await ar.verify()
