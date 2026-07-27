@@ -1620,6 +1620,12 @@ class Autoresearcher:
             if item["status"] != "done":
                 item["status"] = "interrupted"
             self._active_tip = None
+            # Emitted so a watcher can tell a finished tip from an abandoned one while
+            # the run is still going. Without it the two are indistinguishable until
+            # the final agenda dump, hours later.
+            await self._emit("tip_done", {"id": item["id"], "status": item["status"],
+                                          "claims": sum(c.get("investigation") == item["id"]
+                                                        for c in self.ledger)})
 
     async def _sweep_assumptions(self, max_steps: int = 6) -> int:
         """The one context that sees every finding at once. Several analysts each

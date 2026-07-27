@@ -225,8 +225,17 @@ async def _print_progress(event: str, detail: dict):
         parent = f" ⤶ {detail['parent']}" if detail.get("parent") else ""
         print(f"  ▸ {detail['id']}{parent}: {str(detail.get('question'))[:70]} "
               f"({detail.get('claims_seen')} claims in hand)", flush=True)
+    elif event == "tip_done":
+        print(f"    ✓ {detail['id']} {detail['status']} ({detail.get('claims')} claims)", flush=True)
     elif event == "sweep":
         print(f"  sweeping {detail.get('claims')} claims for assumptions…", flush=True)
+    elif event == "run_analysis":
+        # Printed mainly so silence means something. A tip can spend many minutes on
+        # analyses without recording anything, and an unbroken quiet log is otherwise
+        # indistinguishable from a hang.
+        res = detail.get("result") or {}
+        mark = res.get("computation_id", "failed")
+        print(f"      · {mark} {str(detail.get('label'))[:56]}", flush=True)
     elif event == "record_claim" and (detail.get("result") or {}).get("recorded"):
         print(f"      + {detail['result']['claim_id']} {str(detail.get('label'))[:60]}", flush=True)
     elif event == "add_followup" and (detail.get("result") or {}).get("added"):
