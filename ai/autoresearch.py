@@ -459,8 +459,15 @@ if meta is not None and getattr(meta, "size", 0):
         return (_p, _kv[1]["n_groups"])
     if _g:
         _b["meta_groupings"] = dict(sorted(_g.items(), key=_order)[:12])
-_b["available"] = sorted(k for k in list(globals())
-                         if not k.startswith("_") and k not in ("result", "sys", "json", "os"))
+def _describe(_k):
+    _v = globals().get(_k)
+    _sh = getattr(_v, "shape", None)
+    if isinstance(_sh, tuple) and len(_sh) == 2:
+        return "%s (DataFrame %dx%d)" % (_k, _sh[0], _sh[1])
+    return _k
+_b["available"] = sorted(
+    _describe(k) for k in list(globals())
+    if not k.startswith("_") and k not in ("result", "sys", "json", "os"))
 result = _b
 """
 
@@ -494,12 +501,18 @@ def format_briefing(b: dict) -> str:
             f"samples reached the final table.",
             f"    The other {p['n_dropped']} produced zero reads ({at}) and are ABSENT "
             f"from counts — not present as zero rows.",
+            f"    meta has all {p['n_samples_attempted']} rows; counts and props have "
+            f"the {p['n_samples_analysed']} with reads. meta.loc[counts.index] lines "
+            f"them up.",
         ]
     if av := b.get("available"):
         # Named because it was being discovered by failing into it — a tip lost a step
         # to `import skbio` and had no way to know what was in scope.
-        lines.append(f"  IN SCOPE for run_analysis (nothing else is importable): "
-                     f"{', '.join(av)}")
+        # "importable" was read as a list of things to import, and analyses went looking
+        # for counts.csv on disk. These are ALREADY BOUND — say so, and say it first.
+        lines.append("  run_analysis runs with these ALREADY LOADED — do not read files "
+                     "and do not import them; assign to `result` when you are done:")
+        lines.append(f"    {', '.join(av)}")
     for key in ("tax", "meta"):
         d = b.get(key)
         if d:
@@ -1314,7 +1327,10 @@ class SubprocessExecutor:
         try:
             r = json.loads(lines[-1]) if lines else {}
         except json.JSONDecodeError:
-            return False, ((p.stderr or p.stdout or "no output").strip().splitlines() or ["error"])[-1][:200]
+            # 400, not 200: pandas puts the part that says WHICH axis failed at the
+            # end of the message, and a truncated KeyError is indistinguishable from
+            # any other KeyError.
+            return False, ((p.stderr or p.stdout or "no output").strip().splitlines() or ["error"])[-1][:400]
         return (True, r["__ok__"]) if "__ok__" in r else (False, r.get("__err__", "error"))
 
     async def run(self, code: str, timeout: int = 30) -> tuple[bool, Any]:

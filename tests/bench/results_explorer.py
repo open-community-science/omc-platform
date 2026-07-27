@@ -102,7 +102,10 @@ TIP_STEPS = int(os.environ.get("EXPLORER_TIP_STEPS", "16"))
 EPOCHS = int(os.environ.get("EXPLORER_EPOCHS", "1"))
 MAX_CLAIMS_PER_ITEM = int(os.environ.get("EXPLORER_MAX_CLAIMS_PER_ITEM", "6"))
 # Generation budget per turn. A reasoning model can spend the whole of a small budget
-# thinking and return no tool call, which costs a step and reads as a refusal.
+# thinking and return no tool call, which costs a step and reads as a refusal. But the
+# budget is also a LATENCY CEILING: a run-away turn costs the whole of it, measured at
+# ~11 minutes for 16000 tokens on a model too large for its card (~24 tok/s). It costs
+# nothing when unused, so this is a tail-risk setting, not a throughput one.
 MAX_TOKENS = int(os.environ.get("EXPLORER_MAX_TOKENS", "6000"))
 
 OUT = HERE / "writings"

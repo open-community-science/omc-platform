@@ -190,6 +190,14 @@ class TestRawAndRelative:
         assert "RAW READ COUNTS" in text
         assert "rows sum to 1" in text
 
+    def test_the_frames_are_described_as_bound_not_importable(self):
+        """Wording matters: "nothing else is importable" was read as a list of things
+        to import, and analyses went looking for counts.csv on disk."""
+        text = format_briefing({"available": ["counts (DataFrame 63x735)", "np"]})
+        assert "ALREADY LOADED" in text
+        assert "do not read files" in text
+        assert "importable" not in text
+
     def test_a_dataset_without_counts_says_nothing_about_props(self):
         assert "props" not in format_briefing({"tax": {"shape": [7, 6], "columns": ["a"]}})
 
