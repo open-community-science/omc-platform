@@ -1521,7 +1521,7 @@ class Autoresearcher:
             f"  {c['id']} [{c.get('kind', 'observation')}] {c['statement']} — {c.get('value', '')}"
             for c in claims) or "  (none yet)"
 
-    async def _tip_seed(self, item: dict) -> str:
+    async def _tip_seed(self, item: dict, one_claim: bool = False) -> str:
         """What a tip is handed instead of the whole conversation: the data briefing,
         its own question, the branch it grew from, and the colony's findings so far.
 
@@ -1531,8 +1531,10 @@ class Autoresearcher:
         fixed at birth even though other tips keep recording."""
         ancestors = self._ancestry(item)
         anc_ids = {a["id"] for a in ancestors}
+        own = [c for c in self.ledger if c.get("investigation") == item["id"]]
         mine = [c for c in self.ledger if c.get("investigation") in anc_ids]
-        others = [c for c in self.ledger if c.get("investigation") not in anc_ids]
+        others = [c for c in self.ledger
+                  if c.get("investigation") not in anc_ids | {item["id"]}]
         briefing = await self.data_briefing()
         parts = [f"{briefing}\n" if briefing else ""]
         parts.append("YOUR INVESTIGATION — work this one and only this one:\n"
@@ -1544,11 +1546,24 @@ class Autoresearcher:
                 f"  {a['id']}: {a['question']}" for a in ancestors)
                 + f"\n\nWhat that line of investigation found — build DIRECTLY on these:\n"
                   f"{self._claim_lines(mine)}")
+        if own:
+            # A successor context continuing this same investigation. It has to know
+            # what its predecessors already banked, and that their computations are
+            # still available by id rather than needing to be redone.
+            parts.append("\nEarlier analysts have already worked this same "
+                         f"investigation and recorded:\n{self._claim_lines(own)}\n"
+                         "Carry on from there — do NOT re-record these, and cite an "
+                         "existing computation id as an antecedent rather than "
+                         "recomputing it.")
         parts.append("\nFindings from the other investigations, for context — do not repeat "
                      f"them and do not redo them:\n{self._claim_lines(others)}")
         parts.append("\nAssumptions already on record — do NOT re-record these:\n" + ("\n".join(
             f"  {a['id']}: {a['statement']}" for a in self.assumptions) or "  (none yet)"))
-        parts.append("\nWork your question now.")
+        parts.append(
+            "\nWork your question now. Record ONE claim and stop — a fresh analyst will "
+            "be given this same investigation and everything you recorded, and will "
+            "carry it on. If the investigation is already finished, call mark_done "
+            "instead." if one_claim else "\nWork your question now.")
         return "\n".join(parts)
 
     def _next_tip(self, last: str | None) -> dict | None:
@@ -1562,12 +1577,17 @@ class Autoresearcher:
             return None
         if last is not None:
             for a in pending:
+                if a["id"] == last:
+                    return a        # same investigation, fresh context (#61)
+            for a in pending:
                 if a.get("parent") == last:
                     return a
         return pending[0]
 
     async def explore_hyphal(self, tip_steps: int = 16,
-                             max_total_steps: int | None = None) -> bool:
+                             max_total_steps: int | None = None,
+                             one_claim: bool = False,
+                             max_claims_per_item: int = 6) -> bool:
         """Explore by branching growth rather than one long-lived session (#58).
 
         Germinate an agenda, then grow one short-lived tip per investigation, each
@@ -1591,7 +1611,16 @@ class Autoresearcher:
             item = self._next_tip(last)
             if item is None:
                 break
-            used += await self._grow_tip(item, max_steps=min(tip_steps, budget - used))
+            used += await self._grow_tip(item, max_steps=min(tip_steps, budget - used),
+                                         one_claim=one_claim)
+            # An investigation that keeps banking claims would spawn successors forever.
+            # The cap closes it; it is a budget, so it closes as `interrupted`, not done.
+            if (one_claim and item["status"] == "pending"
+                    and sum(c.get("investigation") == item["id"] for c in self.ledger)
+                    >= max_claims_per_item):
+                item["status"] = "interrupted"
+                await self._emit("tip_capped", {"id": item["id"],
+                                                "claims": max_claims_per_item})
             last = item["id"]
         if used < budget:
             # Sized like a tip, not like germination: the sweep records one assumption
@@ -1635,25 +1664,38 @@ class Autoresearcher:
                 a["status"] = "pending"
         return used
 
-    async def _grow_tip(self, item: dict, max_steps: int) -> int:
+    async def _grow_tip(self, item: dict, max_steps: int, one_claim: bool = False) -> int:
         """Grow one tip: a fresh short context working exactly one agenda item.
 
-        The item is marked ``interrupted`` rather than ``done`` when the tip runs out
-        of steps without calling mark_done — a tip that stopped early is outstanding
-        work, and faking it done is how a partial run comes to look complete."""
+        With ``one_claim`` the context dies at the CLAIM boundary rather than the
+        investigation boundary — it explores, records one claim, and a successor is
+        born to carry the same investigation on. Contexts stay uniformly small, state
+        is durable after every claim, and a context that wedges costs one claim instead
+        of a whole investigation (#61).
+
+        The item is marked ``interrupted`` rather than ``done`` when the tip runs out of
+        steps having done neither — a tip that stopped early is outstanding work, and
+        faking it done is how a partial run comes to look complete."""
         item["status"] = "in_progress"
         self._active_tip = item["id"]
+        before = len(self.ledger)
+        recorded = lambda: len(self.ledger) > before        # noqa: E731
         await self._emit("tip", {"id": item["id"], "question": item["question"],
-                                 "parent": item.get("parent"), "claims_seen": len(self.ledger)})
+                                 "parent": item.get("parent"), "claims_seen": before})
         try:
             return await self._agent_loop(
-                system=TIP_SYSTEM, seed=await self._tip_seed(item), tools=TIP_TOOLS,
-                max_steps=max_steps,
-                nudge="Continue with this investigation, or call mark_done if it is finished.",
-                stop=lambda: item["status"] == "done", tag=item["id"])
+                system=TIP_SYSTEM, seed=await self._tip_seed(item, one_claim=one_claim),
+                tools=TIP_TOOLS, max_steps=max_steps,
+                nudge=("Record the claim this investigation has reached, or call "
+                       "mark_done if it is finished." if one_claim else
+                       "Continue with this investigation, or call mark_done if it is finished."),
+                stop=(lambda: item["status"] == "done" or (one_claim and recorded())),
+                tag=item["id"])
         finally:
             if item["status"] != "done":
-                item["status"] = "interrupted"
+                # A tip that banked a claim leaves the investigation OPEN — a successor
+                # picks it up. One that banked nothing simply ran out.
+                item["status"] = "pending" if (one_claim and recorded()) else "interrupted"
             self._active_tip = None
             # Emitted so a watcher can tell a finished tip from an abandoned one while
             # the run is still going. Without it the two are indistinguishable until

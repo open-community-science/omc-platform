@@ -1308,5 +1308,83 @@ class TestHyphalGrowth:
         assert [a["id"] for a in ar._ancestry(ar.agenda[0])] == ["a1", "a2"]
 
 
+class TestClaimSizedContexts:
+    """#61 — the context dies at the CLAIM boundary, not the investigation boundary.
+    A successor is born to carry the same investigation on."""
+
+    def test_a_context_stops_as_soon_as_it_banks_a_claim(self):
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[_claim_call("x", "1")], [("mark_done", {})],
+                                 [("mark_done", {})]])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=8, one_claim=True))
+        # tip 1 recorded and died on the spot rather than spending its eight steps
+        opens = [m for phase, m, _ in c.calls if phase == "tip" and len(m) == 2]
+        assert len(opens) >= 2
+        assert ar.ledger[0]["investigation"] == "a1"
+
+    def test_the_successor_gets_the_same_investigation(self):
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[_claim_call("x", "1")], [_claim_call("y", "2")],
+                                 [("mark_done", {})], [("mark_done", {})]])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=8, one_claim=True))
+        assert [k["investigation"] for k in ar.ledger[:2]] == ["a1", "a1"]
+
+    def test_the_successor_is_told_what_its_predecessors_banked(self):
+        ar = _hyphal(_ScriptedClient())
+        ar.agenda = [{"id": "a1", "question": "Q1", "status": "pending", "parent": None}]
+        ar.ledger = [{"id": "k1", "statement": "predecessor found this", "value": "n=7",
+                      "kind": "pattern", "investigation": "a1"}]
+        seed = asyncio.run(ar._tip_seed(ar.agenda[0], one_claim=True))
+        assert "already worked this same investigation" in seed
+        assert "predecessor found this" in seed
+        assert "do NOT re-record" in seed
+        assert "cite an existing computation id" in seed   # don't redo the setup
+
+    def test_banking_a_claim_leaves_the_investigation_open_not_done(self):
+        """The distinction the status has to carry: banked-and-continuing is not the
+        same as ran-out-of-steps, and neither is finished."""
+        c = _ScriptedClient(germinate=[_AGENDA2], tip=[[_claim_call("x", "1")]])
+        ar = _hyphal(c)
+        asyncio.run(ar._germinate())
+        item = ar._next_tip(None)
+        asyncio.run(ar._grow_tip(item, max_steps=4, one_claim=True))
+        assert item["status"] == "pending"
+
+    def test_a_context_that_banks_nothing_is_still_interrupted(self):
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[("run_analysis", {"code": "x"})]] * 20)
+        ar = _hyphal(c)
+        asyncio.run(ar._germinate())
+        item = ar._next_tip(None)
+        asyncio.run(ar._grow_tip(item, max_steps=2, one_claim=True))
+        assert item["status"] == "interrupted"
+
+    def test_an_investigation_cannot_spawn_successors_forever(self):
+        """Without a cap, an item that keeps banking claims is never finished."""
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[_claim_call(f"x{i}", str(i))] for i in range(40)])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=4, one_claim=True,
+                                      max_claims_per_item=3))
+        per_item = {}
+        for k in ar.ledger:
+            per_item[k["investigation"]] = per_item.get(k["investigation"], 0) + 1
+        assert max(per_item.values()) == 3
+        assert {a["status"] for a in ar.agenda} == {"interrupted"}   # capped, not faked done
+
+    def test_the_old_behaviour_is_still_available_for_comparison(self):
+        """one_claim=False keeps a tip running the whole investigation, so the two
+        drivers can be measured against each other on the same dataset."""
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[_claim_call("x", "1")], [_claim_call("y", "2")],
+                                 [("mark_done", {})], [("mark_done", {})]])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=8))
+        assert [k["investigation"] for k in ar.ledger] == ["a1", "a1"]
+        assert ar.agenda[0]["status"] == "done"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
