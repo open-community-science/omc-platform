@@ -84,7 +84,8 @@ class TestWriteAttributes:
 
 class TestBriefingGroupings:
     """The briefing has to NAME the grouping columns. Every run so far invented one
-    (high vs low sequencing depth) because nothing pointed at the real one."""
+    (high vs low sequencing depth) because nothing pointed at the real one. It names
+    them and stops there — what to do with them is the analyst's call."""
 
     def test_groupings_are_named_with_their_sizes(self):
         text = format_briefing({
@@ -95,6 +96,8 @@ class TestBriefingGroupings:
         assert "meta['env_local_scale']: 5 groups" in text
         assert "frost flowers (n=24)" in text
         assert "..." in text          # 5 groups, 2 shown — say so rather than imply all
+        # states what is there; does not tell the analyst how to use it
+        assert "inventing" not in text and "use these" not in text
 
     def test_a_dataset_with_no_groupings_says_nothing(self):
         text = format_briefing({"meta": {"shape": [63, 4], "columns": ["x"]}})
@@ -164,6 +167,8 @@ class TestSampleAttrition:
         assert "11 at chimera" in text
         assert "ABSENT" in text
         assert text.index("ROWS ARE SAMPLES") < text.index("SAMPLE ATTRITION")
+        # the fact, not a directive about what to conclude from it
+        assert "Say so" not in text and "finding in its own right" not in text
 
 
 class TestSourcePrefixes:

@@ -129,10 +129,9 @@ KNOW WHAT THE FIELDS MEAN, then think critically about the data:
 - EVERY `meta` COLUMN IS PREFIXED WITH WHERE IT CAME FROM, and the sources do not agree:
   `pipeline_` was computed from this data, `sra_` is what the submitter declared to the
   sequence archive, `biosample_` describes the physical sample. Where two sources carry the
-  same quantity you get both, and choosing between them is your judgment to make and to
-  state — `pipeline_total_reads` is the depth of the table you are analysing, while
-  `sra_read_count` is a declared figure that may be zero or stale. Prefer the source that
-  measured the thing you are claiming about, and say which you used.
+  same quantity you get both, and they can disagree — `pipeline_total_reads` is the depth of
+  the table in scope, while `sra_read_count` is a declared figure that is sometimes zero or
+  stale.
 - `meta['pipeline_x']`/`meta['pipeline_y']` are PRECOMPUTED ORDINATION coordinates, not
   geographic lat/lon. Real coordinates, if any, arrive as `biosample_lat_lon`.
 - `sra_collection_date` is often a database record-creation date, not a verified sampling
@@ -469,8 +468,6 @@ def format_briefing(b: dict) -> str:
             f"samples reached the final table.",
             f"    The other {p['n_dropped']} produced zero reads ({at}) and are ABSENT "
             f"from counts — not present as zero rows.",
-            "    So every per-sample statistic here is over the SURVIVORS. Say so when it "
-            "matters, and treat where they were lost as a finding in its own right.",
         ]
     for key in ("tax", "meta"):
         d = b.get(key)
@@ -485,8 +482,7 @@ def format_briefing(b: dict) -> str:
                      "(computed from this data), sra_ (declared to the archive), "
                      "biosample_ (the physical sample). Where two sources carry the "
                      "same quantity you get both, and they can disagree.")
-        lines.append("  COLUMNS THAT GROUP THE SAMPLES — use these before inventing a "
-                     "grouping of your own:")
+        lines.append("  COLUMNS THAT GROUP THE SAMPLES:")
         for col, info in g.items():
             shown = ", ".join(f"{k} (n={v})" for k, v in info["groups"].items())
             more = "" if info["n_groups"] <= len(info["groups"]) else ", ..."
@@ -907,7 +903,7 @@ def _provenance_summary(prov: dict, n_analysed: int) -> dict:
     error the data briefing exists to prevent (#59).
 
     So say it: how many were attempted, how many survived, and WHERE the rest died.
-    A run of samples collapsing at one stage is a finding in its own right."""
+    Where they were lost is part of that."""
     per = prov.get("samples") or {}
     stages = [s.get("id") for s in prov.get("stages", []) if s.get("id")]
     out = {"total": prov.get("total", {}), "stages": stages,
@@ -928,8 +924,7 @@ def _provenance_summary(prov: dict, n_analysed: int) -> dict:
         out["dropped_samples"] = sorted(dropped)
         out["note"] = (f"{len(dropped)} of {len(per)} samples produced zero reads in the "
                        f"final table and are ABSENT from `counts` — not present as zero "
-                       f"rows. Every per-sample statistic is over the "
-                       f"{n_analysed} survivors.")
+                       f"rows, so `counts` has {n_analysed} rows.")
     return out
 
 
