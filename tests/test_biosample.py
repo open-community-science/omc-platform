@@ -250,6 +250,16 @@ class TestSandboxHints:
         r = self._run("x = counts.sum()")
         assert r["hint"] == "Assign what you want returned to `result`."
 
+    def test_importing_a_sandbox_helper_is_answered(self):
+        """fdr, clr and rarefy are ours — not in scipy, so the import fails by
+        construction and the traceback blames scipy."""
+        r = self._run("from scipy.stats import fdr\nresult = 1")
+        assert "defined in this sandbox" in r["hint"]
+
+    def test_indexing_a_condensed_distance_array_is_answered(self):
+        r = self._run("D = pdist(counts.values); result = {'d': float(D[0, 1])}")
+        assert "squareform" in r["hint"]
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")

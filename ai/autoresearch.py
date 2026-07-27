@@ -1549,6 +1549,15 @@ class Autoresearcher:
                 elif "is not defined" in err:
                     hint = ("Only the names listed in the briefing exist in this "
                             "sandbox; nothing else can be imported or loaded.")
+                elif "cannot import name" in err or "ImportError" in err:
+                    # `fdr`, `clr` and `rarefy` are OURS — they are not in scipy or
+                    # anywhere else, so importing them fails by construction.
+                    hint = ("`fdr`, `clr` and `rarefy` are helpers defined in this "
+                            "sandbox, not library functions — they are already bound "
+                            "and cannot be imported from anywhere.")
+                elif "1-dimensional, but 2 were indexed" in err:
+                    hint = ("`pdist` returns a CONDENSED 1-D array. `squareform(...)` "
+                            "turns it into the square distance matrix.")
                 elif "did not set a `result`" in err:
                     hint = "Assign what you want returned to `result`."
                 return {"ok": False, "error": err, **({"hint": hint} if hint else {})}

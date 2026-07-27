@@ -4,43 +4,71 @@
   "agenda": [
     {
       "id": "a1",
-      "question": "Do samples significantly cluster by `biosample_env_local_scale` (frost flower, brine, ice, seawater, air) in PCoA ordinations based on Bray-Curtis and CLR distances, and which specific ASVs correlate most strongly with the primary axes of separation?",
-      "rationale": "Determines whether physical environment imposes a deterministic filter on community assembly in these extreme cold habitats, and identifies the taxa responsible for observed ecological gradients.",
+      "question": "Do microbial community composition (Bray-Curtis) differ significantly across the five environmental types (frost flower, brine, ice, seawater, chamber air) as defined by biosample_env_local_scale?",
+      "rationale": "This is the primary ecological question: are these physically distinct habitats in the sea-ice system harboring distinguishable microbial communities, or is the community structure homogeneous across the gradient? PERMANOVA on Bray-Curtis distances with post-hoc pairwise tests will identify which environment pairs differ. The small sample sizes for seawater (n=4) and air (n=2) limit power but the large groups (frost flower n=35, brine n=24, ice n=19) should be informative.",
       "status": "in_progress",
       "parent": null
     },
     {
       "id": "a2",
-      "question": "Does observed alpha diversity (`entropy`) differ significantly across `biosample_env_local_scale`, and do these differences persist or reverse when `counts` are rarefied to a uniform depth?",
-      "rationale": "Tests whether environmental harshness correlates with reduced diversity, while explicitly checking if observed patterns are artifacts of uneven sequencing depth rather than true biological signal.",
+      "question": "Is the eukaryotic ASV signal (taxonomic domain = Eukaryota) ecologically structured \u2014 i.e., do eukaryotic communities differ across environments \u2014 or is it randomly distributed / technical artifact?",
+      "rationale": "The renorm_stats show 317 eukaryotic ASVs in 19 samples with 213K reads, which is substantial. If this were random contamination, eukaryotic ASVs should not show environmental structure. Testing eukaryotic-only community composition (PERMANOVA on Bray-Curtis of eukaryotic ASVs) against environmental type will distinguish genuine eukaryotic ecology from noise. This matters because the study was designed as 16S but the eukaryotic signal is non-trivial.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a3",
-      "question": "Is the binary outcome of sample retention (`pipeline_in_counts`) significantly associated with `biosample_env_local_scale` or `sra_collection_date`, indicating a systematic bias in library preparation or sequencing?",
-      "rationale": "Ensures that the 21 zero-read dropouts are not non-randomly concentrated in specific environments or dates, which would invalidate downstream ecological inferences drawn from the remaining 63 samples.",
+      "question": "Are prokaryotic and eukaryotic community compositions correlated across samples (Mantel test or Procrustes on their respective Bray-Curtis distance matrices)?",
+      "rationale": "If prokaryotic and eukaryotic communities covary, it suggests shared environmental drivers or biological coupling (e.g., grazing, symbiosis). If they are independent, the eukaryotic signal may be decoupled from the prokaryotic ecology. This tests whether the mixed-domain dataset contains two coherent ecological signals or one coherent signal plus noise.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a4",
-      "question": "Which individual ASVs show significantly enriched relative abundance in frost flowers compared to brine and ice environments after FDR correction, and do their taxonomic assignments (`tax`) align with known halophilic or psychrophilic clades?",
-      "rationale": "Identifies potential indicator or keystone taxa adapted to specific micro-niches within the ice chamber experiment, moving beyond community-level patterns to actionable taxonomic hypotheses.",
+      "question": "Is sample attrition (21 of 84 samples dropped) non-random with respect to environment \u2014 i.e., are certain environments over-represented among the zero-read samples?",
+      "rationale": "If brine samples were preferentially dropped (e.g., due to PCR inhibition from high salt), the remaining 63 samples may not represent the true brine community. Testing whether the proportion of dropped samples differs across environments (Fisher's exact test on the 2\u00d75 contingency table of environment \u00d7 retained/dropped) identifies this bias. This is critical for interpreting any environment-comparison results.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a5",
-      "question": "Does `sra_collection_date` explain a significant portion of the variance in pairwise Bray-Curtis distances among samples, and is this temporal signal statistically independent of or confounded with `biosample_env_local_scale`?",
-      "rationale": "Separates time-based effects (e.g., thawing dynamics, processing batch effects) from environmental effects, which is critical given the dataset was collected on only two distinct dates.",
+      "question": "Does alpha diversity (Shannon entropy computed from props) differ across the five environmental types, and which environments have the highest and lowest diversity?",
+      "rationale": "Different habitats in sea-ice systems have different selective pressures (salinity, temperature, nutrient availability) that should affect diversity. Kruskal-Wallis test on per-sample entropy values by environment, with post-hoc Mann-Whitney U tests, will identify which environments support more diverse communities. Low read depth (~6,700 reads/sample average) means rarefaction may be needed to compare diversity fairly.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a6",
-      "question": "Are there significant Spearman correlations between the aggregate relative abundances of the dominant prokaryotic phyla (Pseudomonadota, SAR, Bacteroidota) and eukaryotic groups (Amorphea, Archaeplastida) across the 63 samples?",
-      "rationale": "Explores higher-order ecological interactions beyond single-taxon abundance, testing for potential metabolic coupling or competitive exclusion between major cross-kingdom lineages in these extreme environments.",
+      "question": "Which individual ASVs (or taxa at genus/family level) show differential abundance between frost flower and brine communities, after multiple-testing correction?",
+      "rationale": "Frost flower and brine are the two largest groups (n=35 and n=24) and represent key habitats in sea-ice ecology. Identifying taxa that are enriched in one vs. the other reveals the specific organisms driving the community-level separation found in Question 1. Wilcoxon rank-sum tests per ASV/taxon with FDR correction will identify significant differentiators. This is the 'which taxa' complement to the 'do communities differ' test.",
+      "status": "pending",
+      "parent": null
+    },
+    {
+      "id": "a7",
+      "question": "Do the two SRA submissions (SUB16229131 on 2026-06-04 vs SUB16229383 on 2026-06-21) produce systematically different community compositions, indicating a batch or temporal effect?",
+      "rationale": "The samples were split across two submissions 17 days apart. If community composition differs by submission (PERMANOVA on sra_submission_accession), it could indicate temporal dynamics, batch effects from library prep, or simply that the two submissions sampled different environments. This is a confounder that must be assessed before attributing variation to environment alone.",
+      "status": "pending",
+      "parent": null
+    },
+    {
+      "id": "a8",
+      "question": "What is the core microbiome \u2014 which ASVs are present in all five environmental types, and which are environment-specific \u2014 and does the core microbiome composition differ from the environment-specific ASVs in terms of phylogenetic relatedness?",
+      "rationale": "Identifying shared vs. environment-specific taxa reveals whether there is a universal 'sea-ice microbiome' or if each habitat has entirely distinct communities. Comparing the phylogenetic structure (e.g., UniFrac-based or taxonomic breadth) of core vs. specific ASVs tests whether the core is phylogenetically clustered (suggesting conserved traits) or dispersed (suggesting convergent evolution).",
+      "status": "pending",
+      "parent": null
+    },
+    {
+      "id": "a9",
+      "question": "Is there a monotonic relationship between the environmental gradient (air \u2192 frost flower \u2192 ice \u2192 brine \u2192 seawater, ordered by increasing salinity/decreasing temperature) and community composition, tested via distance-based linear modeling (dbRDA or envfit)?",
+      "rationale": "The five environments form a physical gradient in sea-ice systems. Rather than treating them as categorical groups only, testing for a directional gradient in ordination space reveals whether community composition changes continuously along the environmental axis. This is more powerful than pairwise tests if the gradient hypothesis is correct, and it can identify which taxa track the gradient.",
+      "status": "pending",
+      "parent": null
+    },
+    {
+      "id": "a10",
+      "question": "Do rarefied and non-rarefied (CLR-transformed) community analyses produce concordant or discordant results \u2014 i.e., does the choice of normalization method change which environments appear different and which taxa are differential?",
+      "rationale": "With highly uneven read depths (some samples may have very few reads), normalization choice can dramatically affect results. Comparing PERMANOVA p-values, ordination clustering, and differential abundance results between rarefied and CLR approaches tests the robustness of findings to this analytical choice. If results are discordant, the conclusions are method-dependent and less reliable.",
       "status": "pending",
       "parent": null
     }
@@ -53,7 +81,7 @@
     "exploration": "hyphal",
     "claims_refused": 0,
     "packages_requested": {},
-    "investigations_total": 6,
+    "investigations_total": 10,
     "replication_attempted": 0,
     "replication_rounds": 0,
     "replication_agreed": 0,
