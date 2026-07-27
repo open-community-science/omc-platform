@@ -1572,7 +1572,9 @@ class Autoresearcher:
             used += await self._grow_tip(item, max_steps=min(tip_steps, budget - used))
             last = item["id"]
         if used < budget:
-            used += await self._sweep_assumptions(max_steps=min(6, budget - used))
+            # Sized like a tip, not like germination: the sweep records one assumption
+            # per step more often than not, and it is reading the whole ledger.
+            used += await self._sweep_assumptions(max_steps=min(tip_steps, budget - used))
         await self._emit("hyphal_done", {"steps": used, "tips": len(self.agenda),
                                          "claims": len(self.ledger)})
         return not any(a["status"] in ("pending", "in_progress", "interrupted")
