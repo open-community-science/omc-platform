@@ -50,6 +50,19 @@ srr = samples[0]["id"]
 study = fetch_study(srr)
 print(f"submission {slug}: {study.get('title')} / {study.get('study_name')} ({study.get('bioproject')}), n={len(samples)}")
 
+# Per-sample BioSample attributes (#62). Fetched ONCE into the data dir, because the
+# analysis sandbox has no network and the experimental design — what each sample
+# actually was — lives nowhere else. `--refresh-meta` re-pulls.
+sys.path.insert(0, str(HERE.parent.parent))
+from ai.biosample import design_columns, write_attributes  # noqa: E402
+_samples = json.loads((data_dir / "samples.json").read_text()) \
+    if (data_dir / "samples.json").exists() else []
+_attrs = write_attributes(data_dir, [s.get("sample_accession") for s in _samples],
+                          refresh="--refresh-meta" in flags)
+if _attrs:
+    print(f"sample attributes: {len(_attrs)} BioSamples, grouping columns: "
+          f"{', '.join(design_columns(_attrs)[:6]) or '(none vary)'}")
+
 import fixtures  # noqa: E402
 fixtures.SNAPSHOT = Path("/nonexistent")          # force fresh build from this dir
 fixtures.STUDY_GROUNDED = study

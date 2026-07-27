@@ -412,6 +412,24 @@ if tax is not None and getattr(tax, "size", 0):
     _b["tax"] = {"shape": list(tax.shape), "columns": [str(c) for c in tax.columns]}
 if meta is not None and getattr(meta, "size", 0):
     _b["meta"] = {"shape": list(meta.shape), "columns": [str(c) for c in meta.columns]}
+    # Columns that could actually GROUP samples. A column with one value across every
+    # sample describes the study; one with a distinct value per sample is an
+    # identifier. What is left is the design, and an agent that is not shown it
+    # invents a grouping (high vs low sequencing depth) for want of a real one.
+    _g = {}
+    for _c in meta.columns:
+        try:
+            _vc = meta[_c].astype(str).value_counts()
+        except Exception:
+            continue
+        # A column with a level for every few samples is an identifier or a
+        # measurement, not a grouping — 44 library names across 63 samples groups
+        # nothing. Cap the arity so what is listed is actually usable as a factor.
+        if 2 <= len(_vc) <= max(2, min(12, len(meta) // 4)):
+            _g[str(_c)] = {"n_groups": int(len(_vc)),
+                           "groups": {str(k): int(v) for k, v in _vc.head(8).items()}}
+    if _g:
+        _b["meta_groupings"] = dict(sorted(_g.items(), key=lambda kv: kv[1]["n_groups"])[:12])
 result = _b
 """
 
@@ -438,6 +456,16 @@ def format_briefing(b: dict) -> str:
         if d:
             lines.append(f"  {key}: {d['shape'][0]} rows x {d['shape'][1]} columns "
                          f"[{', '.join(d.get('columns', [])[:12])}]")
+    if g := b.get("meta_groupings"):
+        # Named explicitly for the same reason as the axis rule: an analyst that is not
+        # shown the real grouping variable invents one (high vs low sequencing depth),
+        # and a claim about an invented grouping is reproducible and pointless.
+        lines.append("  COLUMNS THAT GROUP THE SAMPLES — use these before inventing a "
+                     "grouping of your own:")
+        for col, info in g.items():
+            shown = ", ".join(f"{k} (n={v})" for k, v in info["groups"].items())
+            more = "" if info["n_groups"] <= len(info["groups"]) else ", ..."
+            lines.append(f"    meta['{col}']: {info['n_groups']} groups — {shown}{more}")
     return "\n".join(lines)
 
 
@@ -1049,6 +1077,17 @@ _lv = _body.get("levels", [])
 tax = pd.DataFrame.from_dict({a: dict(zip(_lv, l)) for a, l in _body.get("assignments", {}).items()},
                             orient="index").reindex(columns=_lv)
 meta = pd.DataFrame(_rj("samples") or [])
+# Per-sample BioSample attributes (#62) — what each sample IS, joined on its accession.
+# Without these the only covariate in `meta` is sequencing depth, and every question
+# about grouping gets answered against depth for want of anything better.
+_sa = _rj("sample_attributes") or {}
+if _sa and "sample_accession" in meta.columns:
+    _at = pd.DataFrame.from_dict(_sa, orient="index")
+    # Where both sources carry a field, keep BOTH and say which is which. They
+    # disagree in ways that matter: SRA's collection_date is often the record-creation
+    # date while BioSample's is when the sample was actually taken.
+    _at.columns = [f"{c}_biosample" if c in meta.columns else c for c in _at.columns]
+    meta = meta.join(_at, on="sample_accession")
 meta = meta.set_index("id") if "id" in meta.columns else meta
 import socket
 def _no_net(*a, **k):
