@@ -247,7 +247,10 @@ PAGE = r"""<!doctype html>
   h1 { font-size:14px; margin:0; font-weight:600; letter-spacing:.02em; }
   .meta { color:var(--dim); font-size:12px; }
   .stat b { color:var(--grow); font-weight:600; }
-  main { display:grid; grid-template-columns:1fr 340px; height:calc(100vh - 45px); }
+  /* The side pane holds prose, not labels — let it take a real share of a wide
+     screen instead of a fixed 340px column. */
+  main { display:grid; grid-template-columns:1fr minmax(340px, 30vw);
+         height:calc(100vh - 45px); }
   @media (max-width:900px){ main{grid-template-columns:1fr; grid-template-rows:1fr auto;} }
   #stage { position:relative; overflow:hidden; }
   aside { border-left:1px solid var(--line); background:var(--panel); overflow-y:auto;
@@ -259,8 +262,11 @@ PAGE = r"""<!doctype html>
            color:var(--ink); }
   .claim .cid { color:var(--dim); }
   .claim.refuted, .claim.overturned { border-color:var(--refute); }
-  .ev { color:var(--dim); padding:1px 0; white-space:nowrap; overflow:hidden;
-        text-overflow:ellipsis; }
+  /* Wrap, never clip. These lines carry whole agenda questions — several hundred
+     characters of the actual content — and an ellipsis at the pane edge hides the
+     part worth reading. Hanging indent keeps the icon column legible. */
+  .ev { color:var(--dim); padding:2px 0 2px 15px; text-indent:-15px;
+        overflow-wrap:anywhere; }
   .ev b { color:var(--ink); font-weight:500; }
   .legend { display:flex; gap:14px; flex-wrap:wrap; padding:8px 16px; font-size:11px;
             color:var(--dim); border-top:1px solid var(--line); }
