@@ -1480,6 +1480,62 @@ class _Proc:
         self.returncode, self.stdout, self.stderr = rc, out, err
 
 
+class TestDuplicateClaims:
+    """A successor context re-derived its predecessor's claim and recorded it word for
+    word. Claim-sized contexts make this the DEFAULT failure rather than an oddity:
+    each starts fresh, works the same question, and reaches the same answer."""
+
+    CALL = {"statement": "chi2 says no bias", "kind": "pattern",
+            "assertions": [{"label": "chi2", "value": "3.8533"},
+                           {"label": "p", "value": "0.4262"}]}
+
+    def _ar(self):
+        return _hyphal(_ScriptedClient())
+
+    def test_the_same_assertions_twice_is_refused(self):
+        ar = self._ar()
+        asyncio.run(ar._exec_tool("record_claim", self.CALL))
+        r = asyncio.run(ar._exec_tool("record_claim", self.CALL))
+        assert r["recorded"] is False and "k1 already asserts" in r["error"]
+        assert len(ar.ledger) == 1
+
+    def test_rewording_the_statement_does_not_get_past_it(self):
+        """The successor rewrites the prose; the numbers are what identify a claim."""
+        ar = self._ar()
+        asyncio.run(ar._exec_tool("record_claim", self.CALL))
+        r = asyncio.run(ar._exec_tool("record_claim",
+                                      dict(self.CALL, statement="entirely different words")))
+        assert r["recorded"] is False
+
+    def test_going_further_is_allowed(self):
+        """Refusing anything that overlaps would stop an investigation progressing."""
+        ar = self._ar()
+        asyncio.run(ar._exec_tool("record_claim", self.CALL))
+        r = asyncio.run(ar._exec_tool("record_claim", dict(
+            self.CALL, assertions=self.CALL["assertions"] + [{"label": "dof", "value": "4"}])))
+        assert r["recorded"] is True
+
+    def test_a_different_value_for_the_same_label_is_allowed(self):
+        ar = self._ar()
+        asyncio.run(ar._exec_tool("record_claim", self.CALL))
+        r = asyncio.run(ar._exec_tool("record_claim", dict(
+            self.CALL, assertions=[{"label": "chi2", "value": "9.1"},
+                                   {"label": "p", "value": "0.0042"}])))
+        assert r["recorded"] is True
+
+    def test_the_refusal_is_counted(self):
+        ar = self._ar()
+        asyncio.run(ar._exec_tool("record_claim", self.CALL))
+        asyncio.run(ar._exec_tool("record_claim", self.CALL))
+        assert ar.run_summary()["claims_refused"] == 1
+
+    def test_the_refusal_says_what_to_do_instead(self):
+        ar = self._ar()
+        asyncio.run(ar._exec_tool("record_claim", self.CALL))
+        r = asyncio.run(ar._exec_tool("record_claim", self.CALL))
+        assert "further" in r["error"] and "mark_done" in r["error"]
+
+
 class TestLiveVerification:
     """#61 — the judge runs on the other machine while the analyst explores, and the
     verdicts it returns seed the contexts that come after."""

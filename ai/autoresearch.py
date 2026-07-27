@@ -1612,6 +1612,20 @@ class Autoresearcher:
                         "no assertions — a claim with nothing separately checkable cannot be "
                         "verified. Re-send with assertions=[{\"label\": ..., \"value\": ..., "
                         "\"of\": ...}], one entry per number you are asserting."}
+            # A successor context re-derived its predecessor's claim and recorded it
+            # again, word for word — the seed says "do NOT re-record these" and that
+            # was not enough. Claim-sized contexts (#61) make this the default failure
+            # rather than an oddity: each one starts fresh, works the same question,
+            # and reaches the same answer. Instruction loses; identity is checkable.
+            _sig = sorted((a.get("label", ""), str(a.get("value", ""))) for a in assertions)
+            for prior in self.ledger:
+                if _sig and sorted((a.get("label", ""), str(a.get("value", "")))
+                                   for a in (prior.get("assertions") or [])) == _sig:
+                    self.refused_claims += 1
+                    return {"recorded": False, "error":
+                            f"{prior['id']} already asserts exactly these values. Either "
+                            "take this investigation further than it did, or call "
+                            "mark_done if there is nothing left to find."}
             claim = {"id": f"k{len(self.ledger) + 1}", "statement": statement,
                      "value": str(args.get("value", "")) or _assertions_summary(assertions),
                      "assertions": assertions,
