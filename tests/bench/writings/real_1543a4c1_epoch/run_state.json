@@ -1,0 +1,66 @@
+{
+  "claims": [],
+  "computations": {},
+  "agenda": [
+    {
+      "id": "a1",
+      "question": "Do samples significantly cluster by `biosample_env_local_scale` (frost flower, brine, ice, seawater, air) in PCoA ordinations based on Bray-Curtis and CLR distances, and which specific ASVs correlate most strongly with the primary axes of separation?",
+      "rationale": "Determines whether physical environment imposes a deterministic filter on community assembly in these extreme cold habitats, and identifies the taxa responsible for observed ecological gradients.",
+      "status": "in_progress",
+      "parent": null
+    },
+    {
+      "id": "a2",
+      "question": "Does observed alpha diversity (`entropy`) differ significantly across `biosample_env_local_scale`, and do these differences persist or reverse when `counts` are rarefied to a uniform depth?",
+      "rationale": "Tests whether environmental harshness correlates with reduced diversity, while explicitly checking if observed patterns are artifacts of uneven sequencing depth rather than true biological signal.",
+      "status": "pending",
+      "parent": null
+    },
+    {
+      "id": "a3",
+      "question": "Is the binary outcome of sample retention (`pipeline_in_counts`) significantly associated with `biosample_env_local_scale` or `sra_collection_date`, indicating a systematic bias in library preparation or sequencing?",
+      "rationale": "Ensures that the 21 zero-read dropouts are not non-randomly concentrated in specific environments or dates, which would invalidate downstream ecological inferences drawn from the remaining 63 samples.",
+      "status": "pending",
+      "parent": null
+    },
+    {
+      "id": "a4",
+      "question": "Which individual ASVs show significantly enriched relative abundance in frost flowers compared to brine and ice environments after FDR correction, and do their taxonomic assignments (`tax`) align with known halophilic or psychrophilic clades?",
+      "rationale": "Identifies potential indicator or keystone taxa adapted to specific micro-niches within the ice chamber experiment, moving beyond community-level patterns to actionable taxonomic hypotheses.",
+      "status": "pending",
+      "parent": null
+    },
+    {
+      "id": "a5",
+      "question": "Does `sra_collection_date` explain a significant portion of the variance in pairwise Bray-Curtis distances among samples, and is this temporal signal statistically independent of or confounded with `biosample_env_local_scale`?",
+      "rationale": "Separates time-based effects (e.g., thawing dynamics, processing batch effects) from environmental effects, which is critical given the dataset was collected on only two distinct dates.",
+      "status": "pending",
+      "parent": null
+    },
+    {
+      "id": "a6",
+      "question": "Are there significant Spearman correlations between the aggregate relative abundances of the dominant prokaryotic phyla (Pseudomonadota, SAR, Bacteroidota) and eukaryotic groups (Amorphea, Archaeplastida) across the 63 samples?",
+      "rationale": "Explores higher-order ecological interactions beyond single-taxon abundance, testing for potential metabolic coupling or competitive exclusion between major cross-kingdom lineages in these extreme environments.",
+      "status": "pending",
+      "parent": null
+    }
+  ],
+  "assumptions": [],
+  "package_requests": [],
+  "run": {
+    "completed": false,
+    "investigations_done": 0,
+    "exploration": "hyphal",
+    "claims_refused": 0,
+    "packages_requested": {},
+    "investigations_total": 6,
+    "replication_attempted": 0,
+    "replication_rounds": 0,
+    "replication_agreed": 0,
+    "replication_disputed": 0,
+    "replication_overturned": 0,
+    "replication_contested": 0,
+    "adjudicated": 0,
+    "models": []
+  }
+}

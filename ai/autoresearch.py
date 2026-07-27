@@ -1289,7 +1289,21 @@ def _j(v, d=0):
     if isinstance(v, dict): return {str(k): _j(x, d + 1) for k, x in list(v.items())[:_CAP]}
     if isinstance(v, (list, tuple)): return [_j(x, d + 1) for x in list(v)[:_CAP]]
     if isinstance(v, (pd.Series, pd.DataFrame)): return _j(v.to_dict(), d + 1)
-    return v
+    if isinstance(v, pd.Index): return _j(v.tolist(), d + 1)
+    # pandas extension arrays (StringArray, Categorical, nullable Int64...) and numpy
+    # scalars of any other flavour. A correct analysis was failing at the last step
+    # because its result happened to contain tax.columns.values, and the traceback
+    # named a type the analyst had never mentioned.
+    if hasattr(v, "tolist") and not isinstance(v, (str, bytes)):
+        try: return _j(v.tolist(), d + 1)
+        except Exception: return str(v)
+    if isinstance(v, (np.bool_,)): return bool(v)
+    if v is None or isinstance(v, (str, bool, int)): return v
+    try:
+        json.dumps(v)
+        return v
+    except (TypeError, ValueError):
+        return str(v)
 _ns = dict(np=np, pd=pd, counts=counts, props=props, tax=tax, meta=meta,
            pdist=pdist, squareform=squareform,
            braycurtis=braycurtis, entropy=entropy, pearsonr=pearsonr, spearmanr=spearmanr,

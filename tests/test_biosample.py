@@ -256,6 +256,38 @@ class TestSandboxHints:
         assert r["ok"] is False and "hint" not in r
 
 
+class TestResultEncoding:
+    """A correct analysis was lost at the last step because its result contained
+    tax.columns.values — the encoder handled numpy and pandas containers but not the
+    extension arrays pandas actually returns."""
+
+    def _run(self, code):
+        import asyncio
+        from ai.autoresearch import SubprocessExecutor
+        return asyncio.run(SubprocessExecutor("/data/dev/testdata/1543a4c1").run(code))
+
+    def test_a_pandas_string_array_survives(self):
+        ok, r = self._run("result = {'cols': tax.columns.values}")
+        assert ok and r["cols"][0] == "Domain"
+
+    def test_an_index_survives(self):
+        ok, r = self._run("result = {'idx': counts.index[:2]}")
+        assert ok and len(r["idx"]) == 2
+
+    def test_a_categorical_survives(self):
+        ok, r = self._run("result = {'c': pd.Categorical(['a','b'])}")
+        assert ok and r["c"] == ["a", "b"]
+
+    def test_something_genuinely_unserialisable_degrades_to_text(self):
+        """Better a string than losing the whole analysis to a TypeError."""
+        ok, r = self._run("result = {'s': {1, 2}}")
+        assert ok and isinstance(r["s"], str)
+
+    def test_ordinary_values_are_untouched(self):
+        ok, r = self._run("result = {'n': 5, 'x': 1.23456, 'ok': True, 'none': None}")
+        assert ok and r == {"n": 5, "x": 1.2346, "ok": True, "none": None}
+
+
 class TestSourcePrefixes:
     """Three sources reach `meta` and they are not interchangeable. Nothing in a value
     says which one produced it, so the column name has to."""
