@@ -198,6 +198,15 @@ class TestRawAndRelative:
         assert "do not read files" in text
         assert "importable" not in text
 
+    def test_the_invented_helpers_declare_their_signatures(self):
+        """fdr, clr and rarefy exist nowhere else, so their return shapes cannot be
+        inferred and were being guessed — fdr() was compared against a threshold as
+        though it returned the adjusted p-values."""
+        text = format_briefing({"available": ["fdr", "clr", "rarefy", "np"]})
+        assert "fdr(pvals) ->" in text and "'p_adj'" in text
+        assert "clr(df, pseudocount=0.5) ->" in text
+        assert "rarefy(df, depth=None, seed=0) ->" in text
+
     def test_a_dataset_without_counts_says_nothing_about_props(self):
         assert "props" not in format_briefing({"tax": {"shape": [7, 6], "columns": ["a"]}})
 

@@ -513,6 +513,15 @@ def format_briefing(b: dict) -> str:
         lines.append("  run_analysis runs with these ALREADY LOADED — do not read files "
                      "and do not import them; assign to `result` when you are done:")
         lines.append(f"    {', '.join(av)}")
+        # These three exist nowhere else, so their signatures cannot be guessed and
+        # were being guessed — fdr() compared against a threshold as though it
+        # returned the adjusted p-values.
+        lines += [
+            "    fdr(pvals) -> {'p_adj': [...], 'reject': [...], 'n_sig': int, "
+            "'n_tests': int, 'alpha': float}",
+            "    clr(df, pseudocount=0.5) -> DataFrame, same axes",
+            "    rarefy(df, depth=None, seed=0) -> (DataFrame, [ids dropped below depth])",
+        ]
     for key in ("tax", "meta"):
         d = b.get(key)
         if d:
