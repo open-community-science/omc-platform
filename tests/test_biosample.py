@@ -225,6 +225,23 @@ class TestRawAndRelative:
             "'mean_richness': float((sub > 0).sum(axis=1).mean())}"))
         assert ok and r["n_samples"] == 63
 
+    def test_columns_blank_for_dropped_samples_are_named(self):
+        """Carrying 84 rows into a frame whose columns mostly come from the 63-row
+        survivors table leaves 13 columns empty for exactly the dropped samples —
+        including the one naming the submission, which is what an analyst comparing
+        dropped against retained reaches for first."""
+        text = format_briefing({
+            "provenance": {"n_samples_attempted": 84, "n_samples_analysed": 63,
+                           "n_dropped": 21, "dropped_at_stage": {"chimera": 21}},
+            "blank_for_dropped": ["sra_submission_accession", "pipeline_total_reads"]})
+        assert "no value for any dropped sample" in text
+        assert "sra_submission_accession" in text
+
+    def test_a_run_that_lost_nobody_names_no_blank_columns(self):
+        text = format_briefing({"provenance": {"n_samples_attempted": 63,
+                                               "n_samples_analysed": 63}})
+        assert "no value for any dropped" not in text
+
     def test_a_dataset_without_counts_says_nothing_about_props(self):
         assert "props" not in format_briefing({"tax": {"shape": [7, 6], "columns": ["a"]}})
 

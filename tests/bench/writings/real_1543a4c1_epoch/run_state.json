@@ -1,363 +1,74 @@
 {
-  "claims": [
-    {
-      "id": "k1",
-      "statement": "No statistically significant association between environment type and sample dropout (chi-squared test of independence, \u03c7\u00b2=3.85, p=0.426, df=4). Descriptively, frost flowers had the highest dropout rate (11/35 = 31.4%) and ice the lowest (3/19 = 15.8%), but the overall pattern across all five environments is not distinguishable from random variation.",
-      "value": "chi2_statistic=3.8533, p_value=0.4262, frost_flower_dropout_rate=0.3143, brine_dropout_rate=0.2917, ice_dropout_rate=0.1579, seawater_dropout_rate=0.0, chamber_air_dropout_rate=0.0, overall_dropout_rate=0.25",
-      "assertions": [
-        {
-          "label": "chi2_statistic",
-          "value": "3.8533",
-          "of": "5 environments \u00d7 2 dropout status"
-        },
-        {
-          "label": "p_value",
-          "value": "0.4262",
-          "of": "chi-squared test, 5 environments"
-        },
-        {
-          "label": "frost_flower_dropout_rate",
-          "value": "0.3143",
-          "of": "frost flowers, 35 total samples"
-        },
-        {
-          "label": "brine_dropout_rate",
-          "value": "0.2917",
-          "of": "brine, 24 total samples"
-        },
-        {
-          "label": "ice_dropout_rate",
-          "value": "0.1579",
-          "of": "ice, 19 total samples"
-        },
-        {
-          "label": "seawater_dropout_rate",
-          "value": "0.0",
-          "of": "seawater, 4 total samples"
-        },
-        {
-          "label": "chamber_air_dropout_rate",
-          "value": "0.0",
-          "of": "chamber air, 2 total samples"
-        },
-        {
-          "label": "overall_dropout_rate",
-          "value": "0.25",
-          "of": "all 84 samples"
-        }
-      ],
-      "parameters": {},
-      "antecedents": [
-        "c1",
-        "c2"
-      ],
-      "kind": "pattern",
-      "investigation": "a1",
-      "by": "qwen/qwen3.6-35b-a3b",
-      "checked": [
-        "c1:run",
-        "c2:run"
-      ],
-      "judgment": {
-        "per": {},
-        "notes": {},
-        "by": "glm-4.7-flash",
-        "raw": "**Analysis of the Request:**\nI need to act as a strict verification auditor.\nInput:\n- A CLAIM broken into ASSERTIONS with labels and values (e.g., `chi2_statistic = ...`).\n- PARAMETERS describing how analysis was done contextually but not graded directly against evidence numbers in terms of correctness, just used for understanding the setup. Wait, looking at instructions: \"PARAMETERS are never graded.\" Okay.\n- INDEPENDENT EVIDENCE which is re-executed data with labels intact.\n\nTask:\nGrade *every* assertion separately (SUPPORTED | CONTRADICTED | NOT_ADDRESSED).\nRules to follow carefully regardi",
-        "unmatched": []
-      },
-      "assertion_verdicts": {},
-      "verdict": "unverifiable",
-      "unsupported_numbers": [],
-      "method": "judged",
-      "reproduced": false,
-      "verdict_round1": "unverifiable"
-    },
-    {
-      "id": "k2",
-      "statement": "No statistically significant association between environment type and sample dropout (chi-squared test of independence, \u03c7\u00b2=3.85, p=0.426, df=4). Descriptively, frost flowers had the highest dropout rate (11/35 = 31.4%) and ice the lowest (3/19 = 15.8%), but the overall pattern across all five environments is not distinguishable from random variation.",
-      "value": "chi2_statistic=3.8533, p_value=0.4262, frost_flower_dropout_rate=0.3143, brine_dropout_rate=0.2917, ice_dropout_rate=0.1579, seawater_dropout_rate=0.0, chamber_air_dropout_rate=0.0, overall_dropout_rate=0.25",
-      "assertions": [
-        {
-          "label": "chi2_statistic",
-          "value": "3.8533",
-          "of": "environment vs dropout contingency table"
-        },
-        {
-          "label": "p_value",
-          "value": "0.4262",
-          "of": "chi-squared test"
-        },
-        {
-          "label": "frost_flower_dropout_rate",
-          "value": "0.3143",
-          "of": "frost flowers, 35 samples"
-        },
-        {
-          "label": "brine_dropout_rate",
-          "value": "0.2917",
-          "of": "brine, 24 samples"
-        },
-        {
-          "label": "ice_dropout_rate",
-          "value": "0.1579",
-          "of": "ice, 19 samples"
-        },
-        {
-          "label": "seawater_dropout_rate",
-          "value": "0.0",
-          "of": "seawater, 4 samples"
-        },
-        {
-          "label": "chamber_air_dropout_rate",
-          "value": "0.0",
-          "of": "chamber air, 2 samples"
-        },
-        {
-          "label": "overall_dropout_rate",
-          "value": "0.25",
-          "of": "all 84 samples"
-        }
-      ],
-      "parameters": {},
-      "antecedents": [
-        "c3"
-      ],
-      "kind": "pattern",
-      "investigation": "a1",
-      "by": "qwen/qwen3.6-35b-a3b"
-    }
-  ],
-  "computations": {
-    "c1": {
-      "label": "chi_squared_test_dropout_by_environment",
-      "code": "import pandas as pd\nimport numpy as np\nfrom scipy import stats\n\n# Get the meta table\nmeta_df = meta.copy()\n\n# Create dropout status: True = made it in (pipeline_in_counts=True), False = dropped out\n# pipeline_in_counts is already in meta\nmeta_df['dropout'] = ~meta_df['pipeline_in_counts']\n\n# Get the environment groups\nenv_col = 'biosample_env_local_scale'\n\n# Create contingency table: environment \u00d7 dropout status\ncontingency = pd.crosstab(meta_df[env_col], meta_df['dropout'])\nprint(\"Contingency table:\")\nprint(contingency)\n\n# Chi-squared test of independence\nchi2, p, dof, expected = stats.chi2_contingency(contingency)\nprint(f\"\\nChi-squared statistic: {chi2:.4f}\")\nprint(f\"P-value: {p:.6f}\")\nprint(f\"Degrees of freedom: {dof}\")\n\n# Calculate proportions of dropout by environment\nprop_dropout = contingency[True] / contingency.sum(axis=1)\nprint(\"\\nProportion of dropout by environment:\")\nprint(prop_dropout)\n\n# Also calculate proportions of success (made it in)\nprop_success = contingency[False] / contingency.sum(axis=1)\nprint(\"\\nProportion of success by environment:\")\nprint(prop_success)\n\n# Store results\nresult = {\n    'contingency': contingency,\n    'chi2': chi2,\n    'p': p,\n    'dof': dof,\n    'expected': expected,\n    'prop_dropout': prop_dropout,\n    'prop_success': prop_success\n}",
-      "result": {
-        "contingency": {
-          "False": {
-            "Brine": 17,
-            "chamber air": 2,
-            "frost flowers": 24,
-            "ice": 16,
-            "seawater": 4
-          },
-          "True": {
-            "Brine": 7,
-            "chamber air": 0,
-            "frost flowers": 11,
-            "ice": 3,
-            "seawater": 0
-          }
-        },
-        "chi2": 3.8533,
-        "p": 0.4262,
-        "dof": 4,
-        "expected": [
-          [
-            18.0,
-            6.0
-          ],
-          [
-            1.5,
-            0.5
-          ],
-          [
-            26.25,
-            8.75
-          ],
-          [
-            14.25,
-            4.75
-          ],
-          [
-            3.0,
-            1.0
-          ]
-        ],
-        "prop_dropout": {
-          "Brine": 0.2917,
-          "chamber air": 0.0,
-          "frost flowers": 0.3143,
-          "ice": 0.1579,
-          "seawater": 0.0
-        },
-        "prop_success": {
-          "Brine": 0.7083,
-          "chamber air": 1.0,
-          "frost flowers": 0.6857,
-          "ice": 0.8421,
-          "seawater": 1.0
-        }
-      },
-      "by": "qwen/qwen3.6-35b-a3b"
-    },
-    "c2": {
-      "label": "effect_size_and_dropout_details",
-      "code": "import pandas as pd\nimport numpy as np\nfrom scipy import stats\n\n# Get the meta table\nmeta_df = meta.copy()\nmeta_df['dropout'] = ~meta_df['pipeline_in_counts']\nenv_col = 'biosample_env_local_scale'\n\n# Contingency table\ncontingency = pd.crosstab(meta_df[env_col], meta_df['dropout'])\nprint(\"Contingency table (dropout=False=success, dropout=True=dropout):\")\nprint(contingency)\n\n# Chi-squared test\nchi2, p, dof, expected = stats.chi2_contingency(contingency)\nprint(f\"\\nChi-squared: {chi2:.4f}, p: {p:.6f}, dof: {dof}\")\n\n# Cramer's V effect size\nn = contingency.values.sum()\nmin_dim = min(contingency.shape)\ncramers_v = np.sqrt(chi2 / (n * (min_dim - 1)))\nprint(f\"Cramer's V: {cramers_v:.4f}\")\n\n# Expected counts (to check if chi-squared is appropriate)\nprint(\"\\nExpected counts:\")\nprint(expected)\n\n# Check for low expected counts (<5)\nlow_expected = (expected < 5).sum().sum()\nprint(f\"Number of cells with expected count < 5: {low_expected}\")\n\n# Proportion of dropout by environment\nprop_dropout = contingency[True] / contingency.sum(axis=1)\nprint(\"\\nDropout proportions by environment:\")\nfor env in prop_dropout.index:\n    n_total = contingency.sum(axis=1)[env]\n    n_dropout = contingency[True][env]\n    n_success = contingency[False][env]\n    print(f\"  {env}: {n_dropout}/{n_total} dropped out ({prop_dropout[env]:.4f}), {n_success}/{n_total} succeeded\")\n\n# Also compute proportions of success\nprop_success = contingency[False] / contingency.sum(axis=1)\nprint(\"\\nSuccess proportions by environment:\")\nfor env in prop_success.index:\n    print(f\"  {env}: {prop_success[env]:.4f}\")\n\n# Store all results\nresult = {\n    'chi2': chi2,\n    'p': p,\n    'dof': dof,\n    'cramers_v': cramers_v,\n    'contingency': contingency,\n    'expected': expected,\n    'prop_dropout': prop_dropout,\n    'prop_success': prop_success,\n    'low_expected_count': low_expected,\n    'n_total': n\n}",
-      "result": {
-        "chi2": 3.8533,
-        "p": 0.4262,
-        "dof": 4,
-        "cramers_v": 0.2142,
-        "contingency": {
-          "False": {
-            "Brine": 17,
-            "chamber air": 2,
-            "frost flowers": 24,
-            "ice": 16,
-            "seawater": 4
-          },
-          "True": {
-            "Brine": 7,
-            "chamber air": 0,
-            "frost flowers": 11,
-            "ice": 3,
-            "seawater": 0
-          }
-        },
-        "expected": [
-          [
-            18.0,
-            6.0
-          ],
-          [
-            1.5,
-            0.5
-          ],
-          [
-            26.25,
-            8.75
-          ],
-          [
-            14.25,
-            4.75
-          ],
-          [
-            3.0,
-            1.0
-          ]
-        ],
-        "prop_dropout": {
-          "Brine": 0.2917,
-          "chamber air": 0.0,
-          "frost flowers": 0.3143,
-          "ice": 0.1579,
-          "seawater": 0.0
-        },
-        "prop_success": {
-          "Brine": 0.7083,
-          "chamber air": 1.0,
-          "frost flowers": 0.6857,
-          "ice": 0.8421,
-          "seawater": 1.0
-        },
-        "low_expected_count": 5.0,
-        "n_total": 84.0
-      },
-      "by": "qwen/qwen3.6-35b-a3b"
-    },
-    "c3": {
-      "label": "dropout_by_environment",
-      "code": "import pandas as pd\nimport numpy as np\nfrom scipy.stats import chi2_contingency\n\n# meta is already loaded\nenv_col = 'biosample_env_local_scale'\ndropout_col = 'pipeline_in_counts'\n\n# Contingency table\nct = pd.crosstab(meta[env_col], meta[dropout_col])\nprint(\"Contingency table:\\n\", ct)\n\n# Chi-squared test\nchi2, p, dof, expected = chi2_contingency(ct)\nprint(f\"Chi2: {chi2:.4f}, p: {p:.4f}, dof: {dof}\")\n\n# Effect size: Cramer's V\nn = ct.sum().sum()\nk = ct.shape[0]\nr = ct.shape[1]\nV = np.sqrt(chi2 / (n * min(k-1, r-1)))\nprint(f\"Cramer's V: {V:.4f}\")\n\n# Dropout rates per environment\ndropout_rates = meta.groupby(env_col)[dropout_col].apply(lambda x: 1 - x.mean())\nprint(\"Dropout rates:\\n\", dropout_rates)\n\n# Check if dropout is associated with submission or date\nfor col in ['sra_submission_accession', 'sra_collection_date']:\n    ct2 = pd.crosstab(meta[col], meta[dropout_col])\n    chi2_2, p_2, dof_2, _ = chi2_contingency(ct2)\n    print(f\"{col}: Chi2={chi2_2:.4f}, p={p_2:.4f}\")\n\nresult = {\n    'chi2': chi2,\n    'p': p,\n    'dof': dof,\n    'cramers_v': V,\n    'contingency_table': ct,\n    'dropout_rates': dropout_rates\n}",
-      "result": {
-        "chi2": 3.8533,
-        "p": 0.4262,
-        "dof": 4,
-        "cramers_v": 0.2142,
-        "contingency_table": {
-          "False": {
-            "Brine": 7,
-            "chamber air": 0,
-            "frost flowers": 11,
-            "ice": 3,
-            "seawater": 0
-          },
-          "True": {
-            "Brine": 17,
-            "chamber air": 2,
-            "frost flowers": 24,
-            "ice": 16,
-            "seawater": 4
-          }
-        },
-        "dropout_rates": {
-          "Brine": 0.2917,
-          "chamber air": 0.0,
-          "frost flowers": 0.3143,
-          "ice": 0.1579,
-          "seawater": 0.0
-        }
-      },
-      "by": "qwen/qwen3.6-35b-a3b"
-    }
-  },
+  "claims": [],
+  "computations": {},
   "agenda": [
     {
       "id": "a1",
-      "question": "Is sample attrition (zero-read dropout) biased by environment? Test whether the proportion of samples that dropped out differs across frost flower, brine, ice, seawater, and chamber air using a chi-squared test of independence on the 84-sample meta table, and quantify the direction and magnitude of bias.",
-      "rationale": "If dropout is environment-biased (e.g., frost flower samples are more likely to fail), then any downstream comparison between environments is confounded by technical failure rather than biology. This must be established before any ecological interpretation.",
+      "question": "Is the 25% sample attrition (21 of 84 samples dropped) systematic by environment or submission? Specifically: do the 21 dropped samples (absent from counts, all from SRR389669xx series) disproportionately come from particular biosample_env_local_scale groups (frost flower, brine, ice, seawater, air) or from one submission (SUB16229131 vs SUB16229383)? Test with chi-squared or Fisher's exact tests on contingency tables of dropped vs retained by environment and by submission.",
+      "rationale": "If attrition is non-random \u2014 e.g., brine samples are over-represented among drops \u2014 then any downstream comparison between environments is biased by differential survival through the pipeline, not by ecology. This is a prerequisite validity check before any ecological inference.",
       "status": "in_progress",
       "parent": null
     },
     {
       "id": "a2",
-      "question": "Do microbial communities ordinate by environment (frost flower, brine, ice, seawater, air) in Bray-Curtis space, and is the separation statistically significant? Run PERMANOVA (adonis-style permutation test) on the Bray-Curtis distance matrix of CLR-transformed counts, with environment as the fixed factor, 9999 permutations, and report R\u00b2 and p-value.",
-      "rationale": "This is the foundational ecological test: are communities in different physical matrices (frost flower vs brine vs ice) compositionally distinct? A significant result justifies further investigation into which taxa drive the separation.",
+      "question": "Does the prokaryote-only filter (414 ASVs, 44 samples, 207,607 reads) introduce a second layer of systematic bias? Test whether the 19 samples lost by the prokaryote filter differ systematically from the 44 retained in terms of total read depth, environment, or submission. Also quantify: what fraction of the 63-sample community's total reads are prokaryotic per sample, and does this fraction correlate with environment?",
+      "rationale": "The renorm_stats show the prokaryote subset is dramatically smaller (44 samples vs 63, 414 ASVs vs 735). If prokaryotic signal is concentrated in certain environments (e.g., frost flowers), then any prokaryote-specific analysis excludes the very environments where prokaryotes are rarest \u2014 a selection artifact that would invert or obscure true ecological patterns.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a3",
-      "question": "Which taxa (ASVs) are the primary drivers of community separation between environments? For each pairwise environment comparison (frost flower vs brine, frost flower vs ice, brine vs ice, etc.), identify ASVs with the largest log\u2082 fold-change in relative abundance using CLR-transformed counts, and test significance with Mann-Whitney U with FDR correction. Report the top 20 ASVs per comparison with their taxonomic assignment.",
-      "rationale": "Knowing which taxa differ is ecologically actionable: it points to taxa adapted to specific matrices (e.g., brine-tolerant vs ice-adapted lineages) and generates testable hypotheses about physiological adaptation.",
+      "question": "Are the eukaryotic communities (317 ASVs, 19 samples, 213,606 reads) structured by the same environmental gradients as prokaryotic communities? For the 19 samples with eukaryotic signal, test whether eukaryotic beta-diversity (Bray-Curtis on eukaryote-only ASV table, CLR-transformed) differs significantly across biosample_env_local_scale groups using PERMANOVA (adonis-style permutation test). Compare the R\u00b2 and p-values to the same test on prokaryote-only data for the same samples.",
+      "rationale": "This is a mixed prokaryote-eukaryote amplicon dataset. If eukaryotes track the same environmental gradient as prokaryotes, it suggests a shared driver (e.g., salinity, temperature, matrix type). If they don't, eukaryotes may respond to different niche axes (e.g., host availability, trophic interactions). Either result is ecologically informative.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a4",
-      "question": "Is there a compositional gradient between frost flower and brine (physically connected via brine channels in sea ice)? Test whether the first axis of a Bray-Curtis PCoA correlates with the frost flower\u2013brine gradient, and whether ASV abundances change monotonically along this axis using Spearman correlation. Also test whether 'drained ice' samples (a distinct sra_description category) occupy an intermediate position.",
-      "rationale": "Frost flower and brine are not independent environments but connected phases of sea ice. A gradient would support a physical-chemical continuum model of community assembly, whereas discrete clusters would support habitat filtering by distinct physicochemical regimes.",
+      "question": "Which ASVs (or taxonomic groups) are the strongest indicators of each environment (frost flower, brine, ice, seawater, air)? Perform indicator species analysis (IndVal) or differential abundance testing (e.g., Mann-Whitney U or Kruskal-Wallis per ASV across environments, FDR-corrected) to identify taxa significantly enriched in each environment. Focus on ASVs with high specificity (present in only one or two environments) and high fidelity (present in most samples of that environment).",
+      "rationale": "Indicator taxa are the most directly interpretable ecological signal in an amplicon dataset. They point to taxa that are ecologically associated with specific conditions rather than being generalists. This is the primary mechanism-by-which environments differ.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a5",
-      "question": "Do the prokaryotic and eukaryotic communities respond to the same environmental gradients? Run separate PERMANOVA tests on the prokaryote-only and eukaryote-only subsets (using the renormalized ASV tables) against environment, and compare the R\u00b2 values and significant taxa. Test whether the same ASVs (or taxa) are significant in both subsets.",
-      "rationale": "Most amplicon studies focus on prokaryotes; eukaryotes (protists, microalgae, fungi) are often overlooked. If they respond differently to the same environmental gradient, this suggests independent ecological controls and highlights the importance of multi-kingdom analysis.",
+      "question": "Is there a core microbiome shared across environments, and how does it differ from environment-specific taxa? Define core as ASVs present in \u2265X% of samples within each environment (test X = 50%, 75%, 100%). Quantify: (a) the size of the core per environment, (b) the overlap of cores between environments (Jaccard index), and (c) the proportion of total community biomass (reads) captured by the core. Test whether core ASVs differ in their taxonomic composition from environment-specific ASVs.",
+      "rationale": "The concept of a 'core' microbiome is foundational in microbial ecology. In extreme environments like frost flowers and brine, a small core would suggest strong environmental filtering, while a large core would suggest generalist-dominated communities. The overlap between cores reveals shared vs. unique ecological strategies.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a6",
-      "question": "Is there a batch effect between the two submissions (SUB16229131 vs SUB16229383, collected on different dates)? Test whether submission accession explains significant variance in community composition (PERMANOVA on Bray-Curtis) after accounting for environment, and whether pipeline metrics (total reads, n_ASVs) differ systematically between submissions.",
-      "rationale": "Two different submissions collected on different dates could introduce technical confounding: if one submission is enriched for a particular environment and also has different sequencing depth or chemistry, apparent environmental differences could be artifacts.",
+      "question": "Do alpha-diversity metrics (observed ASVs, Shannon entropy, evenness) differ across environments after accounting for sequencing depth? Rarefy counts to a common depth (or use depth-independent metrics like Hill numbers) and test for differences across biosample_env_local_scale groups using Kruskal-Wallis (\u22653 groups) or Mann-Whitney U (pairwise). Also test whether alpha diversity correlates with total read depth within each environment.",
+      "rationale": "Extreme environments are often predicted to have lower diversity due to harsher filtering. However, with unbalanced sample sizes (frost flower n=35, air n=2) and varying read depths, naive comparisons are misleading. Proper depth correction is essential.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a7",
-      "question": "How does alpha diversity (Shannon entropy) vary across environments, and is this signal robust to rarefaction? Compute Shannon entropy per sample from raw counts, then rarefy to multiple depths (e.g., 1000, 5000, 10000 reads) and test whether the environment\u2013entropy relationship persists. Use Kruskal-Wallis to test for differences in entropy across environments at each rarefaction depth.",
-      "rationale": "Alpha diversity differences could reflect true biological variation or simply sequencing depth artifacts. If frost flower samples have lower diversity, is this because they are biologically depauperate or because they have lower sequencing depth (which correlates with dropout risk)? Rarefaction tests the robustness of the signal.",
+      "question": "Does beta-diversity (Bray-Curtis dissimilarity) show significant clustering by environment in ordination space, and which taxa drive the separation? Perform PCoA on Bray-Curtis distances (CLR-transformed counts), test significance with PERMANOVA, and then use envfit-style correlation or taxon contribution analysis to identify which ASVs or phyla contribute most to the axes of separation. Also test whether the strength of environmental clustering differs between prokaryotic and eukaryotic communities.",
+      "rationale": "This is the primary test of whether environments harbor distinct communities. The direction and magnitude of separation, and the taxa driving it, are the most direct ecological findings. Comparing prokaryotic vs. eukaryotic patterns tests whether they respond to the same or different gradients.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a8",
-      "question": "Are there indicator ASVs diagnostic of specific environments? For each ASV, compute the IndVal (indicator value) statistic combining fidelity (proportion of environments where it occurs) and specificity (proportion of abundance within its indicator environment), and test significance via permutation (9999 permutations). Report ASVs with IndVal > 0.6 and p < 0.05 after FDR correction.",
-      "rationale": "Indicator taxa are ecologically interpretable and can be used to validate environmental classification of new samples. They also point to taxa with narrow environmental niches, which is valuable for understanding habitat filtering in extreme environments.",
+      "question": "Is there a temporal signal: do samples collected on 2026-06-04 (n=44) differ in composition from those collected on 2026-06-21 (n=19), independent of environment? Test with PERMANOVA on Bray-Curtis distances with collection date as the grouping variable, and also test whether the date effect persists after controlling for environment (e.g., by including both in a multivariate model or by comparing within-environment subsets).",
+      "rationale": "Two collection dates separated by 17 days could reflect seasonal shifts, diurnal cycles, or batch effects from different library preparations. Disentangling temporal from environmental signal is critical for interpreting the data.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a9",
-      "question": "What is the phylogenetic structure of communities in each environment? Compute Faith's Phylogenetic Diversity and Net Relatedness Index (NRI) per sample, and test whether communities in different environments are phylogenetically clustered (NRI > 0) or overdispersed (NRI < 0) relative to a null model. Compare NRI values across environments using Kruskal-Wallis.",
-      "rationale": "Phylogenetic clustering suggests environmental filtering (only related taxa can survive), while overdispersion suggests competitive exclusion. In extreme environments like brine and frost flower, we might expect strong phylogenetic clustering if only specific lineages are adapted.",
+      "question": "Are there consistent co-occurrence patterns among ASVs that persist across environments? Construct SparCC or Pearson correlation networks on CLR-transformed counts for each environment separately, then test whether top co-occurring or mutually exclusive ASV pairs are consistent across environments. Identify 'hub' taxa (highly connected nodes) and test whether their taxonomic identity differs between environments.",
+      "rationale": "Co-occurrence patterns can reveal potential ecological interactions (synergism, competition, shared habitat preference). If hub taxa differ between environments, it suggests environment-specific community architecture. If they are consistent, it suggests a conserved interaction framework.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a10",
-      "question": "Is the chloroplast ASV signal biologically meaningful or technical artifact? Map the 4 chloroplast ASVs to their sample distribution across environments, test whether their abundance correlates with eukaryotic community composition (Spearman correlation with eukaryote richness), and assess whether they are enriched in specific environments (e.g., frost flower, which may have more photosynthetic eukaryotes).",
-      "rationale": "Chloroplast reads are typically considered contamination in 16S studies, but in samples with abundant microalgae (e.g., frost flower), they may reflect genuine eukaryotic biomass. Distinguishing signal from artifact matters for data interpretation.",
+      "question": "What is the phylogenetic structure of communities within and across environments? Calculate Faith's PD and Net Related Index (NRI) / Nearest Taxon Index (NTI) per sample to test whether communities are phylogenetically clustered (indicating environmental filtering) or overdispersed (indicating competitive exclusion). Compare these metrics across environments and test whether phylogenetic clustering correlates with environmental harshness (e.g., brine vs. frost flower vs. air).",
+      "rationale": "Phylogenetic community structure provides a complementary lens to taxonomic composition. Clustering in harsh environments (brine, air) would support environmental filtering; overdispersion in milder environments (frost flower) would support competitive structuring. This tests a fundamental ecological hypothesis about community assembly.",
       "status": "pending",
       "parent": null
     }
@@ -378,9 +89,6 @@
     "replication_overturned": 0,
     "replication_contested": 0,
     "adjudicated": 0,
-    "models": [
-      "glm-4.7-flash",
-      "qwen/qwen3.6-35b-a3b"
-    ]
+    "models": []
   }
 }

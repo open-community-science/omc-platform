@@ -459,6 +459,17 @@ if meta is not None and getattr(meta, "size", 0):
         return (_p, _kv[1]["n_groups"])
     if _g:
         _b["meta_groupings"] = dict(sorted(_g.items(), key=_order)[:12])
+    # Columns that came from the survivors' table have NO value for the dropped
+    # samples. Comparing dropped against retained on one of those yields an empty
+    # cell rather than an answer, and the column that names the submission is one
+    # of them — precisely the comparison an analyst reaches for.
+    if "pipeline_in_counts" in meta.columns:
+        _out = meta[~meta["pipeline_in_counts"].astype(bool)]
+        if len(_out):
+            _blank = sorted(str(c) for c in meta.columns
+                            if _out[c].isna().all() and meta[c].notna().any())
+            if _blank:
+                _b["blank_for_dropped"] = _blank[:16]
 def _describe(_k):
     _v = globals().get(_k)
     _sh = getattr(_v, "shape", None)
@@ -505,6 +516,9 @@ def format_briefing(b: dict) -> str:
             f"the {p['n_samples_analysed']} with reads. meta.loc[counts.index] lines "
             f"them up.",
         ]
+        if blank := b.get("blank_for_dropped"):
+            lines.append(f"    These meta columns have no value for any dropped sample, "
+                         f"because they come from the analysed table: {', '.join(blank)}.")
     if av := b.get("available"):
         # Named because it was being discovered by failing into it — a tip lost a step
         # to `import skbio` and had no way to know what was in scope.
