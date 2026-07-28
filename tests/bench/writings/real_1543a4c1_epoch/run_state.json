@@ -493,6 +493,74 @@
       ],
       "kind": "pattern",
       "investigation": "a2",
+      "by": "qwen/qwen3.6-35b-a3b",
+      "checked": [
+        "k4:nopath"
+      ],
+      "verdict": "unverifiable",
+      "method": "judged",
+      "reproduced": false,
+      "verdict_round1": "unverifiable"
+    },
+    {
+      "id": "k6",
+      "statement": "The Brine vs frost flowers observed richness difference (p_adj=0.0052) persists after rarefaction to the minimum depth of 576 reads (p=0.0001, effect=0.75), confirming it is not purely a sequencing depth artifact. Additionally, depth distributions do not differ significantly across environments (Kruskal-Wallis H=2.17, p=0.70), suggesting the richness signal is genuine. Within-environment richness-Shannon correlations reveal divergent diversity structures: frost flowers show a strong positive correlation (rho=0.67, p=0.001), while Brine shows no correlation (rho=0.06, p=0.79), indicating that in frost flowers, samples with more reads tend to have more diverse communities, whereas in Brine, diversity is uniformly low regardless of depth.",
+      "value": "rarefied_brine_vs_frost_p=0.0001, rarefied_brine_vs_frost_effect=0.7475, rarefied_min_depth=576, depth_KW_H=2.1683, depth_KW_p=0.7048, frost_rich_shannon_rho=0.67, frost_rich_shannon_p=0.001, brine_rich_shannon_rho=0.06, brine_rich_shannon_p=0.79",
+      "assertions": [
+        {
+          "label": "rarefied_brine_vs_frost_p",
+          "value": "0.0001",
+          "of": "rarefied richness, Brine vs frost flowers"
+        },
+        {
+          "label": "rarefied_brine_vs_frost_effect",
+          "value": "0.7475",
+          "of": "rarefied richness, Brine vs frost flowers"
+        },
+        {
+          "label": "rarefied_min_depth",
+          "value": "576",
+          "of": "rarefaction depth"
+        },
+        {
+          "label": "depth_KW_H",
+          "value": "2.1683",
+          "of": "pipeline_total_reads across 5 environments"
+        },
+        {
+          "label": "depth_KW_p",
+          "value": "0.7048",
+          "of": "pipeline_total_reads across 5 environments"
+        },
+        {
+          "label": "frost_rich_shannon_rho",
+          "value": "0.67",
+          "of": "within frost flowers, richness vs Shannon"
+        },
+        {
+          "label": "frost_rich_shannon_p",
+          "value": "0.001",
+          "of": "within frost flowers, richness vs Shannon"
+        },
+        {
+          "label": "brine_rich_shannon_rho",
+          "value": "0.06",
+          "of": "within Brine, richness vs Shannon"
+        },
+        {
+          "label": "brine_rich_shannon_p",
+          "value": "0.79",
+          "of": "within Brine, richness vs Shannon"
+        }
+      ],
+      "parameters": {},
+      "antecedents": [
+        "c11",
+        "c12",
+        "c13"
+      ],
+      "kind": "pattern",
+      "investigation": "a2",
       "by": "qwen/qwen3.6-35b-a3b"
     }
   ],
@@ -1823,6 +1891,303 @@
         }
       },
       "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c11": {
+      "label": "alpha_diversity_by_environment",
+      "code": "import pandas as pd\nimport numpy as np\nfrom scipy.stats import entropy, kruskal, mannwhitneyu, spearmanr\n\n# Load data - ensure alignment\nsub_meta = meta.loc[counts.index].copy()\n\n# Compute observed ASV richness per sample\nobs_richness = pd.Series((counts > 0).sum(axis=1), index=counts.index)\n\n# Compute Shannon entropy per sample\nshannon = pd.Series(entropy(counts.values, axis=1, base=2), index=counts.index)\n\n# Get environment labels aligned with counts\nenv_names = sub_meta['biosample_env_local_scale']\n\n# Check group sizes\nprint(\"=== Environment group sizes ===\")\nprint(env_names.value_counts())\n\n# Compute richness and Shannon by environment\nprint(\"\\n=== Richness by environment ===\")\nrichness_by_env = {}\nfor env in sorted(env_names.unique()):\n    mask = env_names == env\n    vals = obs_richness[mask]\n    richness_by_env[env] = {'n': len(vals), 'mean': vals.mean(), 'std': vals.std(), 'min': vals.min(), 'max': vals.max()}\n    print(f\"  {env}: n={len(vals)}, mean={vals.mean():.2f}, std={vals.std():.2f}, range=[{vals.min()}, {vals.max()}]\")\n\nprint(\"\\n=== Shannon by environment ===\")\nshannon_by_env = {}\nfor env in sorted(env_names.unique()):\n    mask = env_names == env\n    vals = shannon[mask]\n    shannon_by_env[env] = {'n': len(vals), 'mean': vals.mean(), 'std': vals.std(), 'min': vals.min(), 'max': vals.max()}\n    print(f\"  {env}: n={len(vals)}, mean={vals.mean():.3f}, std={vals.std():.3f}, range=[{vals.min():.3f}, {vals.max():.3f}]\")\n\n# Depth correlations\nrich_depth_rho, rich_depth_p = spearmanr(sub_meta['pipeline_total_reads'], obs_richness)\nshan_depth_rho, shan_depth_p = spearmanr(sub_meta['pipeline_total_reads'], shannon)\nprint(f\"\\n=== Depth correlations ===\")\nprint(f\"Richness vs depth: rho={rich_depth_rho:.4f}, p={rich_depth_p:.6f}\")\nprint(f\"Shannon vs depth: rho={shan_depth_rho:.4f}, p={shan_depth_p:.6f}\")\n\n# Kruskal-Wallis for richness\nenvs_sorted = sorted(env_names.unique())\nrichness_lists = [obs_richness[env_names == env].values for env in envs_sorted]\nkrich_stat, krich_p = kruskal(*richness_lists)\nprint(f\"\\n=== Kruskal-Wallis for richness ===\")\nprint(f\"H={krich_stat:.4f}, p={krich_p:.6f}, k={len(envs_sorted)}\")\n\n# Kruskal-Wallis for Shannon\nshannon_lists = [shannon[env_names == env].values for env in envs_sorted]\nkshannon_stat, kshannon_p = kruskal(*shannon_lists)\nprint(f\"\\n=== Kruskal-Wallis for Shannon ===\")\nprint(f\"H={kshannon_stat:.4f}, p={kshannon_p:.6f}, k={len(envs_sorted)}\")\n\n# Pairwise Mann-Whitney U for Shannon with FDR correction\n# Use the provided fdr function (not scipy.stats)\n# fdr is available as a helper\nfrom scipy.stats import mannwhitneyu\n\nprint(\"\\n=== Shannon pairwise comparisons ===\")\nshannon_pvals = []\nshannon_pairs = []\nshannon_effects = []\nfor i, e1 in enumerate(envs_sorted):\n    for j, e2 in enumerate(envs_sorted):\n        if j > i:\n            s1 = shannon[env_names == e1].values\n            s2 = shannon[env_names == e2].values\n            stat, p = mannwhitneyu(s1, s2, alternative='two-sided')\n            n1, n2 = len(s1), len(s2)\n            # Rank-biserial effect size\n            effect = 1 - (2 * stat) / (n1 * n2)\n            shannon_pvals.append(p)\n            shannon_pairs.append((e1, e2))\n            shannon_effects.append(effect)\n\n# Apply FDR correction using the provided fdr helper\nfdr_shannon = fdr(shannon_pvals)\nfor idx, (e1, e2) in enumerate(shannon_pairs):\n    print(f\"  {e1} vs {e2}: p={shannon_pvals[idx]:.6f}, p_adj={fdr_shannon['p_adj'][idx]:.6f}, reject={fdr_shannon['reject'][idx]}, effect={shannon_effects[idx]:.4f}\")\n\n# Pairwise Mann-Whitney U for richness with FDR correction\nprint(\"\\n=== Richness pairwise comparisons ===\")\nrich_pvals = []\nrich_pairs = []\nrich_effects = []\nfor i, e1 in enumerate(envs_sorted):\n    for j, e2 in enumerate(envs_sorted):\n        if j > i:\n            r1 = obs_richness[env_names == e1].values\n            r2 = obs_richness[env_names == e2].values\n            stat, p = mannwhitneyu(r1, r2, alternative='two-sided')\n            n1, n2 = len(r1), len(r2)\n            effect = 1 - (2 * stat) / (n1 * n2)\n            rich_pvals.append(p)\n            rich_pairs.append((e1, e2))\n            rich_effects.append(effect)\n\nfdr_rich = fdr(rich_pvals)\nfor idx, (e1, e2) in enumerate(rich_pairs):\n    print(f\"  {e1} vs {e2}: p={rich_pvals[idx]:.6f}, p_adj={fdr_rich['p_adj'][idx]:.6f}, reject={fdr_rich['reject'][idx]}, effect={rich_effects[idx]:.4f}\")\n\n# Store all results\nresult = {\n    'env_groups': {env: int((env_names == env).sum()) for env in envs_sorted},\n    'richness_means': {env: float(richness_by_env[env]['mean']) for env in envs_sorted},\n    'richness_n': {env: int(richness_by_env[env]['n']) for env in envs_sorted},\n    'richness_stds': {env: float(richness_by_env[env]['std']) for env in envs_sorted},\n    'richness_mins': {env: int(richness_by_env[env]['min']) for env in envs_sorted},\n    'richness_maxs': {env: int(richness_by_env[env]['max']) for env in envs_sorted},\n    'shannon_means': {env: float(shannon_by_env[env]['mean']) for env in envs_sorted},\n    'shannon_n': {env: int(shannon_by_env[env]['n']) for env in envs_sorted},\n    'shannon_stds': {env: float(shannon_by_env[env]['std']) for env in envs_sorted},\n    'shannon_mins': {env: float(shannon_by_env[env]['min']) for env in envs_sorted},\n    'shannon_maxs': {env: float(shannon_by_env[env]['max']) for env in envs_sorted},\n    'richness_H': float(krich_stat),\n    'richness_p': float(krich_p),\n    'shannon_H': float(kshannon_stat),\n    'shannon_p': float(kshannon_p),\n    'rich_depth_rho': float(rich_depth_rho),\n    'rich_depth_p': float(rich_depth_p),\n    'shan_depth_rho': float(shan_depth_rho),\n    'shan_depth_p': float(shan_depth_p),\n    'shannon_pairs': [(e1, e2, float(shannon_pvals[i]), float(fdr_shannon['p_adj'][i]), float(shannon_effects[i])) for i, (e1, e2) in enumerate(shannon_pairs)],\n    'richness_pairs': [(e1, e2, float(rich_pvals[i]), float(fdr_rich['p_adj'][i]), float(rich_effects[i])) for i, (e1, e2) in enumerate(rich_pairs)],\n}",
+      "result": {
+        "env_groups": {
+          "Brine": 17,
+          "chamber air": 2,
+          "frost flowers": 24,
+          "ice": 16,
+          "seawater": 4
+        },
+        "richness_means": {
+          "Brine": 52.2353,
+          "chamber air": 74.0,
+          "frost flowers": 92.0,
+          "ice": 69.375,
+          "seawater": 85.0
+        },
+        "richness_n": {
+          "Brine": 17,
+          "chamber air": 2,
+          "frost flowers": 24,
+          "ice": 16,
+          "seawater": 4
+        },
+        "richness_stds": {
+          "Brine": 19.7501,
+          "chamber air": 7.0711,
+          "frost flowers": 37.2559,
+          "ice": 29.8438,
+          "seawater": 47.7284
+        },
+        "richness_mins": {
+          "Brine": 25,
+          "chamber air": 69,
+          "frost flowers": 33,
+          "ice": 16,
+          "seawater": 16
+        },
+        "richness_maxs": {
+          "Brine": 82,
+          "chamber air": 79,
+          "frost flowers": 161,
+          "ice": 131,
+          "seawater": 117
+        },
+        "shannon_means": {
+          "Brine": 3.2196,
+          "chamber air": 4.944,
+          "frost flowers": 4.588,
+          "ice": 3.5031,
+          "seawater": 3.5409
+        },
+        "shannon_n": {
+          "Brine": 17,
+          "chamber air": 2,
+          "frost flowers": 24,
+          "ice": 16,
+          "seawater": 4
+        },
+        "shannon_stds": {
+          "Brine": 0.9745,
+          "chamber air": 0.0255,
+          "frost flowers": 0.4813,
+          "ice": 1.078,
+          "seawater": 0.4262
+        },
+        "shannon_mins": {
+          "Brine": 1.0868,
+          "chamber air": 4.9259,
+          "frost flowers": 3.9467,
+          "ice": 1.1012,
+          "seawater": 3.0194
+        },
+        "shannon_maxs": {
+          "Brine": 4.5495,
+          "chamber air": 4.962,
+          "frost flowers": 5.8197,
+          "ice": 4.8063,
+          "seawater": 4.0632
+        },
+        "richness_H": 13.2333,
+        "richness_p": 0.0102,
+        "shannon_H": 31.652,
+        "shannon_p": 0.0,
+        "rich_depth_rho": 0.6262,
+        "rich_depth_p": 0.0,
+        "shan_depth_rho": 0.0573,
+        "shan_depth_p": 0.6553,
+        "shannon_pairs": [
+          [
+            "Brine",
+            "chamber air",
+            0.0117,
+            0.0261,
+            1.0
+          ],
+          [
+            "Brine",
+            "frost flowers",
+            0.0,
+            0.0001,
+            0.8333
+          ],
+          [
+            "Brine",
+            "ice",
+            0.3219,
+            0.4023,
+            0.2059
+          ],
+          [
+            "Brine",
+            "seawater",
+            0.8291,
+            0.8291,
+            0.0882
+          ],
+          [
+            "chamber air",
+            "frost flowers",
+            0.2215,
+            0.3165,
+            -0.5833
+          ],
+          [
+            "chamber air",
+            "ice",
+            0.0131,
+            0.0261,
+            -1.0
+          ],
+          [
+            "chamber air",
+            "seawater",
+            0.1333,
+            0.2222,
+            -1.0
+          ],
+          [
+            "frost flowers",
+            "ice",
+            0.0001,
+            0.0005,
+            -0.7344
+          ],
+          [
+            "frost flowers",
+            "seawater",
+            0.0004,
+            0.0013,
+            -0.9583
+          ],
+          [
+            "ice",
+            "seawater",
+            0.6819,
+            0.7577,
+            -0.1562
+          ]
+        ],
+        "richness_pairs": [
+          [
+            "Brine",
+            "chamber air",
+            0.1263,
+            0.2782,
+            0.7059
+          ],
+          [
+            "Brine",
+            "frost flowers",
+            0.0005,
+            0.0052,
+            0.6446
+          ],
+          [
+            "Brine",
+            "ice",
+            0.0938,
+            0.2782,
+            0.3456
+          ],
+          [
+            "Brine",
+            "seawater",
+            0.1391,
+            0.2782,
+            0.5
+          ],
+          [
+            "chamber air",
+            "frost flowers",
+            0.5963,
+            0.7453,
+            0.25
+          ],
+          [
+            "chamber air",
+            "ice",
+            0.8366,
+            0.9296,
+            -0.125
+          ],
+          [
+            "chamber air",
+            "seawater",
+            0.4811,
+            0.6873,
+            0.5
+          ],
+          [
+            "frost flowers",
+            "ice",
+            0.0975,
+            0.2782,
+            -0.3151
+          ],
+          [
+            "frost flowers",
+            "seawater",
+            1.0,
+            1.0,
+            0.0
+          ],
+          [
+            "ice",
+            "seawater",
+            0.3443,
+            0.5739,
+            0.3281
+          ]
+        ]
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c12": {
+      "label": "depth_variance_and_richness_shannon_relationships",
+      "code": "import pandas as pd\nimport numpy as np\nfrom scipy.stats import entropy, spearmanr\n\n# Load data\nsub_meta = meta.loc[counts.index].copy()\nobs_richness = pd.Series((counts > 0).sum(axis=1), index=counts.index)\nshannon = pd.Series(entropy(counts.values, axis=1, base=2), index=counts.index)\nenv_names = sub_meta['biosample_env_local_scale']\n\n# 1. Check depth distributions by environment\nprint(\"=== Depth (pipeline_total_reads) by environment ===\")\ndepth_by_env = {}\nfor env in sorted(env_names.unique()):\n    mask = env_names == env\n    vals = sub_meta.loc[mask, 'pipeline_total_reads']\n    depth_by_env[env] = {'n': len(vals), 'mean': vals.mean(), 'std': vals.std(), 'min': vals.min(), 'max': vals.max()}\n    print(f\"  {env}: n={len(vals)}, mean={vals.mean():.0f}, std={vals.std():.0f}, range=[{vals.min()}, {vals.max()}]\")\n\n# 2. Within-environment richness-Shannon correlations\nprint(\"\\n=== Within-environment richness-Shannon correlations ===\")\nfor env in sorted(env_names.unique()):\n    mask = env_names == env\n    r_vals = obs_richness[mask]\n    s_vals = shannon[mask]\n    if len(r_vals) >= 3:  # Need at least 3 for meaningful correlation\n        rho, p = spearmanr(r_vals, s_vals)\n        print(f\"  {env} (n={len(r_vals)}): rho={rho:.4f}, p={p:.4f}\")\n    else:\n        print(f\"  {env} (n={len(r_vals)}): too few samples\")\n\n# 3. Variance comparison - are some environments more heterogeneous?\nprint(\"\\n=== Coefficient of variation (CV) for richness and Shannon ===\")\nfor env in sorted(env_names.unique()):\n    mask = env_names == env\n    r_cv = obs_richness[mask].std() / obs_richness[mask].mean()\n    s_cv = shannon[mask].std() / shannon[mask].mean()\n    print(f\"  {env}: richness CV={r_cv:.3f}, Shannon CV={s_cv:.3f}\")\n\n# 4. Check if depth differs significantly across environments (which would confound richness)\nfrom scipy.stats import kruskal\ndepth_lists = [sub_meta.loc[env_names == env, 'pipeline_total_reads'].values for env in sorted(env_names.unique())]\nkr_depth, kr_depth_p = kruskal(*depth_lists)\nprint(f\"\\n=== Depth differences across environments (Kruskal-Wallis) ===\")\nprint(f\"H={kr_depth:.4f}, p={kr_depth_p:.6f}\")\n\n# 5. Look at the distribution of Shannon values - are there outliers?\nprint(\"\\n=== Shannon value distributions ===\")\nfor env in sorted(env_names.unique()):\n    mask = env_names == env\n    vals = shannon[mask].sort_values()\n    print(f\"  {env}: {list(vals.round(3))}\")\n\n# 6. Look at the distribution of richness values - are there outliers?\nprint(\"\\n=== Richness value distributions ===\")\nfor env in sorted(env_names.unique()):\n    mask = env_names == env\n    vals = obs_richness[mask].sort_values()\n    print(f\"  {env}: {list(vals)}\")\n\n# 7. Check if the richness difference between Brine and frost flowers is driven by depth\nbrine_depth = sub_meta.loc[env_names == 'Brine', 'pipeline_total_reads']\nfrost_depth = sub_meta.loc[env_names == 'frost flowers', 'pipeline_total_reads']\nbrine_rich = obs_richness[env_names == 'Brine']\nfrost_rich = obs_richness[env_names == 'frost flowers']\nprint(f\"\\n=== Brine vs frost flowers depth comparison ===\")\nprint(f\"  Brine depth: mean={brine_depth.mean():.0f}, range=[{brine_depth.min()}, {brine_depth.max()}]\")\nprint(f\"  Frost flowers depth: mean={frost_depth.mean():.0f}, range=[{frost_depth.min()}, {frost_depth.max()}]\")\nprint(f\"  Brine richness: mean={brine_rich.mean():.1f}, range=[{brine_rich.min()}, {brine_rich.max()}]\")\nprint(f\"  Frost flowers richness: mean={frost_rich.mean():.1f}, range=[{frost_rich.min()}, {frost_rich.max()}]\")\n\n# 8. Rarefy to minimum depth and recompute richness to check robustness\nfrom scipy.stats import mannwhitneyu\nmin_depth = sub_meta['pipeline_total_reads'].min()\nprint(f\"\\n=== Minimum depth: {min_depth} ===\")\nrarefied_counts, dropped = rarefy(counts, depth=min_depth, seed=42)\nprint(f\"Dropped {len(dropped)} samples during rarefaction\")\nrarefied_rich = pd.Series((rarefied_counts > 0).sum(axis=1), index=rarefied_counts.index)\n\n# Recompute richness by environment after rarefaction\nprint(\"\\n=== Richness by environment after rarefaction ===\")\nrarefied_env = sub_meta.loc[rarefied_counts.index, 'biosample_env_local_scale']\nfor env in sorted(rarefied_env.unique()):\n    mask = rarefied_env == env\n    vals = rarefied_rich[mask]\n    print(f\"  {env}: n={len(vals)}, mean={vals.mean():.1f}, std={vals.std():.1f}\")\n\n# Pairwise richness after rarefaction\nprint(\"\\n=== Pairwise richness comparisons after rarefaction ===\")\nenvs_sorted = sorted(rarefied_env.unique())\nfor i, e1 in enumerate(envs_sorted):\n    for j, e2 in enumerate(envs_sorted):\n        if j > i:\n            r1 = rarefied_rich[rarefied_env == e1].values\n            r2 = rarefied_rich[rarefied_env == e2].values\n            if len(r1) >= 2 and len(r2) >= 2:\n                stat, p = mannwhitneyu(r1, r2, alternative='two-sided')\n                n1, n2 = len(r1), len(r2)\n                effect = 1 - (2 * stat) / (n1 * n2)\n                print(f\"  {e1} vs {e2}: p={p:.4f}, effect={effect:.4f}, n1={n1}, n2={n2}\")\n\n# Store results\nresult = {\n    'depth_by_env': depth_by_env,\n    'rarefied_min_depth': int(min_depth),\n    'rarefied_dropped': len(dropped),\n    'kr_depth_H': float(kr_depth),\n    'kr_depth_p': float(kr_depth_p),\n}",
+      "result": {
+        "depth_by_env": {
+          "Brine": {
+            "n": 17,
+            "mean": 5722.0,
+            "std": 2991.1193,
+            "min": 2531.0,
+            "max": 12381.0
+          },
+          "chamber air": {
+            "n": 2,
+            "mean": 6722.5,
+            "std": 2618.4164,
+            "min": 4871.0,
+            "max": 8574.0
+          },
+          "frost flowers": {
+            "n": 24,
+            "mean": 6151.625,
+            "std": 3829.3974,
+            "min": 576.0,
+            "max": 14066.0
+          },
+          "ice": {
+            "n": 16,
+            "mean": 7464.9375,
+            "std": 5730.3507,
+            "min": 1343.0,
+            "max": 18856.0
+          },
+          "seawater": {
+            "n": 4,
+            "mean": 10875.0,
+            "std": 7976.6551,
+            "min": 1110.0,
+            "max": 20267.0
+          }
+        },
+        "rarefied_min_depth": 576,
+        "rarefied_dropped": 0,
+        "kr_depth_H": 2.1683,
+        "kr_depth_p": 0.7048
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c13": {
+      "label": "rarefied_richness_and_within_env_correlations",
+      "code": "import pandas as pd\nimport numpy as np\nfrom scipy.stats import entropy, spearmanr, mannwhitneyu\n\n# Load data\nsub_meta = meta.loc[counts.index].copy()\nobs_richness = pd.Series((counts > 0).sum(axis=1), index=counts.index)\nshannon = pd.Series(entropy(counts.values, axis=1, base=2), index=counts.index)\nenv_names = sub_meta['biosample_env_local_scale']\n\n# Rarefy to minimum depth (576)\nmin_depth = sub_meta['pipeline_total_reads'].min()\nrarefied_counts, dropped = rarefy(counts, depth=min_depth, seed=42)\nrarefied_rich = pd.Series((rarefied_counts > 0).sum(axis=1), index=rarefied_counts.index)\nrarefied_env = sub_meta.loc[rarefied_counts.index, 'biosample_env_local_scale']\n\nprint(f\"Rarefaction to depth {min_depth}: dropped {len(dropped)} samples\")\n\n# Within-environment richness-Shannon correlations (raw data)\nprint(\"\\n=== Within-environment richness-Shannon correlations (raw) ===\")\nfor env in sorted(env_names.unique()):\n    mask = env_names == env\n    r_vals = obs_richness[mask]\n    s_vals = shannon[mask]\n    if len(r_vals) >= 3:\n        rho, p = spearmanr(r_vals, s_vals)\n        print(f\"  {env} (n={len(r_vals)}): rho={rho:.4f}, p={p:.4f}\")\n    else:\n        print(f\"  {env} (n={len(r_vals)}): too few samples\")\n\n# Within-environment richness-Shannon correlations (rarefied)\nprint(\"\\n=== Within-environment richness-Shannon correlations (rarefied) ===\")\nrarefied_shannon = pd.Series(entropy(rarefied_counts.values, axis=1, base=2), index=rarefied_counts.index)\nfor env in sorted(rarefied_env.unique()):\n    mask = rarefied_env == env\n    r_vals = rarefied_rich[mask]\n    s_vals = rarefied_shannon[mask]\n    if len(r_vals) >= 3:\n        rho, p = spearmanr(r_vals, s_vals)\n        print(f\"  {env} (n={len(r_vals)}): rho={rho:.4f}, p={p:.4f}\")\n    else:\n        print(f\"  {env} (n={len(r_vals)}): too few samples\")\n\n# Pairwise richness comparisons after rarefaction\nprint(\"\\n=== Pairwise richness comparisons after rarefaction ===\")\nenvs_sorted = sorted(rarefied_env.unique())\nfor i, e1 in enumerate(envs_sorted):\n    for j, e2 in enumerate(envs_sorted):\n        if j > i:\n            r1 = rarefied_rich[rarefied_env == e1].values\n            r2 = rarefied_rich[rarefied_env == e2].values\n            if len(r1) >= 2 and len(r2) >= 2:\n                stat, p = mannwhitneyu(r1, r2, alternative='two-sided')\n                n1, n2 = len(r1), len(r2)\n                effect = 1 - (2 * stat) / (n1 * n2)\n                print(f\"  {e1} vs {e2}: p={p:.4f}, effect={effect:.4f}, n1={n1}, n2={n2}\")\n\n# Check the relationship between richness and depth within each environment\nprint(\"\\n=== Within-environment richness-depth correlations ===\")\nfor env in sorted(env_names.unique()):\n    mask = env_names == env\n    r_vals = obs_richness[mask]\n    d_vals = sub_meta.loc[mask, 'pipeline_total_reads']\n    if len(r_vals) >= 3:\n        rho, p = spearmanr(r_vals, d_vals)\n        print(f\"  {env} (n={len(r_vals)}): rho={rho:.4f}, p={p:.4f}\")\n    else:\n        print(f\"  {env} (n={len(r_vals)}): too few samples\")\n\n# Check if the Brine vs frost flowers richness difference persists after rarefaction\nbrine_rarefied = rarefied_rich[rarefied_env == 'Brine']\nfrost_rarefied = rarefied_rich[rarefied_env == 'frost flowers']\nstat, p = mannwhitneyu(brine_rarefied, frost_rarefied, alternative='two-sided')\nn1, n2 = len(brine_rarefied), len(frost_rarefied)\neffect = 1 - (2 * stat) / (n1 * n2)\nprint(f\"\\n=== Brine vs frost flowers richness (rarefied) ===\")\nprint(f\"  Brine: n={len(brine_rarefied)}, mean={brine_rarefied.mean():.1f}\")\nprint(f\"  Frost flowers: n={len(frost_rarefied)}, mean={frost_rarefied.mean():.1f}\")\nprint(f\"  p={p:.4f}, effect={effect:.4f}\")\n\n# Store results\nresult = {\n    'rarefied_min_depth': int(min_depth),\n    'rarefied_dropped': len(dropped),\n    'rarefied_brine_mean': float(brine_rarefied.mean()),\n    'rarefied_frost_mean': float(frost_rarefied.mean()),\n    'rarefied_brine_vs_frost_p': float(p),\n    'rarefied_brine_vs_frost_effect': float(effect),\n}",
+      "result": {
+        "rarefied_min_depth": 576,
+        "rarefied_dropped": 0,
+        "rarefied_brine_mean": 38.5294,
+        "rarefied_frost_mean": 65.125,
+        "rarefied_brine_vs_frost_p": 0.0001,
+        "rarefied_brine_vs_frost_effect": 0.7475
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
     }
   },
   "agenda": [
@@ -1837,14 +2202,14 @@
       "id": "a2",
       "question": "Alpha diversity gradients across environments: Do observed ASV richness and Shannon entropy differ among the five environments? Apply Kruskal-Wallis test, then pairwise Mann-Whitney U tests with FDR correction. Report effect sizes and adjusted p-values for each environment pair.",
       "rationale": "Salinity and matrix type (solid ice vs liquid brine vs air) are known drivers of microbial diversity in polar systems. Testing for alpha diversity differences reveals whether harsher or more stable environments support fewer or more diverse communities, independent of beta diversity patterns.",
-      "status": "in_progress",
+      "status": "interrupted",
       "parent": null
     },
     {
       "id": "a3",
       "question": "Sequencing depth vs. diversity metrics: Does pipeline_total_reads correlate with observed ASV richness or Shannon entropy in the 63 retained samples? Use Spearman correlation. Determine if richness saturates or scales linearly, and whether rarefaction to equal depth alters diversity rankings or environmental groupings.",
       "rationale": "Amplicon datasets are inherently biased by sequencing depth. Establishing the depth-diversity relationship validates whether observed alpha diversity patterns reflect biology or technical undersampling, and informs whether rarefaction is necessary for downstream comparisons.",
-      "status": "pending",
+      "status": "in_progress",
       "parent": null
     },
     {

@@ -1703,6 +1703,57 @@ class TestDuplicateClaims:
         assert "further" in r["error"] and "mark_done" in r["error"]
 
 
+class TestClaimAntecedents:
+    """A successor cited `k4` as its antecedent — the natural thing when it was handed
+    k4 in its seed — and verification resolved antecedents only against computations and
+    data paths. `k4:nopath`, no evidence, graded `unverifiable`: a gap in the checker
+    reported as a fault in the claim. Claim-sized contexts make this the norm."""
+
+    def _ar(self):
+        ar = _researcher(results={"code_a": {"x": 1}})
+        ar.computations = {"c1": {"label": "l", "code": "code_a", "result": {"x": 1}}}
+        return ar
+
+    def test_a_claim_antecedent_resolves_to_what_it_rests_on(self):
+        ar = self._ar()
+        ar.ledger = [{"id": "k1", "statement": "s", "value": "1", "antecedents": ["c1"],
+                      "assertions": [{"label": "x", "value": "1", "of": ""}]},
+                     {"id": "k2", "statement": "s2", "value": "1", "antecedents": ["k1"],
+                      "assertions": [{"label": "x", "value": "1", "of": ""}]}]
+        assert ar._resolved_antecedents(ar.ledger[1]) == ["c1"]
+
+    def test_a_chain_of_claims_resolves_through(self):
+        ar = self._ar()
+        ar.ledger = [{"id": "k1", "statement": "s", "value": "1", "antecedents": ["c1"]},
+                     {"id": "k2", "statement": "s", "value": "1", "antecedents": ["k1"]},
+                     {"id": "k3", "statement": "s", "value": "1", "antecedents": ["k2"]}]
+        assert ar._resolved_antecedents(ar.ledger[2]) == ["c1"]
+
+    def test_a_mix_of_claim_and_computation_keeps_both(self):
+        ar = self._ar()
+        ar.computations["c2"] = {"label": "l", "code": "code_a", "result": {"x": 1}}
+        ar.ledger = [{"id": "k1", "statement": "s", "value": "1", "antecedents": ["c1"]},
+                     {"id": "k2", "statement": "s", "value": "1",
+                      "antecedents": ["k1", "c2"]}]
+        assert sorted(ar._resolved_antecedents(ar.ledger[1])) == ["c1", "c2"]
+
+    def test_a_cycle_does_not_hang(self):
+        ar = self._ar()
+        ar.ledger = [{"id": "k1", "statement": "s", "value": "1", "antecedents": ["k2"]},
+                     {"id": "k2", "statement": "s", "value": "1", "antecedents": ["k1"]}]
+        assert ar._resolved_antecedents(ar.ledger[0]) == []
+
+    def test_a_claim_citing_a_claim_is_now_verifiable(self):
+        ar = self._ar()
+        ar.ledger = [{"id": "k1", "statement": "s", "value": "1", "antecedents": ["c1"],
+                      "assertions": [{"label": "x", "value": "1", "of": ""}]},
+                     {"id": "k2", "statement": "s2", "value": "1", "antecedents": ["k1"],
+                      "assertions": [{"label": "x", "value": "1", "of": ""}]}]
+        asyncio.run(ar.verify())
+        assert ar.ledger[1]["verdict"] != "unverifiable"
+        assert ar.ledger[1]["checked"] == ["c1:run"]
+
+
 class TestJudgeRetry:
     """glm-4.7-flash spent its whole budget re-reading the instructions back to itself
     and never reached the output format. Five of six claims in one run were graded by

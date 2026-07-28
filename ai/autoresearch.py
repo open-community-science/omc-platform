@@ -2548,6 +2548,35 @@ class Autoresearcher:
             if not c.get("verdict_round1"):
                 await self._verify_one(c)
 
+    def _resolved_antecedents(self, claim: dict, depth: int = 4) -> list[str]:
+        """A claim's antecedents with any CLAIM references replaced by what those
+        claims rest on.
+
+        Claim-sized contexts (#61) make claim-to-claim citation the norm: a successor
+        is handed its predecessor's findings and builds on them. The DAG has always
+        modelled that edge, but verification resolved antecedents only against
+        computations and data paths — so a claim citing `k4` found no evidence and was
+        graded `unverifiable`, which reads as a fault in the claim rather than a gap in
+        the checker."""
+        by_id = {k["id"]: k for k in self.ledger}
+        out, seen, queue = [], set(), list(claim.get("antecedents") or [])
+        while queue and depth >= 0:
+            nxt = []
+            for ant in queue:
+                if ant in seen:
+                    continue
+                seen.add(ant)
+                if ant in by_id:
+                    # A claim is never itself evidence — follow it to what it rests on.
+                    # Self-reference and cycles simply contribute nothing, which `seen`
+                    # already terminates.
+                    if ant != claim.get("id"):
+                        nxt.extend(by_id[ant].get("antecedents") or [])
+                else:
+                    out.append(ant)
+            queue, depth = nxt, depth - 1
+        return out
+
     async def _rerun(self, cid: str) -> tuple[bool, Any]:
         """Re-execute a cited computation, once per run. The cache is per-RESEARCHER
         rather than per-verify-pass so a claim judged live during exploration and the
@@ -2562,7 +2591,7 @@ class Autoresearcher:
         exploring, instead of waiting for the whole run to finish (#61)."""
         c["antecedents"] = _norm_antecedents(c["antecedents"])
         checked, have_evidence = [], False
-        for ant in c["antecedents"]:
+        for ant in self._resolved_antecedents(c):
             if ant in self.computations:
                 good, _ = await self._rerun(ant)
                 have_evidence = have_evidence or good
