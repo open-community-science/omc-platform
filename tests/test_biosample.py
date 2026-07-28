@@ -298,7 +298,13 @@ class TestSandboxHints:
         """fdr, clr and rarefy are ours — not in scipy, so the import fails by
         construction and the traceback blames scipy."""
         r = self._run("from scipy.stats import fdr\nresult = 1")
-        assert "defined in this sandbox" in r["hint"]
+        assert "exist in no library at all" in r["hint"]
+
+    def test_importing_a_bound_library_function_is_answered_correctly(self):
+        """braycurtis IS real scipy, just not in scipy.stats, and it is already bound.
+        The first version of this hint called it a sandbox helper, which was false."""
+        r = self._run("from scipy.stats import braycurtis\nresult = 1")
+        assert "already bound" in r["hint"] and "braycurtis" in r["hint"]
 
     def test_indexing_a_condensed_distance_array_is_answered(self):
         r = self._run("D = pdist(counts.values); result = {'d': float(D[0, 1])}")

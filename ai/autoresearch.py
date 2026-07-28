@@ -1598,11 +1598,16 @@ class Autoresearcher:
                     hint = ("Only the names listed in the briefing exist in this "
                             "sandbox; nothing else can be imported or loaded.")
                 elif "cannot import name" in err or "ImportError" in err:
-                    # `fdr`, `clr` and `rarefy` are OURS — they are not in scipy or
-                    # anywhere else, so importing them fails by construction.
-                    hint = ("`fdr`, `clr` and `rarefy` are helpers defined in this "
-                            "sandbox, not library functions — they are already bound "
-                            "and cannot be imported from anywhere.")
+                    # Two different cases, and the earlier wording covered only one.
+                    # `fdr`/`clr`/`rarefy` are ours and exist nowhere else; but
+                    # `braycurtis`, `entropy` and `PCA` are real library functions,
+                    # already bound, and simply not in the module being guessed at.
+                    hint = ("Everything the briefing lists is already bound and none of "
+                            "it needs importing — that includes the scipy and sklearn "
+                            "functions (braycurtis, entropy, pdist, squareform, PCA, "
+                            "the tests) as well as `fdr`, `clr` and `rarefy`, which are "
+                            "defined here and exist in no library at all. Use the name "
+                            "directly.")
                 elif "boolean index did not match" in err:
                     hint = ("A boolean mask has to match the axis it indexes. `counts` "
                             "and `props` are samples (rows) x ASVs (columns): a "
