@@ -1618,6 +1618,12 @@ class Autoresearcher:
                             "the tests) as well as `fdr`, `clr` and `rarefy`, which are "
                             "defined here and exist in no library at all. Use the name "
                             "directly.")
+                elif "numpy.ndarray' object has no attribute" in err:
+                    hint = ("That is a numpy array, not a pandas object — `.values` and "
+                            "`.to_numpy()` drop you out of pandas. `counts`, `props`, "
+                            "`tax` and `meta` are DataFrames: stay in pandas (.loc, "
+                            ".groupby, .mean(axis=...)), or wrap a result back up with "
+                            "pd.Series(arr, index=...).")
                 elif "boolean index" in err.lower():
                     # numpy says "boolean index did not match"; pandas says "Boolean
                     # index has wrong length". Matching only one of them meant the
@@ -1634,7 +1640,11 @@ class Autoresearcher:
                 # A different error each time is debugging; the same one repeatedly is
                 # being stuck, and the two need different advice. Nothing distinguished
                 # them, so a tip could spend its whole budget on one mistake.
-                sig = " ".join(err.split())[:60]
+                # 40, not 60. Two AttributeErrors differing only in the attribute name
+                # ('median' vs 'values') are the same mistake — treating a numpy array
+                # as a pandas object — and a 60-character signature filed them as
+                # unrelated, so neither escalated.
+                sig = " ".join(err.split())[:40]
                 self._recent_errors.append(sig)
                 self._recent_errors = self._recent_errors[-5:]
                 if (n := self._recent_errors.count(sig)) >= 2:

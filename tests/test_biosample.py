@@ -375,6 +375,25 @@ class TestSandboxHints:
         for r in (numpy_case, pandas_case):
             assert "per-sample mask selects rows" in r["hint"]
 
+    def test_treating_an_array_as_pandas_is_answered(self):
+        r = self._run("a = counts.values\nresult = {'m': float(a.median())}")
+        assert "not a pandas object" in r["hint"] and ".loc" in r["hint"]
+
+    def test_near_identical_errors_escalate_as_one_mistake(self):
+        """`.median` and `.values` on an ndarray are the same mistake. A 60-character
+        signature filed them as unrelated and neither escalated."""
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code":
+            "a = counts.values\nresult = {'m': float(a.median())}"}))
+        second = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code":
+            "a = counts.values\nresult = {'m': float(a.values.mean())}"}))
+        assert "same error" in second["hint"]
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")
