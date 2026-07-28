@@ -795,6 +795,36 @@ class TestSandboxHints:
         r = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": "result = 1"}))
         assert "squareform" not in (r.get("hint") or "")
 
+    def test_a_bad_submodule_path_does_not_claim_the_package_is_missing(self):
+        """An analyst wrote `import skbio.distance`. The answer was "skbio is not
+        installed but CAN be" — false in both halves: it IS installed, and the real path
+        is skbio.stats.distance. Python names the deepest missing component, so the
+        error itself proves the root imported."""
+        from ai.autoresearch import Autoresearcher, DirDataSource, LLMClient, \
+            SubprocessExecutor
+        import asyncio
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        ar.grantable_packages = ("skbio",)
+        ar.executor.run = _fake_run("ModuleNotFoundError: No module named 'skbio.distance'")
+        r = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": "result = 1"}))
+        assert "`skbio` is installed" in r["hint"]
+        assert "`skbio.distance` that does not exist" in r["hint"]
+        assert "request_package" not in r["hint"]
+
+    def test_a_genuinely_missing_root_still_points_at_request_package(self):
+        from ai.autoresearch import Autoresearcher, DirDataSource, LLMClient, \
+            SubprocessExecutor
+        import asyncio
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        ar.grantable_packages = ("skbio",)
+        ar.executor.run = _fake_run("ModuleNotFoundError: No module named 'skbio'")
+        r = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": "result = 1"}))
+        assert "request_package" in r["hint"] and "is installed" not in r["hint"]
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")

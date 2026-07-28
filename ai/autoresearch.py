@@ -1923,7 +1923,17 @@ class Autoresearcher:
                     # skbio — the package this tool was built for — and was told nothing.
                     want = (re.search(r"No module named '([^']+)'", err) or [None, ""])[1]
                     root = want.split(".")[0]
-                    if root in _SANDBOX_NAMES:
+                    if "." in want:
+                        # Python names the DEEPEST missing component, so this error is
+                        # itself proof that `root` imported fine and the submodule path
+                        # is wrong. An analyst wrote `import skbio.distance`; the old
+                        # answer was "skbio is not installed but CAN be", which is false
+                        # in both halves — it is installed, and the real path is
+                        # skbio.stats.distance.
+                        hint = (f"`{root}` is installed — it is `{want}` that does not "
+                                f"exist. Check the submodule path, or use what is "
+                                "already bound here rather than importing.")
+                    elif root in _SANDBOX_NAMES:
                         # It tried to import a name we BIND. Saying "not available and
                         # cannot be installed" would be false and would send it looking
                         # for a package that does not exist.
