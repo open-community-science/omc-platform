@@ -1694,6 +1694,77 @@ class TestDuplicateClaims:
         assert "further" in r["error"] and "mark_done" in r["error"]
 
 
+class TestJudgeRetry:
+    """glm-4.7-flash spent its whole budget re-reading the instructions back to itself
+    and never reached the output format. Five of six claims in one run were graded by
+    nobody. More tokens do not fix a model that expands reasoning to fill them."""
+
+    def _client(self, first, second, first_cut=True):
+        calls = {"n": 0}
+
+        class _Chat:
+            class completions:
+                @staticmethod
+                async def create(**kw):
+                    if kw["messages"][0]["content"] != JUDGE_SYSTEM:
+                        raise AssertionError("only the judge should be called here")
+                    calls["n"] += 1
+                    text = first if calls["n"] == 1 else second
+
+                    class M:
+                        content, tool_calls = text, None
+
+                    class C:
+                        message = M()
+                        finish_reason = "length" if (calls["n"] == 1 and first_cut) else "stop"
+
+                    class R:
+                        choices = [C()]
+                    return R()
+
+        class _Client:
+            chat = _Chat()
+        return _Client(), calls
+
+    def _ar(self, client):
+        return Autoresearcher(_StubData(), LLMClient(client, "judge-model"),
+                              _StubExecutor({}))
+
+    ASSERTIONS = [{"label": "F", "value": "3.447", "of": ""}]
+
+    def test_a_truncated_judge_is_asked_again_for_just_the_lines(self):
+        client, calls = self._client(
+            "Let me re-read the instructions. The task is to grade...",
+            "ASSERTION F: SUPPORTED — the evidence gives 3.447")
+        ar = self._ar(client)
+        j = asyncio.run(ar._judge(JUDGE_SYSTEM, "claim", "judge-model", self.ASSERTIONS))
+        assert calls["n"] == 2
+        assert j["per"] == {"F": "supported"}
+        assert j["graded_nothing"] is False and j["truncated"] is False
+
+    def test_a_judge_that_answered_first_time_is_not_asked_twice(self):
+        client, calls = self._client(
+            "ASSERTION F: SUPPORTED — evidence gives 3.447", "unused", first_cut=False)
+        ar = self._ar(client)
+        j = asyncio.run(ar._judge(JUDGE_SYSTEM, "claim", "judge-model", self.ASSERTIONS))
+        assert calls["n"] == 1 and j["per"] == {"F": "supported"}
+
+    def test_a_retry_that_also_fails_is_reported_as_a_judge_failure(self):
+        """Better ungraded and retried later than a verdict nobody reached."""
+        client, calls = self._client("still thinking...", "still thinking harder...")
+        ar = self._ar(client)
+        j = asyncio.run(ar._judge(JUDGE_SYSTEM, "claim", "judge-model", self.ASSERTIONS))
+        assert calls["n"] == 2 and j["graded_nothing"] is True
+
+    def test_a_judge_cut_off_AFTER_grading_is_left_alone(self):
+        """Truncation only matters when it cost us the verdicts."""
+        client, calls = self._client(
+            "ASSERTION F: SUPPORTED — evidence gives 3.447\\nand furthermore the", "unused")
+        ar = self._ar(client)
+        j = asyncio.run(ar._judge(JUDGE_SYSTEM, "claim", "judge-model", self.ASSERTIONS))
+        assert calls["n"] == 1 and j["per"] == {"F": "supported"}
+
+
 class TestJudgeFailure:
     """glm-4.7-flash ran out of tokens mid-reasoning and emitted no ASSERTION lines.
     The empty grade rolled up to `unverifiable` — a JUDGE failure reported as a

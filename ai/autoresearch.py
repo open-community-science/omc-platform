@@ -2404,12 +2404,28 @@ class Autoresearcher:
                      assertions: list[dict]) -> dict:
         """Grade every assertion in one call. Returns
         ``{per: {label: verdict}, notes: {label: str}, by, raw}``."""
-        resp = await self._chat(
-            "verify",
-            [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            model=model, max_tokens=self.max_tokens, temperature=0.0)
+        msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        resp = await self._chat("verify", msgs, model=model,
+                                max_tokens=self.max_tokens, temperature=0.0)
         cut = getattr(resp.choices[0], "finish_reason", None) == "length"
         text = _strip_think(resp.choices[0].message.content or "")
+        if cut and "ASSERTION" not in text.upper():
+            # It spent the whole budget reasoning — re-reading the instructions back to
+            # itself — and never reached the output format. Five of six claims in one
+            # run were graded by nobody because of this. Asking again for the LINES
+            # ONLY, with its own working already on the table, costs one short call.
+            retry = await self._chat(
+                "verify",
+                msgs + [{"role": "assistant", "content": resp.choices[0].message.content or ""},
+                        {"role": "user", "content":
+                         "You ran out of room before giving the verdicts. Output ONLY the "
+                         "result lines now — one per assertion, nothing before or after:\n"
+                         "ASSERTION <label>: SUPPORTED|CONTRADICTED|NOT_ADDRESSED|AGREES|"
+                         "DIFFERS — <evidence value, or why>"}],
+                model=model, max_tokens=min(1200, self.max_tokens), temperature=0.0)
+            retry_text = _strip_think(retry.choices[0].message.content or "")
+            if "ASSERTION" in retry_text.upper():
+                text, cut = retry_text, False
         per, notes = {}, {}
         for m in re.finditer(
                 r"ASSERTION\s+(.+?)\s*:\s*(SUPPORTED|CONTRADICTED|NOT[_ ]ADDRESSED|AGREES|DIFFERS)"
