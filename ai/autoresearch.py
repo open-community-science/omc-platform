@@ -1608,7 +1608,10 @@ class Autoresearcher:
                             "the tests) as well as `fdr`, `clr` and `rarefy`, which are "
                             "defined here and exist in no library at all. Use the name "
                             "directly.")
-                elif "boolean index did not match" in err:
+                elif "boolean index" in err.lower():
+                    # numpy says "boolean index did not match"; pandas says "Boolean
+                    # index has wrong length". Matching only one of them meant the
+                    # hint fired on half the occurrences of the same mistake.
                     hint = ("A boolean mask has to match the axis it indexes. `counts` "
                             "and `props` are samples (rows) x ASVs (columns): a "
                             "per-sample mask selects rows, a per-ASV mask selects "

@@ -349,6 +349,19 @@ class TestSandboxHints:
                                                            "code": "result = 1/0"}))
         assert "same error" not in (third.get("hint") or "")
 
+    def test_both_boolean_index_phrasings_are_caught(self):
+        """numpy says "boolean index did not match"; pandas says "Boolean index has
+        wrong length". Matching one of them answered half the occurrences of the same
+        mistake."""
+        numpy_case = self._run("arr = counts.values.T\n"
+                               "m = (counts.sum(axis=1) > 0).values\n"
+                               "result = {'x': int(arr[m].shape[0])}")
+        pandas_case = self._run(
+            "m = tax['Domain'].astype(str).str.contains('Bacteria')\n"
+            "sub = tax[m]\nresult = {'x': int(counts.loc[:, sub.index[m]].shape[1])}")
+        for r in (numpy_case, pandas_case):
+            assert "per-sample mask selects rows" in r["hint"]
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")
