@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import datetime as _datetime
 import gzip
+import hashlib
 import json
 import math
 import os
@@ -853,6 +854,19 @@ _SANDBOX_NAMES = frozenset({
     "np", "pd", "counts", "props", "tax", "meta", "pdist", "squareform", "braycurtis",
     "entropy", "pearsonr", "spearmanr", "kruskal", "mannwhitneyu", "PCA",
     "fdr", "clr", "rarefy", "permanova", "alpha_diversity", "by_rank"})
+
+def _result_fingerprint(res) -> str:
+    """Stable digest of an analysis result, for spotting a repeat.
+
+    Trivial results repeat legitimately and constantly (a count, a True), so only
+    fingerprint something with enough structure that a collision means something.
+    """
+    try:
+        blob = json.dumps(res, sort_keys=True, default=str)
+    except Exception:                                    # noqa: BLE001 — unfingerprintable
+        return ""
+    return hashlib.sha256(blob.encode()).hexdigest() if len(blob) >= 80 else ""
+
 
 def _loop_hint(code: str) -> str:
     """A resource kill caused by looping in Python over what scipy vectorises.
@@ -1681,6 +1695,7 @@ class Autoresearcher:
         # per-run state (was module globals in the prototype)
         self.computations: dict[str, Any] = {}   # cid -> {label, code, result}
         self.failures: list[dict] = []            # analyses that errored, with their code
+        self._result_seen: dict[str, str] = {}    # result fingerprint -> first cid
         self.ledger: list[dict] = []              # claim dicts
         self.assumptions: list[dict] = []         # acknowledged, unconfirmable assumptions
         self.agenda: list[dict] = []              # {id, question, rationale, status, parent}
@@ -1946,7 +1961,23 @@ class Autoresearcher:
             self.computations[cid] = {"label": args.get("label", cid),
                                       "code": args.get("code", ""), "result": res,
                                       "by": self.explore_model}  # model that wrote it
-            return {"ok": True, "computation_id": cid, "result": _jsonify(res, cap=MODEL_VIEW_CAP)}
+            out = {"ok": True, "computation_id": cid,
+                   "result": _jsonify(res, cap=MODEL_VIEW_CAP)}
+            # An identical result from different code is nearly always a bug the analyst
+            # cannot see. Comparing networks across three environments, one run returned
+            # the SAME connectance, degree and edge count for all three — it had built one
+            # frame and measured it three times. It then wrote a computation labelled
+            # "corrected" and another labelled "diagnostic", both byte-identical to the
+            # first, and noticed nothing across all three.
+            fp = _result_fingerprint(res)
+            if fp and (prior := self._result_seen.get(fp)) and prior != cid:
+                out["note"] = (f"This result is identical to {prior}. Different code "
+                               "returning the same numbers usually means the new code "
+                               "did not do what you intended — check that it varies "
+                               "what you meant to vary.")
+            elif fp:
+                self._result_seen[fp] = cid
+            return out
         if name == "record_claim":
             statement = args.get("statement", "")
             assertions = (_norm_assertions(args.get("assertions"), args.get("value", ""))

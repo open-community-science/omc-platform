@@ -590,6 +590,40 @@ class TestSandboxHints:
         asyncio.run(ar._exec_tool("run_analysis", {"label": "x", "code": "1/0"}))
         assert len(ar.failures) == 200
 
+    def test_an_identical_result_from_different_code_is_flagged(self):
+        """Comparing three environments, one run returned the same connectance, degree
+        and edge count for all three — it had built one frame and measured it thrice.
+        It then wrote a computation labelled "corrected" and another labelled
+        "diagnostic", both byte-identical, and noticed nothing across all three."""
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        body = ("result = {'a': {'connectance': 0.489, 'degree': 19.561, 'edges': 401},"
+                " 'b': {'connectance': 0.489, 'degree': 19.561, 'edges': 401}}")
+        first = asyncio.run(ar._exec_tool("run_analysis",
+                                          {"label": "one", "code": body}))
+        assert "note" not in first
+        again = asyncio.run(ar._exec_tool(
+            "run_analysis", {"label": "corrected", "code": "# different code\n" + body}))
+        assert "identical to c1" in again.get("note", "")
+
+    def test_a_small_repeated_result_is_not_flagged(self):
+        """A count or a True repeats legitimately and constantly; flagging those would
+        make the note noise."""
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        asyncio.run(ar._exec_tool("run_analysis", {"label": "n", "code": "result = 84"}))
+        second = asyncio.run(ar._exec_tool("run_analysis",
+                                           {"label": "n2", "code": "result = 84"}))
+        assert "note" not in second
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")
