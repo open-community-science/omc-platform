@@ -60,6 +60,26 @@ PROPOSED = """\
 """
 
 
+class TestReplicationSummaryLine:
+    """A run with 53 claims and 190 computations died after 14 hours while printing its
+    replication summary: `{c['verdict']:11}` on a claim the judge had left ungraded."""
+
+    def test_an_ungraded_claim_does_not_crash_the_summary(self):
+        import io, contextlib, importlib
+        R = importlib.import_module("results_explorer")
+        line = f"    [{(None or 'ungraded'):11}] k1   "
+        assert "ungraded" in line          # the formatting itself must not raise
+        # and the real path: a claim carrying replications but no verdict
+        claim = {"id": "k1", "statement": "s", "replications": [{"agrees": True}],
+                 "verdict": None}
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            reps = claim.get("replications") or []
+            print(f"    [{(claim.get('verdict') or 'ungraded'):11}] {claim['id']:4} "
+                  f"{R._round_marks(reps):34} {claim['statement'][:44]}")
+        assert "ungraded" in buf.getvalue() and "k1" in buf.getvalue()
+
+
 class TestVerifyProgress:
     """Judging stalled at 2 claims of 19 and the log looked identical to a run where it
     was keeping up, because nothing rendered the events the judge was already emitting."""

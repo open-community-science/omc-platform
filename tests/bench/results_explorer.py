@@ -198,8 +198,13 @@ async def _run_independent_rounds(ar):
     for c in ar.ledger:
         reps = c.get("replications") or []
         if reps:
-            print(f"    [{c['verdict']:11}] {c['id']:4} {_round_marks(reps):34} "
-                  f"{c['statement'][:44]}", flush=True)
+            # `or "ungraded"`, because a verdict is NOT guaranteed here. When the judge
+            # fails it leaves the claim ungraded on purpose (ae62511) rather than
+            # inventing a verdict, and `{None:11}` is a TypeError. A run that had
+            # produced 53 claims and 190 computations over 14 hours died on this line
+            # while writing its final output.
+            print(f"    [{(c.get('verdict') or 'ungraded'):11}] {c['id']:4} "
+                  f"{_round_marks(reps):34} {c['statement'][:44]}", flush=True)
 
 
 def _run_lms(host: dict, args: str, timeout: int) -> bool:
