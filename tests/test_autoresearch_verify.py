@@ -1561,9 +1561,36 @@ class TestDuplicateClaims:
             self.CALL, assertions=self.CALL["assertions"] + [{"label": "dof", "value": "4"}])))
         assert r["recorded"] is True
 
-    def test_a_different_value_for_the_same_label_is_allowed(self):
+    def test_a_different_value_for_the_same_label_is_now_refused(self):
+        """This asserted the opposite until four successor contexts recorded four
+        different PERMANOVA F values for one investigation — 0.0048, 0.39, 22.89 and
+        one more — and the identity check passed every one because the numbers DIFFER.
+        A ledger holding two values for one quantity is incoherent whatever the
+        verifier later says about each in isolation."""
         ar = self._ar()
         asyncio.run(ar._exec_tool("record_claim", self.CALL))
+        r = asyncio.run(ar._exec_tool("record_claim", dict(
+            self.CALL, assertions=[{"label": "chi2", "value": "9.1"},
+                                   {"label": "p", "value": "0.0042"}])))
+        assert r["recorded"] is False
+        assert "One of them is wrong" in r["error"]
+
+    def test_rounding_is_not_treated_as_a_contradiction(self):
+        ar = self._ar()
+        asyncio.run(ar._exec_tool("record_claim", self.CALL))
+        r = asyncio.run(ar._exec_tool("record_claim", dict(
+            self.CALL, assertions=[{"label": "chi2", "value": "3.8534"},
+                                   {"label": "p", "value": "0.4262"},
+                                   {"label": "dof", "value": "4"}])))
+        assert r["recorded"] is True
+
+    def test_a_contradiction_on_a_DIFFERENT_investigation_is_fine(self):
+        """Two investigations may legitimately measure the same-named quantity."""
+        ar = self._ar()
+        ar.agenda = [{"id": "a1", "question": "Q1", "status": "in_progress", "parent": None},
+                     {"id": "a2", "question": "Q2", "status": "pending", "parent": None}]
+        asyncio.run(ar._exec_tool("record_claim", self.CALL))
+        ar._active_tip = "a2"
         r = asyncio.run(ar._exec_tool("record_claim", dict(
             self.CALL, assertions=[{"label": "chi2", "value": "9.1"},
                                    {"label": "p", "value": "0.0042"}])))

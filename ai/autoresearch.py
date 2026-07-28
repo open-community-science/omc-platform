@@ -1678,6 +1678,33 @@ class Autoresearcher:
                             f"{prior['id']} already asserts exactly these values. Either "
                             "take this investigation further than it did, or call "
                             "mark_done if there is nothing left to find."}
+            # Contradiction on the same investigation. Four successor contexts each
+            # re-derived the same PERMANOVA and recorded four different F values, and
+            # the identity check above passed every one of them because the numbers
+            # DIFFER — which is the worse failure, not the acceptable one. A ledger
+            # that asserts two values for one quantity is incoherent whatever the
+            # verifier later says about each in isolation.
+            _here = self._current_investigation()
+            _mine = {a.get("label"): str(a.get("value", "")) for a in assertions}
+            for prior in self.ledger:
+                if prior.get("investigation") != _here:
+                    continue
+                for pa in (prior.get("assertions") or []):
+                    lbl, was = pa.get("label"), str(pa.get("value", ""))
+                    if lbl not in _mine or _mine[lbl] == was:
+                        continue
+                    _a, _b = _first_number(was), _first_number(_mine[lbl])
+                    # Rounding and re-phrasing are not contradictions; a different
+                    # answer is. Non-numeric values fall back to plain inequality.
+                    if _a is not None and _b is not None and _close(_a, _b):
+                        continue
+                    self.refused_claims += 1
+                    return {"recorded": False, "error":
+                            f"{prior['id']} already asserts {lbl}={was} for this same "
+                            f"investigation and you have {lbl}={_mine[lbl]}. One of them "
+                            "is wrong. Work out which — check your method against the "
+                            "earlier computation — and record the corrected value with "
+                            "the reason, rather than a second answer beside it."}
             claim = {"id": f"k{len(self.ledger) + 1}", "statement": statement,
                      "value": str(args.get("value", "")) or _assertions_summary(assertions),
                      "assertions": assertions,

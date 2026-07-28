@@ -147,6 +147,51 @@
       ],
       "kind": "pattern",
       "investigation": "a1",
+      "by": "qwen/qwen3.6-35b-a3b",
+      "checked": [
+        "c4:run"
+      ],
+      "judgment": {
+        "per": {},
+        "notes": {},
+        "by": "glm-4.7-flash",
+        "raw": "1.  **Analyze the Request:**\n    *   Role: Strict verification auditor.\n    *   Input:\n        *   CLAIM (broken into ASSERTIONS).\n        *   PARAMETERS (context, not graded - though here it's empty/irrelevant for grading specific numbers against evidence labels directly unless needed to interpret group sizes/names which are in the Evidence block anyway. The prompt says \"PARAMETERS... describe how analysis was done\". I will ignore them as they don't contain values that contradict assertions).\n        *   INDEPENDENT EVIDENCE (raw data re-executed with analyst's own labels intact - wait, looki",
+        "unmatched": []
+      },
+      "assertion_verdicts": {},
+      "verdict": "unverifiable",
+      "unsupported_numbers": [],
+      "method": "judged",
+      "reproduced": false,
+      "verdict_round1": "unverifiable"
+    },
+    {
+      "id": "k4",
+      "statement": "PERMANOVA on Bray-Curtis dissimilarities shows statistically significant clustering by biosample_env_local_scale (p=0.016), but the effect size is negligible (R\u00b2=0.18%), indicating that environment type explains almost none of the community composition variation.",
+      "value": "F_statistic=0.0266, p_value=0.016, R_squared=0.0018",
+      "assertions": [
+        {
+          "label": "F_statistic",
+          "value": "0.0266",
+          "of": "Bray-Curtis PERMANOVA, 5 environment groups"
+        },
+        {
+          "label": "p_value",
+          "value": "0.016",
+          "of": "Bray-Curtis PERMANOVA, 999 permutations"
+        },
+        {
+          "label": "R_squared",
+          "value": "0.0018",
+          "of": "Bray-Curtis PERMANOVA, 63 samples"
+        }
+      ],
+      "parameters": {},
+      "antecedents": [
+        "c5"
+      ],
+      "kind": "pattern",
+      "investigation": "a1",
       "by": "qwen/qwen3.6-35b-a3b"
     }
   ],
@@ -240,6 +285,26 @@
         "F_perms_mean": 5.2602,
         "F_perms_max": 180.7884,
         "n_permutations": 999
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c5": {
+      "label": "PERMANOVA on Bray-Curtis by biosample_env_local_scale",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.spatial.distance import pdist, squareform\nfrom scipy.stats import f as f_dist\n\n# Align meta with counts (only samples present in counts)\nsub_meta = meta.loc[counts.index].copy()\n\n# Get environment labels\nenv_labels = sub_meta['biosample_env_local_scale']\n\n# Check group sizes after alignment\nprint(\"Group sizes after alignment:\")\nprint(env_labels.value_counts())\nprint(f\"\\nTotal samples in analysis: {len(env_labels)}\")\n\n# Compute Bray-Curtis dissimilarity matrix\n# counts is 63 samples x 735 ASVs\nbray_dist = pdist(counts, metric='braycurtis')\nbray_matrix = squareform(bray_dist)\n\n# PERMANOVA (adonis-like) implementation\n# F-statistic = (between-group SS / df_between) / (within-group SS / df_within)\n# R\u00b2 = between-group SS / total SS\n\ngroups = env_labels.values\nunique_groups = np.unique(groups)\nn = len(groups)\n\n# Grand mean\ngrand_mean = bray_matrix.mean()\n\n# Total SS (using the distance matrix, total SS = sum of squared deviations from grand mean)\n# For PERMANOVA on distance matrices: total_SS = sum(d_ij\u00b2) / n  (but we need the right formulation)\n# Standard approach: total_SS = sum over all pairs of (d_ij - grand_mean)\u00b2 / 2\n# Actually for PERMANOVA: total_SS = sum(d_ij\u00b2) / n where d_ii = 0\n\n# Let me use the standard PERMANOVA formulation:\n# Between-group SS = sum over groups g of n_g * (mean_d_g - grand_mean)\u00b2 ... no, that's not right either\n\n# Correct PERMANOVA on distance matrix:\n# Total SS = sum_{i<j} d_ij\u00b2 / n  (but this is for the centered matrix)\n# Actually: total_SS = (1/n) * sum_{i,j} d_ij\u00b2  (since d_ii = 0, this equals (2/n) * sum_{i<j} d_ij\u00b2)\n\n# Let me use the standard approach:\n# total_SS = sum of all squared distances / n\ntotal_SS = np.sum(bray_matrix ** 2) / n\n\n# Between-group SS\nbetween_SS = 0\nfor g in unique_groups:\n    mask = groups == g\n    n_g = mask.sum()\n    # Mean distance from group g to all samples\n    mean_d_g = bray_matrix[mask].mean()\n    between_SS += n_g * (mean_d_g - grand_mean) ** 2\n\n# Within-group SS\nwithin_SS = total_SS - between_SS\n\n# Degrees of freedom\nk = len(unique_groups)\ndf_between = k - 1\ndf_within = n - k\n\n# F-statistic\nF_stat = (between_SS / df_between) / (within_SS / df_within)\n\n# R\u00b2\nR_squared = between_SS / total_SS\n\nprint(f\"\\nF-statistic: {F_stat:.4f}\")\nprint(f\"R\u00b2: {R_squared:.6f}\")\nprint(f\"df_between: {df_between}, df_within: {df_within}\")\nprint(f\"between_SS: {between_SS:.6f}, within_SS: {within_SS:.6f}, total_SS: {total_SS:.6f}\")\n\n# Permutation test with 999 permutations\nn_perm = 999\nperm_F = np.zeros(n_perm)\n\nfor i in range(n_perm):\n    # Shuffle group labels\n    perm_groups = groups[np.random.permutation(n)]\n    \n    perm_between_SS = 0\n    for g in unique_groups:\n        mask = perm_groups == g\n        n_g = mask.sum()\n        mean_d_g = bray_matrix[mask].mean()\n        perm_between_SS += n_g * (mean_d_g - grand_mean) ** 2\n    \n    perm_within_SS = total_SS - perm_between_SS\n    perm_F[i] = (perm_between_SS / df_between) / (perm_within_SS / df_within)\n\n# p-value: proportion of permuted F >= observed F\np_value = (perm_F >= F_stat).sum() / n_perm\n\nprint(f\"\\nPermutation p-value: {p_value:.4f}\")\nprint(f\"Number of permuted F >= observed: {(perm_F >= F_stat).sum()}\")\nprint(f\"Mean permuted F: {perm_F.mean():.4f}\")\nprint(f\"Max permuted F: {perm_F.max():.4f}\")\n\n# Store result\nresult = {\n    'F_statistic': F_stat,\n    'R_squared': R_squared,\n    'p_value': p_value,\n    'n_samples': n,\n    'n_groups': k,\n    'group_sizes': {g: int((groups == g).sum()) for g in unique_groups},\n    'permutations': n_perm\n}",
+      "result": {
+        "F_statistic": 0.0266,
+        "R_squared": 0.0018,
+        "p_value": 0.016,
+        "n_samples": 63,
+        "n_groups": 5,
+        "group_sizes": {
+          "Brine": 17,
+          "chamber air": 2,
+          "frost flowers": 24,
+          "ice": 16,
+          "seawater": 4
+        },
+        "permutations": 999
       },
       "by": "qwen/qwen3.6-35b-a3b"
     }
