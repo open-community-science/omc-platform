@@ -1571,6 +1571,31 @@ class TestAssumptionsAndParameters:
         assert "`parameters` is empty" in r["note"]
         assert "record_assumption" in r["note"]
 
+    def test_the_note_names_the_choices_the_code_actually_made(self):
+        """Asking for parameters in the abstract failed three times in one evening — a
+        Shannon log base, a power-law fitting method, an invented ordinal scale — each
+        a correct claim made unreproducible by one unstated choice."""
+        ar = _hyphal(_ScriptedClient())
+        ar.computations["c1"] = {"label": "l", "by": "m",
+                                 "code": "sh = entropy(p, base=2)\n"
+                                         "D = pdist(X, metric='braycurtis')",
+                                 "result": {}}
+        r = asyncio.run(ar._exec_tool("record_claim", {
+            "statement": "shannon differs", "kind": "pattern", "antecedents": ["c1"],
+            "assertions": [{"label": "shannon", "value": "4.59"}]}))
+        assert "base=2" in r["note"] and "metric=braycurtis" in r["note"]
+        assert "will read as refuted" in r["note"]
+
+    def test_a_claim_whose_code_chose_nothing_gets_the_general_note(self):
+        ar = _hyphal(_ScriptedClient())
+        ar.computations["c1"] = {"label": "l", "by": "m",
+                                 "code": "result = {'n': int(counts.shape[0])}",
+                                 "result": {}}
+        r = asyncio.run(ar._exec_tool("record_claim", {
+            "statement": "n samples", "kind": "observation", "antecedents": ["c1"],
+            "assertions": [{"label": "n", "value": "63"}]}))
+        assert "`parameters` is empty" in r["note"] and "base=" not in r["note"]
+
     def test_a_claim_that_declares_its_knobs_is_left_alone(self):
         ar = _hyphal(_ScriptedClient())
         r = asyncio.run(ar._exec_tool("record_claim", {

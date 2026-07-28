@@ -561,6 +561,170 @@
       ],
       "kind": "pattern",
       "investigation": "a2",
+      "by": "qwen/qwen3.6-35b-a3b",
+      "checked": [
+        "c11:run",
+        "c12:run",
+        "c13:run"
+      ],
+      "judgment": {
+        "per": {},
+        "notes": {},
+        "by": "glm-4.7-flash",
+        "raw": "I need to verify each assertion based on the provided evidence.\n\n**Assertion: `rarefied_min_depth = 576`**\n*   **Context:** The claim states this is used for rarefaction.\n    *   Evidence [c12] lists `\"min\": 572.0, \"max\"` etc., but explicitly defines a key field as:\n        ```json\n         {\n          ...\n           \"rarefied_min_depth\": 576,\n            ... \n         }\n       ```\n*   **Verification:** The evidence value matches the assertion exactly.\n    *   Grade: SUPPORTED\n\n**Assertion: `depth_KW_H = 2.1683`**\n*   **Context:** Kruskal-Wallis H statistic for pipeline_total_reads across envi",
+        "truncated": true,
+        "graded_nothing": true,
+        "unmatched": []
+      },
+      "assertion_verdicts": {},
+      "method": "judge-failed"
+    },
+    {
+      "id": "k7",
+      "statement": "Observed ASV richness is strongly positively correlated with sequencing depth (rho=0.6262, p<0.001), confirming depth-confounding; Shannon entropy shows no depth correlation (rho=0.0573, p=0.6553), indicating it is depth-invariant in this dataset",
+      "value": "richness_depth_rho=0.6262, richness_depth_p=0.0, shannon_depth_rho=0.0573, shannon_depth_p=0.6553",
+      "assertions": [
+        {
+          "label": "richness_depth_rho",
+          "value": "0.6262",
+          "of": "63 retained samples, Spearman correlation"
+        },
+        {
+          "label": "richness_depth_p",
+          "value": "0.0",
+          "of": "63 retained samples"
+        },
+        {
+          "label": "shannon_depth_rho",
+          "value": "0.0573",
+          "of": "63 retained samples, Spearman correlation"
+        },
+        {
+          "label": "shannon_depth_p",
+          "value": "0.6553",
+          "of": "63 retained samples"
+        }
+      ],
+      "parameters": {},
+      "antecedents": [
+        "c14"
+      ],
+      "kind": "pattern",
+      "investigation": "a3",
+      "by": "qwen/qwen3.6-35b-a3b",
+      "checked": [
+        "c14:run"
+      ],
+      "judgment": {
+        "per": {},
+        "notes": {},
+        "by": "glm-4.7-flash",
+        "raw": "I need to grade each assertion based on the provided independent evidence.\n\n**Assertion: richness_depth_rho = 0.6262**\n*   **Label:** `richness` (implied by context of ASV richness)\n*   **Value in Claim/Assertions list for grading purposes? No, wait.\n    *Wait*, looking at \"ASSERTIONS TO GRADE\":\n      - richesssity_depth_rho = 0.6262\n*\nLet's look closer.\n\nThe prompt says: `Grade EVERY assertion on its own.`\n\n**Assertion List provided in the text block to grade (not just labels):**\n1. richness_depth_rho = 0.06362? No, let me re-read carefully.\n   \"ASSERTIONS TO GRADE:\n     - richesssity... wait",
+        "truncated": true,
+        "graded_nothing": true,
+        "unmatched": []
+      },
+      "assertion_verdicts": {},
+      "method": "judge-failed"
+    },
+    {
+      "id": "k8",
+      "statement": "Observed ASV richness is strongly depth-confounded (rho=0.626, p<0.001) while Shannon entropy is depth-invariant (rho=0.057, p=0.655). Richness scales sublinearly with depth: power-law slope=0.415 (R\u00b2=0.321) and exponential saturation model (R\u00b2=0.399) both fit better than linear (R\u00b2=0.301), with residuals from linear fit still positively correlated with depth (rho=0.275, p=0.029), indicating diminishing returns. Rarefaction to minimum depth (576 reads) preserves sample richness rankings well (rho=0.930, p<0.001) with only 5 of 63 samples changing rank by >10 positions; rarefied richness shows stronger environment differences (KW H=18.24, p=0.0011) than raw (KW H=13.23, p=0.0102), confirming the environment signal is not an artifact of depth variation.",
+      "value": "richness_depth_rho=0.6262, richness_depth_p=0.0, shannon_depth_rho=0.0573, shannon_depth_p=0.6553, power_law_slope=0.4151, power_law_R2=0.3207, exp_sat_R2=0.399, linear_R2=0.3006, residual_depth_rho=0.2752, residual_depth_p=0.029, rarefied_richness_rank_rho=0.9303, rarefied_richness_rank_p=0.0, n_major_rank_changes=5, rarefied_KW_H=18.2389, rarefied_KW_p=0.0011, raw_KW_H=13.2333, raw_KW_p=0.0102",
+      "assertions": [
+        {
+          "label": "richness_depth_rho",
+          "value": "0.6262",
+          "of": "63 retained samples, Spearman correlation of pipeline_total_reads vs observed ASV richness"
+        },
+        {
+          "label": "richness_depth_p",
+          "value": "0.0",
+          "of": "63 retained samples, Spearman test"
+        },
+        {
+          "label": "shannon_depth_rho",
+          "value": "0.0573",
+          "of": "63 retained samples, Spearman correlation of pipeline_total_reads vs Shannon entropy"
+        },
+        {
+          "label": "shannon_depth_p",
+          "value": "0.6553",
+          "of": "63 retained samples, Spearman test"
+        },
+        {
+          "label": "power_law_slope",
+          "value": "0.4151",
+          "of": "log-log regression of richness vs depth"
+        },
+        {
+          "label": "power_law_R2",
+          "value": "0.3207",
+          "of": "power-law model (richness = a * depth^b) fit to 63 samples"
+        },
+        {
+          "label": "exp_sat_R2",
+          "value": "0.399",
+          "of": "exponential saturation model (richness = a*(1-exp(-b*depth))) fit to 63 samples"
+        },
+        {
+          "label": "linear_R2",
+          "value": "0.3006",
+          "of": "linear model fit of richness vs depth for 63 samples"
+        },
+        {
+          "label": "residual_depth_rho",
+          "value": "0.2752",
+          "of": "Spearman correlation of linear-fit residuals vs depth, indicating non-linearity"
+        },
+        {
+          "label": "residual_depth_p",
+          "value": "0.029",
+          "of": "test of residual-depth correlation"
+        },
+        {
+          "label": "rarefied_richness_rank_rho",
+          "value": "0.9303",
+          "of": "Spearman correlation of raw vs rarefied (576 reads) richness rankings, 63 samples"
+        },
+        {
+          "label": "rarefied_richness_rank_p",
+          "value": "0.0",
+          "of": "test of rank correlation"
+        },
+        {
+          "label": "n_major_rank_changes",
+          "value": "5",
+          "of": "samples changing richness rank by >10 positions after rarefaction to 576 reads"
+        },
+        {
+          "label": "rarefied_KW_H",
+          "value": "18.2389",
+          "of": "Kruskal-Wallis test of rarefied richness across 5 environments"
+        },
+        {
+          "label": "rarefied_KW_p",
+          "value": "0.0011",
+          "of": "Kruskal-Wallis test of rarefied richness across 5 environments"
+        },
+        {
+          "label": "raw_KW_H",
+          "value": "13.2333",
+          "of": "Kruskal-Wallis test of raw richness across 5 environments"
+        },
+        {
+          "label": "raw_KW_p",
+          "value": "0.0102",
+          "of": "Kruskal-Wallis test of raw richness across 5 environments"
+        }
+      ],
+      "parameters": {},
+      "antecedents": [
+        "c18",
+        "c19"
+      ],
+      "kind": "pattern",
+      "investigation": "a3",
       "by": "qwen/qwen3.6-35b-a3b"
     }
   ],
@@ -2188,6 +2352,288 @@
         "rarefied_brine_vs_frost_effect": 0.7475
       },
       "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c14": {
+      "label": "depth_vs_diversity_raw",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import spearmanr, pearsonr, entropy\n\n# Load data\nsub = counts.loc[meta.index[meta['pipeline_in_counts']]]\nmeta_sub = meta.loc[sub.index]\n\n# Compute alpha diversity metrics per sample\nobserved_richness = pd.Series((sub > 0).sum(axis=1), index=sub.index, name='richness')\nshannon_entropy = pd.Series(entropy(sub.values, base=2, axis=1), index=sub.index, name='shannon')\n\n# Get sequencing depth\ndepth = pd.Series(sub.sum(axis=1), index=sub.index, name='depth')\n\n# Spearman correlations\nrich_depth_rho, rich_depth_p = spearmanr(depth, observed_richness)\nshannon_depth_rho, shannon_depth_p = spearmanr(depth, shannon_entropy)\n\n# Pearson for comparison\nrich_depth_r, rich_depth_r_p = pearsonr(depth, observed_richness)\nshannon_depth_r, shannon_depth_r_p = pearsonr(depth, shannon_entropy)\n\n# Check for saturation: split samples into depth quartiles\ndepth_quartiles = pd.qcut(depth, 4, labels=['Q1_low', 'Q2_med_low', 'Q3_med_high', 'Q4_high'])\nrichness_by_quartile = observed_richness.groupby(depth_quartiles).mean()\nshannon_by_quartile = shannon_entropy.groupby(depth_quartiles).mean()\n\n# Also compute correlation within each environmental group\nenv_groups = meta_sub['biosample_env_local_scale']\nrich_depth_by_env = {}\nshannon_depth_by_env = {}\nfor env in env_groups.unique():\n    mask = env_groups == env\n    if mask.sum() >= 3:\n        rho, p = spearmanr(depth[mask], observed_richness[mask])\n        rich_depth_by_env[env] = (rho, p)\n        rho_s, p_s = spearmanr(depth[mask], shannon_entropy[mask])\n        shannon_depth_by_env[env] = (rho_s, p_s)\n\nresult = {\n    'rich_depth_rho': rich_depth_rho,\n    'rich_depth_p': rich_depth_p,\n    'rich_depth_r': rich_depth_r,\n    'rich_depth_r_p': rich_depth_r_p,\n    'shannon_depth_rho': shannon_depth_rho,\n    'shannon_depth_p': shannon_depth_p,\n    'shannon_depth_r': shannon_depth_r,\n    'shannon_depth_r_p': shannon_depth_r_p,\n    'richness_by_quartile': richness_by_quartile,\n    'shannon_by_quartile': shannon_by_quartile,\n    'rich_depth_by_env': rich_depth_by_env,\n    'shannon_depth_by_env': shannon_depth_by_env,\n    'n_samples': len(sub),\n    'depth_stats': {'mean': float(depth.mean()), 'median': float(depth.median()), 'min': int(depth.min()), 'max': int(depth.max())},\n    'richness_stats': {'mean': float(observed_richness.mean()), 'median': float(observed_richness.median()), 'min': int(observed_richness.min()), 'max': int(observed_richness.max())},\n    'shannon_stats': {'mean': float(shannon_entropy.mean()), 'median': float(shannon_entropy.median()), 'min': float(shannon_entropy.min()), 'max': float(shannon_entropy.max())},\n}",
+      "result": {
+        "rich_depth_rho": 0.6262,
+        "rich_depth_p": 0.0,
+        "rich_depth_r": 0.5482,
+        "rich_depth_r_p": 0.0,
+        "shannon_depth_rho": 0.0573,
+        "shannon_depth_p": 0.6553,
+        "shannon_depth_r": -0.1962,
+        "shannon_depth_r_p": 0.1232,
+        "richness_by_quartile": {
+          "Q1_low": 42.9375,
+          "Q2_med_low": 70.5625,
+          "Q3_med_high": 84.6,
+          "Q4_high": 100.5625
+        },
+        "shannon_by_quartile": {
+          "Q1_low": 3.7346,
+          "Q2_med_low": 4.188,
+          "Q3_med_high": 3.964,
+          "Q4_high": 3.6705
+        },
+        "rich_depth_by_env": {
+          "frost flowers": [
+            0.9754,
+            0.0
+          ],
+          "ice": [
+            0.5,
+            0.0486
+          ],
+          "seawater": [
+            0.9487,
+            0.0513
+          ],
+          "Brine": [
+            0.1399,
+            0.5923
+          ]
+        },
+        "shannon_depth_by_env": {
+          "frost flowers": [
+            0.8513,
+            0.0
+          ],
+          "ice": [
+            -0.2794,
+            0.2946
+          ],
+          "seawater": [
+            0.4,
+            0.6
+          ],
+          "Brine": [
+            -0.5882,
+            0.013
+          ]
+        },
+        "n_samples": 63,
+        "depth_stats": {
+          "mean": 6687.254,
+          "median": 5465.0,
+          "min": 576,
+          "max": 20267
+        },
+        "richness_stats": {
+          "mean": 74.5079,
+          "median": 70.0,
+          "min": 16,
+          "max": 161
+        },
+        "shannon_stats": {
+          "mean": 3.8881,
+          "median": 4.0814,
+          "min": 1.0868,
+          "max": 5.8197
+        }
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c15": {
+      "label": "rarefaction_analysis",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import spearmanr, entropy\n\n# Load data\nsub = counts.loc[meta.index[meta['pipeline_in_counts']]]\nmeta_sub = meta.loc[sub.index]\n\n# Determine minimum depth for rarefaction\nmin_depth = sub.sum(axis=1).min()\nprint(f\"Minimum depth: {min_depth}\")\n\n# Rarefy to minimum depth\nrarefied, dropped = rarefy(sub, depth=min_depth, seed=0)\nprint(f\"Dropped samples: {dropped}\")\n\n# Compute alpha diversity on rarefied data\nrarefied_richness = pd.Series((rarefied > 0).sum(axis=1), index=rarefied.index, name='rarefied_richness')\nrarefied_shannon = pd.Series(entropy(rarefied.values, base=2, axis=1), index=rarefied.index, name='rarefied_shannon')\n\n# Original (non-rarefied) values\noriginal_richness = pd.Series((sub > 0).sum(axis=1), index=sub.index, name='richness')\noriginal_shannon = pd.Series(entropy(sub.values, base=2, axis=1), index=sub.index, name='shannon')\n\n# Correlation between original and rarefied richness rankings\nrich_rank_corr, rich_rank_p = spearmanr(original_richness, rarefied_richness)\nshannon_rank_corr, shannon_rank_p = spearmanr(original_shannon, rarefied_shannon)\n\n# Also check: does rarefaction change the environmental group patterns?\n# Get environmental groups for retained samples\nenv_groups = meta_sub.loc[rarefied.index]['biosample_env_local_scale']\n\n# Mean rarefied richness by environment\nrarefied_richness_by_env = rarefied_richness.groupby(env_groups).mean()\nrarefied_shannon_by_env = rarefied_shannon.groupby(env_groups).mean()\n\n# Compare to original\noriginal_richness_by_env = original_richness.groupby(env_groups).mean()\noriginal_shannon_by_env = original_shannon.groupby(env_groups).mean()\n\n# Also check: within each environment, does rarefied richness still correlate with depth?\n# After rarefaction, depth is constant, so this should be zero\nrarefied_depth = rarefied.sum(axis=1)\nrarefied_depth_by_env = {}\nfor env in env_groups.unique():\n    mask = env_groups == env\n    if mask.sum() >= 3:\n        rho, p = spearmanr(rarefied_depth[mask], rarefied_richness[mask])\n        rarefied_depth_by_env[env] = (rho, p)\n\nresult = {\n    'min_depth': min_depth,\n    'n_dropped': len(dropped),\n    'dropped_samples': dropped,\n    'rich_rank_corr': rich_rank_corr,\n    'rich_rank_p': rich_rank_p,\n    'shannon_rank_corr': shannon_rank_corr,\n    'shannon_rank_p': shannon_rank_p,\n    'rarefied_richness_by_env': rarefied_richness_by_env,\n    'original_richness_by_env': original_richness_by_env,\n    'rarefied_shannon_by_env': rarefied_shannon_by_env,\n    'original_shannon_by_env': original_shannon_by_env,\n    'rarefied_depth_by_env': rarefied_depth_by_env,\n    'n_rarefied_samples': len(rarefied),\n}",
+      "result": {
+        "min_depth": 576.0,
+        "n_dropped": 0,
+        "dropped_samples": [],
+        "rich_rank_corr": 0.9376,
+        "rich_rank_p": 0.0,
+        "shannon_rank_corr": 0.9896,
+        "shannon_rank_p": 0.0,
+        "rarefied_richness_by_env": {
+          "Brine": 39.5882,
+          "chamber air": 62.5,
+          "frost flowers": 66.25,
+          "ice": 48.6875,
+          "seawater": 51.0
+        },
+        "original_richness_by_env": {
+          "Brine": 52.2353,
+          "chamber air": 74.0,
+          "frost flowers": 92.0,
+          "ice": 69.375,
+          "seawater": 85.0
+        },
+        "rarefied_shannon_by_env": {
+          "Brine": 3.1909,
+          "chamber air": 4.7995,
+          "frost flowers": 4.4841,
+          "ice": 3.4243,
+          "seawater": 3.4448
+        },
+        "original_shannon_by_env": {
+          "Brine": 3.2196,
+          "chamber air": 4.944,
+          "frost flowers": 4.588,
+          "ice": 3.5031,
+          "seawater": 3.5409
+        },
+        "rarefied_depth_by_env": {
+          "frost flowers": [
+            NaN,
+            NaN
+          ],
+          "ice": [
+            NaN,
+            NaN
+          ],
+          "seawater": [
+            NaN,
+            NaN
+          ],
+          "Brine": [
+            NaN,
+            NaN
+          ]
+        },
+        "n_rarefied_samples": 63
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c16": {
+      "label": "saturation_analysis",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import spearmanr, entropy\n\n# Load data\nsub = counts.loc[meta.index[meta['pipeline_in_counts']]]\nmeta_sub = meta.loc[sub.index]\n\n# Compute alpha diversity metrics\nobserved_richness = pd.Series((sub > 0).sum(axis=1), index=sub.index, name='richness')\nshannon_entropy = pd.Series(entropy(sub.values, base=2, axis=1), index=sub.index, name='shannon')\ndepth = pd.Series(sub.sum(axis=1), index=sub.index, name='depth')\n\n# Check for saturation: does the richness-depth relationship show diminishing returns?\n# Fit a simple model: richness = a * log(depth) + b vs richness = a * depth + b\nfrom scipy.optimize import curve_fit\n\ndef log_model(x, a, b):\n    return a * np.log(x) + b\n\ndef linear_model(x, a, b):\n    return a * x + b\n\n# Fit both models\nlog_params, _ = curve_fit(log_model, depth.values, observed_richness.values, p0=[10, 10])\nlinear_params, _ = curve_fit(linear_model, depth.values, observed_richness.values, p0=[0.01, 10])\n\n# Compute R\u00b2 for both\nlog_pred = log_model(depth.values, *log_params)\nlinear_pred = linear_model(depth.values, *linear_params)\n\nss_res_log = np.sum((observed_richness.values - log_pred) ** 2)\nss_res_lin = np.sum((observed_richness.values - linear_pred) ** 2)\nss_tot = np.sum((observed_richness.values - observed_richness.mean()) ** 2)\n\nr2_log = 1 - ss_res_log / ss_tot\nr2_lin = 1 - ss_res_lin / ss_tot\n\n# Also check: is the slope significantly different from zero for the log model?\n# And is the log model significantly better than linear?\n# Use AIC comparison\nn = len(depth)\nk_log = 2\nk_lin = 2\naic_log = n * np.log(ss_res_log / n) + 2 * k_log\naic_lin = n * np.log(ss_res_lin / n) + 2 * k_lin\n\n# Check if the relationship is steeper in some environments than others\n# Compare richness-depth correlation slopes between environments\nenv_groups = meta_sub['biosample_env_local_scale']\n\n# For each environment, compute the slope of richness vs depth\nslopes_by_env = {}\nfor env in env_groups.unique():\n    mask = env_groups == env\n    if mask.sum() >= 3:\n        x = depth[mask].values\n        y = observed_richness[mask].values\n        # Simple linear regression slope\n        x_mean = x.mean()\n        y_mean = y.mean()\n        slope = np.sum((x - x_mean) * (y - y_mean)) / np.sum((x - x_mean) ** 2)\n        slopes_by_env[env] = slope\n\n# Also check: within frost flowers (the largest group), is the relationship still strong?\nfrost_mask = env_groups == 'frost flowers'\nfrost_rho, frost_p = spearmanr(depth[frost_mask], observed_richness[frost_mask])\n\n# Check: does the relationship hold when we control for environment?\n# This is harder without statsmodels, so let's just report the per-environment correlations\nrich_depth_by_env = {}\nfor env in env_groups.unique():\n    mask = env_groups == env\n    if mask.sum() >= 3:\n        rho, p = spearmanr(depth[mask], observed_richness[mask])\n        rich_depth_by_env[env] = (rho, p)\n\nresult = {\n    'log_model_params': log_params,\n    'linear_model_params': linear_params,\n    'r2_log': r2_log,\n    'r2_lin': r2_lin,\n    'aic_log': aic_log,\n    'aic_lin': aic_lin,\n    'slopes_by_env': slopes_by_env,\n    'frost_rho': frost_rho,\n    'frost_p': frost_p,\n    'rich_depth_by_env': rich_depth_by_env,\n    'n_samples': len(sub),\n}",
+      "result": {
+        "log_model_params": [
+          30.4232,
+          -186.638
+        ],
+        "linear_model_params": [
+          0.0042,
+          46.3618
+        ],
+        "r2_log": 0.3806,
+        "r2_lin": 0.3006,
+        "aic_log": 420.0383,
+        "aic_lin": 427.6923,
+        "slopes_by_env": {
+          "frost flowers": 0.0095,
+          "ice": 0.0017,
+          "seawater": 0.0054,
+          "Brine": 0.0005
+        },
+        "frost_rho": 0.9754,
+        "frost_p": 0.0,
+        "rich_depth_by_env": {
+          "frost flowers": [
+            0.9754,
+            0.0
+          ],
+          "ice": [
+            0.5,
+            0.0486
+          ],
+          "seawater": [
+            0.9487,
+            0.0513
+          ],
+          "Brine": [
+            0.1399,
+            0.5923
+          ]
+        },
+        "n_samples": 63
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c17": {
+      "label": "rarefaction_depth_check",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import spearmanr, entropy\n\n# Load data\nsub = counts.loc[meta.index[meta['pipeline_in_counts']]]\nmeta_sub = meta.loc[sub.index]\n\n# The rarefaction dropped 0 samples at depth 576, which means all 63 samples have >= 576 reads\n# Let's verify this\ndepth = sub.sum(axis=1)\nprint(f\"Depth stats: min={depth.min()}, max={depth.max()}, mean={depth.mean()}\")\nprint(f\"Samples with depth < 576: {(depth < 576).sum()}\")\n\n# Let's also check: what happens if we rarefy to different depths?\n# Try a few depths and see how many samples are retained\nfor test_depth in [576, 1000, 2000, 5000, 10000]:\n    rarefied, dropped = rarefy(sub, depth=test_depth, seed=0)\n    print(f\"Depth {test_depth}: retained {len(rarefied)}, dropped {len(dropped)}\")\n\n# Also check: what is the relationship between richness and depth more carefully?\n# Is it truly linear or does it show saturation?\nobserved_richness = (sub > 0).sum(axis=1)\n\n# Let's look at the residuals from the linear fit\nfrom scipy.stats import linregress\nslope, intercept, r_value, p_value, std_err = linregress(depth.values, observed_richness.values)\npredicted = slope * depth.values + intercept\nresiduals = observed_richness.values - predicted\n\n# Check if residuals show a pattern (e.g., U-shaped, indicating saturation)\n# Correlation between depth and residuals should be near zero if linear\nresid_rho, resid_p = spearmanr(depth.values, residuals)\n\n# Also check: is there a threshold depth beyond which richness doesn't increase much?\n# Look at the slope in different depth ranges\ndepth_sorted = depth.sort_values()\nrich_sorted = observed_richness.loc[depth_sorted.index]\n\n# Split into thirds\nn = len(depth_sorted)\nthird = n // 3\nlow_third = depth_sorted.iloc[:third]\nmid_third = depth_sorted.iloc[third:2*third]\nhigh_third = depth_sorted.iloc[2*third:]\n\nlow_rich = rich_sorted.iloc[:third]\nmid_rich = rich_sorted.iloc[third:2*third]\nhigh_rich = rich_sorted.iloc[2*third:]\n\nprint(f\"Low third depth: {low_third.mean():.1f}, richness: {low_rich.mean():.1f}\")\nprint(f\"Mid third depth: {mid_third.mean():.1f}, richness: {mid_rich.mean():.1f}\")\nprint(f\"High third depth: {high_third.mean():.1f}, richness: {high_rich.mean():.1f}\")\n\n# Check the incremental gain\nlow_to_mid_gain = mid_rich.mean() - low_rich.mean()\nmid_to_high_gain = high_rich.mean() - mid_rich.mean()\nprint(f\"Low to mid gain: {low_to_mid_gain:.1f}, mid to high gain: {mid_to_high_gain:.1f}\")\n\nresult = {\n    'slope': slope,\n    'intercept': intercept,\n    'r_value': r_value,\n    'p_value': p_value,\n    'resid_rho': resid_rho,\n    'resid_p': resid_p,\n    'low_third_depth': float(low_third.mean()),\n    'low_third_richness': float(low_rich.mean()),\n    'mid_third_depth': float(mid_third.mean()),\n    'mid_third_richness': float(mid_rich.mean()),\n    'high_third_depth': float(high_third.mean()),\n    'high_third_richness': float(high_rich.mean()),\n    'low_to_mid_gain': low_to_mid_gain,\n    'mid_to_high_gain': mid_to_high_gain,\n}",
+      "result": {
+        "slope": 0.0042,
+        "intercept": 46.3618,
+        "r_value": 0.5482,
+        "p_value": 0.0,
+        "resid_rho": 0.2752,
+        "resid_p": 0.029,
+        "low_third_depth": 2740.619,
+        "low_third_richness": 47.7143,
+        "mid_third_depth": 5464.1429,
+        "mid_third_richness": 79.0476,
+        "high_third_depth": 11857.0,
+        "high_third_richness": 96.7619,
+        "low_to_mid_gain": 31.3333,
+        "mid_to_high_gain": 17.7143
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c18": {
+      "label": "spearman correlations of pipeline_total_reads with richness and Shannon entropy",
+      "code": "import pandas as pd\nimport numpy as np\nfrom scipy.stats import spearmanr\n\n# Get the 63 samples that are in counts\nsub_meta = meta.loc[counts.index].copy()\nsub_counts = counts.copy()\n\n# Compute alpha diversity metrics\nrichness = (sub_counts > 0).sum(axis=1)  # observed ASV richness per sample\n# Shannon entropy with base-2 log (bits)\nprops_sub = sub_counts.div(sub_counts.sum(axis=1), axis=0)\nshannon = -np.sum(props_sub * np.log2(props_sub + 1e-12), axis=1)\n\n# Spearman correlations with pipeline_total_reads\nrho_rich, p_rich = spearmanr(sub_meta['pipeline_total_reads'], richness)\nrho_shannon, p_shannon = spearmanr(sub_meta['pipeline_total_reads'], shannon)\n\n# Also check linear relationship for richness (Pearson)\nfrom scipy.stats import pearsonr\nr_rich, pr_rich = pearsonr(sub_meta['pipeline_total_reads'], richness)\n\nresult = {\n    'richness_rho': rho_rich,\n    'richness_p': p_rich,\n    'richness_pearson_r': r_rich,\n    'richness_pr': pr_rich,\n    'shannon_rho': rho_shannon,\n    'shannon_p': p_shannon,\n    'n_samples': len(sub_meta),\n    'richness_range': (richness.min(), richness.max()),\n    'shannon_range': (shannon.min(), shannon.max()),\n    'depth_range': (sub_meta['pipeline_total_reads'].min(), sub_meta['pipeline_total_reads'].max()),\n    'depth_richness_corr': (rho_rich, p_rich)\n}",
+      "result": {
+        "richness_rho": 0.6262,
+        "richness_p": 0.0,
+        "richness_pearson_r": 0.5482,
+        "richness_pr": 0.0,
+        "shannon_rho": 0.0573,
+        "shannon_p": 0.6553,
+        "n_samples": 63,
+        "richness_range": [
+          16.0,
+          161.0
+        ],
+        "shannon_range": [
+          1.0868,
+          5.8197
+        ],
+        "depth_range": [
+          576.0,
+          20267.0
+        ],
+        "depth_richness_corr": [
+          0.6262,
+          0.0
+        ]
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c19": {
+      "label": "test richness saturation: fit power/exponential curves and check rarefaction effects",
+      "code": "import pandas as pd\nimport numpy as np\nfrom scipy.stats import spearmanr\nfrom scipy.optimize import curve_fit\n\n# Get the 63 samples\nsub_meta = meta.loc[counts.index].copy()\nsub_counts = counts.copy()\n\nrichness = (sub_counts > 0).sum(axis=1)\nprops_sub = sub_counts.div(sub_counts.sum(axis=1), axis=0)\nshannon = -np.sum(props_sub * np.log2(props_sub + 1e-12), axis=1)\n\ndepth = sub_meta['pipeline_total_reads']\n\n# Test saturation: fit linear vs power law vs exponential\n# Power law: richness = a * depth^b\ndef power_law(x, a, b):\n    return a * x**b\n\n# Exponential saturation: richness = a * (1 - exp(-b * x))\ndef exp_sat(x, a, b):\n    return a * (1 - np.exp(-b * x))\n\n# Linear: richness = a + b * x\ndef linear(x, a, b):\n    return a + b * x\n\n# Fit models (use log-transform for power law to avoid optimization issues)\nlog_depth = np.log(depth.values + 1)\nlog_rich = np.log(richness.values + 1)\n\n# Power law via log-log linear regression\nfrom scipy.stats import linregress\nslope, intercept, r_power, p_power, _ = linregress(log_depth, log_rich)\npower_r2 = r_power**2\n\n# Linear fit\nlin_slope, lin_intercept, r_lin, p_lin, _ = linregress(depth.values, richness.values)\nlinear_r2 = r_lin**2\n\n# Exponential saturation fit\ntry:\n    popt_exp, _ = curve_fit(exp_sat, depth.values, richness.values, p0=[200, 0.0005], maxfev=10000)\n    exp_pred = exp_sat(depth.values, *popt_exp)\n    ss_res = np.sum((richness.values - exp_pred)**2)\n    ss_tot = np.sum((richness.values - richness.mean())**2)\n    exp_r2 = 1 - ss_res/ss_tot\nexcept:\n    exp_r2 = None\n\n# Check residuals from linear fit for curvature pattern\nlin_pred = lin_intercept + lin_slope * depth.values\nresiduals = richness.values - lin_pred\n\n# Residuals vs depth: if saturation, residuals should be negative at high depth\ncorr_resid_depth, p_resid = spearmanr(depth.values, residuals)\n\n# Rarefaction analysis: rarefy to multiple depths and compare diversity rankings\nfrom scipy.stats import rankdata\n\n# Rarefy to the minimum depth (576) and a few intermediate depths\nmin_depth = 576\ntest_depths = [576, 1000, 2000, 5000]\n\nrarefied_richness = {}\nrarefied_shannon = {}\nfor d in test_depths:\n    rarefied_df, dropped = rarefy(sub_counts, depth=d, seed=42)\n    r_rich = (rarefied_df > 0).sum(axis=1)\n    r_props = rarefied_df.div(rarefied_df.sum(axis=1), axis=0)\n    r_shannon = -np.sum(r_props * np.log2(r_props + 1e-12), axis=1)\n    rarefied_richness[d] = r_rich\n    rarefied_shannon[d] = r_shannon\n\n# Compare rankings: Spearman correlation between raw richness and rarefied richness\nraw_rich_rank = rankdata(richness.values)\nrarefied_rich_rank_576 = rankdata(rarefied_richness[576].values)\nrho_raw_rarefied, p_raw_rarefied = spearmanr(raw_rich_rank, rarefied_rich_rank_576)\n\n# Also compare Shannon rankings\nraw_shannon_rank = rankdata(shannon.values)\nrarefied_shannon_rank_576 = rankdata(rarefied_shannon[576].values)\nrho_shannon_rarefied, p_shannon_rarefied = spearmanr(raw_shannon_rank, rarefied_shannon_rank_576)\n\n# Check how many samples change rank position (>10 rank change)\nrank_changes = np.abs(raw_rich_rank - rarefied_rich_rank_576)\nn_major_changes = (rank_changes > 10).sum()\nn_minor_changes = (rank_changes > 5).sum()\n\n# Environmental groupings: check if rarefied richness still shows same patterns\nenv = sub_meta['biosample_env_local_scale']\nfrom scipy.stats import kruskal\n\n# Raw richness by environment\nenv_names = env.unique()\nraw_by_env = {e: richness[env == e].values for e in env_names}\nkr_raw = kruskal(*[raw_by_env[e] for e in env_names if len(raw_by_env[e]) > 1])\n\n# Rarefied richness by environment\nrarefied_by_env = {e: rarefied_richness[576][env == e].values for e in env_names}\nkr_rarefied = kruskal(*[rarefied_by_env[e] for e in env_names if len(rarefied_by_env[e]) > 1])\n\nresult = {\n    'power_law_r2': power_r2,\n    'power_law_slope': slope,\n    'power_law_p': p_power,\n    'linear_r2': linear_r2,\n    'linear_slope': lin_slope,\n    'linear_intercept': lin_intercept,\n    'exp_sat_r2': exp_r2,\n    'residual_depth_corr': corr_resid_depth,\n    'residual_depth_p': p_resid,\n    'raw_rarefied_rho': rho_raw_rarefied,\n    'raw_rarefied_p': p_raw_rarefied,\n    'shannon_rarefied_rho': rho_shannon_rarefied,\n    'shannon_rarefied_p': p_shannon_rarefied,\n    'n_major_rank_changes': n_major_changes,\n    'n_minor_rank_changes': n_minor_changes,\n    'kr_raw_H': kr_raw.statistic,\n    'kr_raw_p': kr_raw.pvalue,\n    'kr_rarefied_H': kr_rarefied.statistic,\n    'kr_rarefied_p': kr_rarefied.pvalue,\n    'min_depth': min_depth,\n    'test_depths': test_depths,\n    'richness_range': (richness.min(), richness.max()),\n    'depth_range': (depth.min(), depth.max()),\n    'n_samples': len(sub_meta)\n}",
+      "result": {
+        "power_law_r2": 0.3207,
+        "power_law_slope": 0.4151,
+        "power_law_p": 0.0,
+        "linear_r2": 0.3006,
+        "linear_slope": 0.0042,
+        "linear_intercept": 46.3618,
+        "exp_sat_r2": 0.399,
+        "residual_depth_corr": 0.2752,
+        "residual_depth_p": 0.029,
+        "raw_rarefied_rho": 0.9303,
+        "raw_rarefied_p": 0.0,
+        "shannon_rarefied_rho": 0.9859,
+        "shannon_rarefied_p": 0.0,
+        "n_major_rank_changes": 5.0,
+        "n_minor_rank_changes": 16.0,
+        "kr_raw_H": 13.2333,
+        "kr_raw_p": 0.0102,
+        "kr_rarefied_H": 18.2389,
+        "kr_rarefied_p": 0.0011,
+        "min_depth": 576,
+        "test_depths": [
+          576,
+          1000,
+          2000,
+          5000
+        ],
+        "richness_range": [
+          16.0,
+          161.0
+        ],
+        "depth_range": [
+          576.0,
+          20267.0
+        ],
+        "n_samples": 63
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
     }
   },
   "agenda": [
@@ -2255,7 +2701,16 @@
       "parent": null
     }
   ],
-  "assumptions": [],
+  "assumptions": [
+    {
+      "id": "as1",
+      "statement": "Shannon entropy computed using base-2 logarithm (bits), which is standard for information-theoretic diversity measures",
+      "why": "The scipy.stats.entropy function uses natural log by default; I specified base=2 to get bits, which is the conventional unit for Shannon diversity in ecology",
+      "impact": "If natural log were used instead, all Shannon values would be multiplied by ln(2) \u2248 0.693, but correlations and rankings would be unchanged",
+      "investigation": "a3",
+      "by": "qwen/qwen3.6-35b-a3b"
+    }
+  ],
   "package_requests": [],
   "run": {
     "completed": false,

@@ -829,6 +829,24 @@ def _jsonify(v, depth=0, cap=MODEL_VIEW_CAP):
 EXPLORE_CHAR_BUDGET = 140_000    # ≈35k tokens of transcript at ~4 chars/token
 
 
+# Keyword arguments that encode a CHOICE rather than plumbing. A claim whose antecedent
+# code sets one of these and whose `parameters` is empty is not reproducible: a
+# clean-room analyst picks a different value and refutes a correct claim. Observed three
+# times in one evening — a Shannon log base, a fitting method, an invented ordinal scale.
+_CHOICE_KWARGS = ("base", "metric", "method", "depth", "permutations", "pseudocount",
+                  "alpha", "threshold", "deg", "n_components", "min_count", "cutoff",
+                  "quantile", "q", "center", "ddof")
+_KWARG_RE = re.compile(r"\b(" + "|".join(_CHOICE_KWARGS) + r")\s*=\s*([^,)\s]{1,24})")
+
+
+def _choices_in_code(code: str) -> dict:
+    """Choice-bearing keyword arguments a computation actually used."""
+    out = {}
+    for name, val in _KWARG_RE.findall(code or ""):
+        out.setdefault(name, val.strip("'\""))
+    return out
+
+
 def _clean_label(label: Any) -> str:
     """A progress event's human-readable label.
 
@@ -1860,6 +1878,12 @@ class Autoresearcher:
                      "by": self.explore_model}  # model that recorded this claim
             self.ledger.append(claim)
             if not claim["parameters"]:
+                # Name what the code chose, rather than asking again in the abstract.
+                found = {}
+                for ant in claim["antecedents"]:
+                    if ant in self.computations:
+                        found.update(_choices_in_code(self.computations[ant].get("code", "")))
+                claim["_choices"] = found
                 # An analyst correlated diversity against an "environmental harshness"
                 # ranking it invented, recorded the ranking nowhere, and no replicator
                 # could reproduce the number: four plausible orderings give r between
@@ -1870,11 +1894,17 @@ class Autoresearcher:
                 self._verify_queue.put_nowait(claim["id"])   # judged while we carry on
             out = {"recorded": True, "claim_id": claim["id"], "n_claims": len(self.ledger)}
             if claim.pop("_no_parameters", False):
-                out["note"] = ("`parameters` is empty. If this analysis used a threshold, "
-                               "a cutoff, a grouping or an ordering that YOU chose rather "
-                               "than read from the data, add it — an independent analyst "
-                               "cannot reproduce what it cannot see. If you had to assume "
-                               "something you could not confirm, record_assumption too.")
+                found = claim.pop("_choices", {}) or {}
+                shown = ", ".join(f"{k}={v}" for k, v in sorted(found.items()))
+                out["note"] = (
+                    (f"`parameters` is empty, but your computation set {shown}. Those are "
+                     "choices — put them there. " if shown else
+                     "`parameters` is empty. If this analysis used a threshold, a cutoff, "
+                     "a grouping or an ordering that YOU chose rather than read from the "
+                     "data, add it. ")
+                    + "An independent analyst picking differently will get a different "
+                      "number and your claim will read as refuted. If you had to assume "
+                      "something you could not confirm, record_assumption too.")
             return out
         if name == "request_package":
             pkg = (args.get("package") or "").strip()
