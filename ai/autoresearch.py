@@ -520,8 +520,13 @@ def format_briefing(b: dict) -> str:
             lines.append(f"    These meta columns have no value for any dropped sample, "
                          f"because they come from the analysed table: {', '.join(blank)}.")
     if g := b.get("grantable"):
+        # Say what they are FOR. An analyst installed scikit-bio, spent three turns
+        # guessing at its API, re-requested it, and never used the `permanova` already
+        # bound in its namespace — which had given it the right answer twice.
         lines.append("  request_package will install any of these into the sandbox for "
-                     f"you: {', '.join(g)}. Nothing else is available.")
+                     f"you: {', '.join(g)}. Nothing else is available. Ask only for what "
+                     "the names above do not already cover — the helpers listed there "
+                     "are ready to call and need no import.")
     if av := b.get("available"):
         # Named because it was being discovered by failing into it — a tip lost a step
         # to `import skbio` and had no way to know what was in scope.

@@ -250,6 +250,12 @@ class TestRawAndRelative:
         assert "request_package will install" in text
         assert "skbio" in text and "Nothing else is available" in text
 
+    def test_the_grantable_line_defers_to_what_is_already_bound(self):
+        """An analyst installed scikit-bio, spent three turns guessing at its API,
+        re-requested it, and never called the `permanova` already in its namespace."""
+        text = format_briefing({"grantable": ["skbio"], "available": ["permanova"]})
+        assert "already cover" in text and "ready to call" in text
+
     def test_nothing_is_promised_when_nothing_can_be_granted(self):
         """A sandbox with no installer must not advertise one."""
         assert "request_package will install" not in format_briefing(
