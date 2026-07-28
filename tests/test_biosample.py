@@ -287,6 +287,12 @@ class TestEverySubmittedSample:
         assert '("sra_center_name", "center_name")' in src
 
 
+def _fake_run(err):
+    async def _run(code, timeout=30):
+        return False, err
+    return _run
+
+
 class TestSandboxHints:
     """A briefing line read ten minutes upstream loses to a habit. These arrive
     attached to the traceback that proves the habit wrong."""
@@ -636,6 +642,34 @@ class TestSandboxHints:
         assert ar.run_summary()["packages_preinstalled"] == []
         ar.preinstalled_packages = ("skbio", "networkx")
         assert ar.run_summary()["packages_preinstalled"] == ["networkx", "skbio"]
+
+    def test_skbio_permanova_misuse_points_at_the_bound_helper(self):
+        """An installed skbio pulls the analyst towards skbio.stats.distance, whose
+        PERMANOVA wants a DistanceMatrix with matching ids and returns a Series keyed
+        'test statistic'. One investigation hit three of those failures in a row."""
+        from ai.autoresearch import Autoresearcher, DirDataSource, LLMClient, \
+            SubprocessExecutor
+        import asyncio
+        d = "/data/dev/testdata/1543a4c1"
+        for code in ("from skbio.stats.distance import permanova as P\n"
+                     "result = P(counts, meta['x'])",
+                     "result = {'F': r['F']}"):
+            ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                                LLMClient(None, "x"), SubprocessExecutor(d))
+            r = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": code}))
+            assert not r["ok"]
+        # The three real tracebacks, verbatim from the run.
+        for err in ("TypeError: Input must be a DistanceMatrix.",
+                    "ValueError: One or more IDs in the distance matrix are not in "
+                    "the data frame.",
+                    "KeyError: 'F'"):
+            ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                                LLMClient(None, "x"), SubprocessExecutor(d))
+            ar.executor.run = _fake_run(err)
+            r = asyncio.run(ar._exec_tool("run_analysis",
+                                          {"label": "t", "code": "result = 1"}))
+            assert "permanova(data, groups" in r.get("hint", ""), err
+            assert "'F', 'R2' and 'p'" in r["hint"]
 
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""

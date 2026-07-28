@@ -1934,6 +1934,18 @@ class Autoresearcher:
                             "turns it into the square distance matrix.")
                 elif "did not set a `result`" in err:
                     hint = "Assign what you want returned to `result`."
+                elif ("Input must be a DistanceMatrix" in err
+                      or "IDs in the distance matrix are not in the data frame" in err
+                      or ("KeyError" in err and re.search(r"KeyError: '(F|R2|p)'", err))):
+                    # An installed skbio pulls the analyst towards skbio.stats.distance,
+                    # whose PERMANOVA wants a DistanceMatrix object with matching ids and
+                    # returns a Series keyed 'test statistic' — three separate ways to
+                    # fail, hit three times running on one computation. The bound helper
+                    # takes the frame and the groups and hands back F, R2 and p.
+                    hint = ("`permanova(data, groups, permutations=999, seed=0)` is "
+                            "already bound here. It takes the counts frame and a group "
+                            "series directly — no DistanceMatrix, no id matching — and "
+                            "returns a dict with 'F', 'R2' and 'p'.")
                 # A different error each time is debugging; the same one repeatedly is
                 # being stuck, and the two need different advice. Nothing distinguished
                 # them, so a tip could spend its whole budget on one mistake.
