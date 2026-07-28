@@ -1659,15 +1659,24 @@ class TestDuplicateClaims:
             "assertions": [{"label": "F_statistic", "value": "92.01"}]}))
         assert r["recorded"] is False and "already asserts" in r["error"]
 
-    def test_the_synonyms_cover_the_names_actually_seen(self):
+    def test_label_comparison_survives_renaming_and_reordering(self):
+        """Each variant slipped the guard in turn: F vs F_statistic (synonym), then
+        F_raw vs raw_F (word order). Both put a second answer to the same question on
+        the ledger, the second one byte-identical in its prose."""
         from ai.autoresearch import _label_key
-        assert _label_key("F") == _label_key("F_statistic") == _label_key("pseudo_F")
-        assert _label_key("R2") == _label_key("R_squared")
-        assert _label_key("p") == _label_key("p_value") == _label_key("p-val")
-        assert _label_key("kw_statistic") == _label_key("KW_H")
-        # distinct quantities must stay distinct
-        assert _label_key("p_adj") != _label_key("p")
-        assert _label_key("F_frost_ice") != _label_key("F")
+        for a, b in [("F", "F_statistic"), ("F", "pseudo_F"), ("R2", "R_squared"),
+                     ("p", "p_value"), ("kw_statistic", "KW_H"),
+                     ("F_raw", "raw_F"), ("R2_raw", "raw_R2"), ("p_raw", "raw_p"),
+                     ("F_rarefied", "rarefied_F"), ("p_frost_vs_ice", "ice_frost_p")]:
+            assert _label_key(a) == _label_key(b), f"{a} should match {b}"
+
+    def test_distinct_quantities_stay_distinct(self):
+        """Over-merging would refuse legitimate progress, which is the worse failure."""
+        from ai.autoresearch import _label_key
+        for a, b in [("p", "p_adj"), ("F", "F_frost_ice"), ("F_raw", "F_rarefied"),
+                     ("n_samples", "n_groups"), ("R2", "F"), ("p", "kw"),
+                     ("brine_richness_mean", "ice_richness_mean")]:
+            assert _label_key(a) != _label_key(b), f"{a} must not match {b}"
 
     def test_a_contradiction_on_a_DIFFERENT_investigation_is_fine(self):
         """Two investigations may legitimately measure the same-named quantity."""

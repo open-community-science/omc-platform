@@ -647,19 +647,31 @@ def _assertions_from_text(text: str) -> list[dict]:
     return out
 
 
-_LABEL_SYNONYMS = {"fstatistic": "f", "pseudof": "f", "rsquared": "r2", "r2value": "r2",
-                   "pvalue": "p", "pval": "p", "padj": "padj", "padjusted": "padj",
-                   "kwstatistic": "kw", "kwh": "kw", "hstatistic": "kw"}
+# Per-TOKEN synonyms: labels are split before mapping, so these are the words a label
+# is built from, not whole label names. `squared` -> `r2` collapses R_squared and R2;
+# `h` -> `kw` collapses KW_H and kw_statistic.
+_LABEL_SYNONYMS = {"pseudof": "f", "fstat": "f", "rsquared": "r2", "rsq": "r2",
+                   "squared": "r2", "r": "r2", "pval": "p", "pvalue": "p",
+                   "padjusted": "adj", "adjusted": "adj", "h": "kw", "kruskal": "kw",
+                   "kwh": "kw", "kwstatistic": "kw", "num": "n", "count": "n"}
+
+
+_LABEL_NOISE = {"stat", "statistic", "value", "val", "the", "of", "vs", "versus", "and"}
 
 
 def _label_key(label: str) -> str:
     """A label reduced to what it MEANS, for comparing two claims.
 
-    `F`/`F_statistic` and `R2`/`R_squared` are the same quantity, and a successor that
-    renamed them slipped both the duplicate and the contradiction guard: no shared
-    label meant nothing to compare, and a different assertion set meant no repeat."""
-    key = re.sub(r"[^a-z0-9]", "", str(label or "").lower())
-    return _LABEL_SYNONYMS.get(key, key)
+    Order-insensitive, because successors rename freely and each variant slipped the
+    guards in turn: `F` vs `F_statistic` (synonym), then `F_raw` vs `raw_F` (order).
+    Tokens are split on punctuation and camelCase, mapped through the synonyms, stripped
+    of filler, and sorted — so `p_frost_vs_ice` and `ice_frost_p` are one quantity."""
+    raw = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", str(label or ""))
+    parts = [p for p in re.split(r"[^A-Za-z0-9]+", raw.lower()) if p]
+    toks = sorted({_LABEL_SYNONYMS.get(p, p) for p in parts} - _LABEL_NOISE)
+    key = "|".join(toks)
+    return _LABEL_SYNONYMS.get(key, key) or re.sub(
+        r"[^a-z0-9]", "", str(label or "").lower())
 
 
 def _match_label(raw_label: str, known: list[str]):
