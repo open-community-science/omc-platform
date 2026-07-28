@@ -434,6 +434,40 @@ class TestSandboxHints:
                                       {"label": "t", "code": "import torch\nresult = 1"}))
         assert "cannot be installed" in r["hint"] and "skbio" in r["hint"]
 
+    def test_hint_selection_against_literal_tracebacks(self):
+        """Hints are chosen by matching the error TEXT, so they must be tested against
+        the exact strings seen in real runs. Several were written against tracebacks I
+        imagined and matched only some of the real phrasings — numpy's "boolean index
+        did not match" but not pandas' "Boolean index has wrong length", ImportError but
+        not ModuleNotFoundError."""
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient)
+
+        class _Raises:
+            def __init__(self, msg): self.msg = msg
+            async def run(self, code, timeout=30): return False, self.msg
+
+        cases = {
+            "IndexingError: Unalignable boolean Series provided as indexer (index of "
+            "the boolean Series and of the indexed object do not match).": "align first",
+            "IndexError: boolean index did not match indexed array along axis 0":
+                "per-sample mask selects rows",
+            "IndexError: Boolean index has wrong length: 418 instead of 735":
+                "per-sample mask selects rows",
+            "ModuleNotFoundError: No module named 'skbio'": "request_package",
+            "AttributeError: 'numpy.ndarray' object has no attribute 'median'":
+                "not a pandas object",
+            "FileNotFoundError: [Errno 2] No such file or directory: 'counts.csv'":
+                "already bound",
+        }
+        for err, expected in cases.items():
+            ar = Autoresearcher(DirDataSource("/data/dev/testdata/1543a4c1", study={},
+                                              overview=None),
+                                LLMClient(None, "x"), _Raises(err))
+            ar.grantable_packages = ("skbio",)
+            r = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": "x"}))
+            assert expected in (r.get("hint") or ""), f"no hint for: {err[:50]}"
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")
@@ -516,6 +550,50 @@ class TestPermanovaHelper:
     def test_the_signature_is_declared_in_the_briefing(self):
         text = format_briefing({"available": ["permanova"]})
         assert "permanova(counts_or_distances, groups" in text
+
+
+class TestAlphaDiversityHelper:
+    """Two claims in one ledger reported frost-flower Shannon as 4.59 and 3.18. Both
+    were right — bits and nats — and neither said which, so a clean-room analyst
+    computing the other refutes a correct claim over a logarithm base."""
+
+    def _run(self, code):
+        import asyncio
+        from ai.autoresearch import SubprocessExecutor
+        return asyncio.run(SubprocessExecutor("/data/dev/testdata/1543a4c1").run(code))
+
+    def test_the_unit_is_in_the_column_name(self):
+        ok, r = self._run("result = list(alpha_diversity(counts).columns)")
+        assert ok and "shannon_nats" in r and "shannon_bits" in r
+        assert "shannon" not in r          # no ambiguous bare name to reach for
+
+    def test_both_units_are_the_same_quantity(self):
+        import math
+        ok, r = self._run("a = alpha_diversity(counts)\n"
+                          "result = {'n': float(a['shannon_nats'].mean()), "
+                          "'b': float(a['shannon_bits'].mean())}")
+        # the sandbox encoder rounds to 4 decimals, so the exact ratio cannot survive
+        assert ok and abs(r["b"] - r["n"] / math.log(2)) < 1e-3
+
+    def test_it_agrees_with_the_values_verified_by_hand(self):
+        ok, r = self._run(
+            "a = alpha_diversity(counts)\n"
+            "g = meta.loc[counts.index, 'biosample_env_local_scale'].astype(str)\n"
+            "result = {'nats': round(float(a.loc[g=='frost flowers','shannon_nats'].mean()),2),"
+            " 'rich': round(float(a.loc[g=='frost flowers','richness'].mean()),1)}")
+        assert ok and r["nats"] == 3.18 and r["rich"] == 92.0
+
+    def test_evenness_stays_within_its_bounds(self):
+        ok, r = self._run("a = alpha_diversity(counts)\n"
+                          "result = [float(a['evenness'].min()), float(a['evenness'].max())]")
+        assert ok and 0.0 <= r[0] and r[1] <= 1.0
+
+    def test_a_zero_read_sample_does_not_divide_by_zero(self):
+        ok, r = self._run("z = counts.copy(); z.iloc[0] = 0\n"
+                          "a = alpha_diversity(z)\n"
+                          "result = {'shannon': float(a['shannon_nats'].iloc[0]), "
+                          "'rich': int(a['richness'].iloc[0])}")
+        assert ok and r["shannon"] == 0.0 and r["rich"] == 0
 
 
 class TestSourcePrefixes:

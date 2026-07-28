@@ -230,6 +230,269 @@
       ],
       "kind": "pattern",
       "investigation": "a1",
+      "by": "qwen/qwen3.6-35b-a3b",
+      "checked": [
+        "c4:run"
+      ],
+      "judgment": {
+        "per": {},
+        "notes": {},
+        "by": "glm-4.7-flash",
+        "raw": "1.  **Analyze the Request:**\n    *   Role: Strict verification auditor.\n    *   Input:\n        *   CLAIM (broken into ASSERTIONS).\n        *   PARAMETERS (context, not graded - though none provided here other than implicit context from evidence/re-execution description? Wait, looking at input format... \"PARAMETERS are never graded. Permutation counts...\" usually implies I shouldn't grade them even if they were in the text block labeled parameters). The prompt says: `Reply with one line per assertion`.\n        *   INDEPENDENT EVIDENCE (re-extracted data).\n    *   Task:\n        1.  Grade each AS",
+        "truncated": true,
+        "graded_nothing": true,
+        "unmatched": []
+      },
+      "assertion_verdicts": {},
+      "method": "judge-failed"
+    },
+    {
+      "id": "k4",
+      "statement": "Alpha diversity differs significantly across environments, but the pattern depends on the metric: Shannon entropy shows strong, robust differences (H=31.65, p<0.001) unaffected by sequencing depth, while observed ASV richness (H=13.23, p=0.010) is confounded by depth (rho=0.63, p<0.001). For Shannon entropy, frost flowers have significantly higher diversity than both Brine (p_adj=0.0001, effect=0.83) and ice (p_adj=0.0005, effect=0.73), and seawater samples have significantly lower Shannon than frost flowers (p_adj=0.0013, effect=0.96). For richness, only Brine vs frost flowers survives FDR correction (p_adj=0.0052, effect=0.64). Chamber air (n=2) shows extreme Shannon values but is too small for reliable inference.",
+      "value": "shannon_H=31.652, shannon_p=0.0, richness_H=13.2333, richness_p=0.0102, rich_depth_rho=0.6262, rich_depth_p=0.0, shannon_depth_rho=0.0573, shannon_depth_p=0.6553, shannon_p_adj_Brine_vs_frost=0.0001, shannon_effect_Brine_vs_frost=0.8333, shannon_p_adj_frost_vs_ice=0.0005, shannon_effect_frost_vs_ice=0.7344, shannon_p_adj_frost_vs_seawater=0.0013, shannon_effect_frost_vs_seawater=0.9583, richness_p_adj_Brine_vs_frost=0.0052, richness_effect_Brine_vs_frost=0.6446",
+      "assertions": [
+        {
+          "label": "shannon_H",
+          "value": "31.652",
+          "of": "Kruskal-Wallis across 5 environments"
+        },
+        {
+          "label": "shannon_p",
+          "value": "0.0",
+          "of": "Kruskal-Wallis across 5 environments"
+        },
+        {
+          "label": "richness_H",
+          "value": "13.2333",
+          "of": "Kruskal-Wallis across 5 environments"
+        },
+        {
+          "label": "richness_p",
+          "value": "0.0102",
+          "of": "Kruskal-Wallis across 5 environments"
+        },
+        {
+          "label": "rich_depth_rho",
+          "value": "0.6262",
+          "of": "correlation of richness with pipeline_total_reads"
+        },
+        {
+          "label": "rich_depth_p",
+          "value": "0.0",
+          "of": "correlation of richness with pipeline_total_reads"
+        },
+        {
+          "label": "shannon_depth_rho",
+          "value": "0.0573",
+          "of": "correlation of Shannon with pipeline_total_reads"
+        },
+        {
+          "label": "shannon_depth_p",
+          "value": "0.6553",
+          "of": "correlation of Shannon with pipeline_total_reads"
+        },
+        {
+          "label": "shannon_p_adj_Brine_vs_frost",
+          "value": "0.0001",
+          "of": "pairwise Mann-Whitney, FDR-corrected"
+        },
+        {
+          "label": "shannon_effect_Brine_vs_frost",
+          "value": "0.8333",
+          "of": "rank-biserial effect size, Brine vs frost flowers"
+        },
+        {
+          "label": "shannon_p_adj_frost_vs_ice",
+          "value": "0.0005",
+          "of": "pairwise Mann-Whitney, FDR-corrected"
+        },
+        {
+          "label": "shannon_effect_frost_vs_ice",
+          "value": "0.7344",
+          "of": "rank-biserial effect size, frost flowers vs ice"
+        },
+        {
+          "label": "shannon_p_adj_frost_vs_seawater",
+          "value": "0.0013",
+          "of": "pairwise Mann-Whitney, FDR-corrected"
+        },
+        {
+          "label": "shannon_effect_frost_vs_seawater",
+          "value": "0.9583",
+          "of": "rank-biserial effect size, frost flowers vs seawater"
+        },
+        {
+          "label": "richness_p_adj_Brine_vs_frost",
+          "value": "0.0052",
+          "of": "pairwise Mann-Whitney, FDR-corrected"
+        },
+        {
+          "label": "richness_effect_Brine_vs_frost",
+          "value": "0.6446",
+          "of": "rank-biserial effect size, Brine vs frost flowers"
+        }
+      ],
+      "parameters": {},
+      "antecedents": [
+        "c7",
+        "c8"
+      ],
+      "kind": "pattern",
+      "investigation": "a2",
+      "by": "qwen/qwen3.6-35b-a3b",
+      "checked": [
+        "c7:run",
+        "c8:run"
+      ],
+      "judgment": {
+        "per": {},
+        "notes": {},
+        "by": "glm-4.7-flash",
+        "raw": "1.  **Analyze the Request:**\n    *   Role: Strict verification auditor.\n    *   Input:\n        *   CLAIM (broken into ASSERTIONS).\n        *   PARAMETERS (context, do not grade/verify numbers here but understand context if needed for logic checks like FDR correction counts). Note that parameters are empty in this specific prompt block provided by the user (\"{}\"), though usually they contain thresholds. I will rely on evidence.\n        *   INDEPENDENT EVIDENCE (`[c7]` and `[c8]`) with labels intact (e.g., `kw_shannon_H`, `shannon_fdr_p_adj`). This is crucial for matching assertions to values.\n\n",
+        "truncated": true,
+        "graded_nothing": true,
+        "unmatched": []
+      },
+      "assertion_verdicts": {},
+      "method": "judge-failed"
+    },
+    {
+      "id": "k5",
+      "statement": "Shannon entropy differs significantly across environments: frost flowers have the highest diversity (mean=4.59, n=24), Brine the lowest (mean=3.22, n=17). Frost flowers significantly exceed Brine (p_adj=0.0001, effect=0.83), ice (p_adj=0.0005, effect=0.73), and seawater (p_adj=0.0013, effect=0.96). Brine significantly differs from frost flowers (p_adj=0.0001, effect=0.83) and chamber air (p_adj=0.0261, effect=1.0). Ice and seawater do not differ significantly from each other (p_adj=0.7577). Richness shows only one FDR-surviving pairwise difference: Brine (mean=52.2) vs frost flowers (mean=92.0, p_adj=0.0052, effect=0.64). Richness is depth-confounded (rho=0.63, p<0.001) while Shannon is not (rho=0.06, p=0.66). Chamber air (n=2) shows extreme Shannon values but is too small for reliable inference.",
+      "value": "shannon_mean_frost=4.588, shannon_mean_brine=3.2196, shannon_mean_ice=3.5031, shannon_mean_seawater=3.5409, shannon_mean_chamber_air=4.944, richness_mean_frost=92.0, richness_mean_brine=52.2353, richness_mean_ice=69.375, richness_mean_seawater=85.0, richness_mean_chamber_air=74.0, shannon_p_adj_brine_vs_frost=0.0001, shannon_effect_brine_vs_frost=0.8333, shannon_p_adj_frost_vs_ice=0.0005, shannon_effect_frost_vs_ice=0.7344, shannon_p_adj_frost_vs_seawater=0.0013, shannon_effect_frost_vs_seawater=0.9583, shannon_p_adj_brine_vs_chamber_air=0.0261, shannon_p_adj_ice_vs_chamber_air=0.0261, shannon_p_adj_ice_vs_seawater=0.7577, richness_p_adj_brine_vs_frost=0.0052, richness_effect_brine_vs_frost=0.6446, richness_depth_rho=0.6262, richness_depth_p=0.0, shannon_depth_rho=0.0573, shannon_depth_p=0.6553",
+      "assertions": [
+        {
+          "label": "shannon_mean_frost",
+          "value": "4.588",
+          "of": "frost flowers, n=24"
+        },
+        {
+          "label": "shannon_mean_brine",
+          "value": "3.2196",
+          "of": "Brine, n=17"
+        },
+        {
+          "label": "shannon_mean_ice",
+          "value": "3.5031",
+          "of": "ice, n=16"
+        },
+        {
+          "label": "shannon_mean_seawater",
+          "value": "3.5409",
+          "of": "seawater, n=4"
+        },
+        {
+          "label": "shannon_mean_chamber_air",
+          "value": "4.944",
+          "of": "chamber air, n=2"
+        },
+        {
+          "label": "richness_mean_frost",
+          "value": "92.0",
+          "of": "frost flowers, n=24"
+        },
+        {
+          "label": "richness_mean_brine",
+          "value": "52.2353",
+          "of": "Brine, n=17"
+        },
+        {
+          "label": "richness_mean_ice",
+          "value": "69.375",
+          "of": "ice, n=16"
+        },
+        {
+          "label": "richness_mean_seawater",
+          "value": "85.0",
+          "of": "seawater, n=4"
+        },
+        {
+          "label": "richness_mean_chamber_air",
+          "value": "74.0",
+          "of": "chamber air, n=2"
+        },
+        {
+          "label": "shannon_p_adj_brine_vs_frost",
+          "value": "0.0001",
+          "of": "Brine vs frost flowers, Shannon"
+        },
+        {
+          "label": "shannon_effect_brine_vs_frost",
+          "value": "0.8333",
+          "of": "Brine vs frost flowers, Shannon"
+        },
+        {
+          "label": "shannon_p_adj_frost_vs_ice",
+          "value": "0.0005",
+          "of": "frost flowers vs ice, Shannon"
+        },
+        {
+          "label": "shannon_effect_frost_vs_ice",
+          "value": "0.7344",
+          "of": "frost flowers vs ice, Shannon"
+        },
+        {
+          "label": "shannon_p_adj_frost_vs_seawater",
+          "value": "0.0013",
+          "of": "frost flowers vs seawater, Shannon"
+        },
+        {
+          "label": "shannon_effect_frost_vs_seawater",
+          "value": "0.9583",
+          "of": "frost flowers vs seawater, Shannon"
+        },
+        {
+          "label": "shannon_p_adj_brine_vs_chamber_air",
+          "value": "0.0261",
+          "of": "Brine vs chamber air, Shannon"
+        },
+        {
+          "label": "shannon_p_adj_ice_vs_chamber_air",
+          "value": "0.0261",
+          "of": "ice vs chamber air, Shannon"
+        },
+        {
+          "label": "shannon_p_adj_ice_vs_seawater",
+          "value": "0.7577",
+          "of": "ice vs seawater, Shannon"
+        },
+        {
+          "label": "richness_p_adj_brine_vs_frost",
+          "value": "0.0052",
+          "of": "Brine vs frost flowers, richness"
+        },
+        {
+          "label": "richness_effect_brine_vs_frost",
+          "value": "0.6446",
+          "of": "Brine vs frost flowers, richness"
+        },
+        {
+          "label": "richness_depth_rho",
+          "value": "0.6262",
+          "of": "depth vs richness correlation"
+        },
+        {
+          "label": "richness_depth_p",
+          "value": "0.0",
+          "of": "depth vs richness correlation"
+        },
+        {
+          "label": "shannon_depth_rho",
+          "value": "0.0573",
+          "of": "depth vs Shannon correlation"
+        },
+        {
+          "label": "shannon_depth_p",
+          "value": "0.6553",
+          "of": "depth vs Shannon correlation"
+        }
+      ],
+      "parameters": {},
+      "antecedents": [
+        "k4"
+      ],
+      "kind": "pattern",
+      "investigation": "a2",
       "by": "qwen/qwen3.6-35b-a3b"
     }
   ],
@@ -500,6 +763,1063 @@
           "p": 0.228,
           "n1": 4,
           "n2": 17
+        }
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c6": {
+      "label": "alpha_diversity_by_environment",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import entropy, kruskal, mannwhitneyu\n\n# Load data\nsub_counts = counts.loc[meta.index[meta['pipeline_in_counts']]]\nsub_meta = meta.loc[sub_counts.index]\n\n# Calculate alpha diversity metrics per sample\nobserved_richness = (sub_counts > 0).sum(axis=1)\nshannon_entropy = entropy(sub_counts.values, base=2, axis=1)\n\n# Create a combined dataframe\nalpha_df = pd.DataFrame({\n    'observed_richness': observed_richness,\n    'shannon_entropy': shannon_entropy,\n    'environment': sub_meta['biosample_env_local_scale']\n})\n\n# Check group sizes\nenv_groups = alpha_df['environment'].value_counts()\nprint(\"Group sizes:\")\nprint(env_groups)\nprint(\"\\nAlpha diversity by environment:\")\nfor env in alpha_df['environment'].unique():\n    subset = alpha_df[alpha_df['environment'] == env]\n    print(f\"\\n{env} (n={len(subset)}):\")\n    print(f\"  Richness: mean={subset['observed_richness'].mean():.2f}, median={subset['observed_richness'].median():.2f}, std={subset['observed_richness'].std():.2f}\")\n    print(f\"  Shannon:  mean={subset['shannon_entropy'].mean():.2f}, median={subset['shannon_entropy'].median():.2f}, std={subset['shannon_entropy'].std():.2f}\")\n\n# Kruskal-Wallis test for each metric across all 5 groups\nenvs = alpha_df['environment'].unique()\nrichness_groups = [alpha_df[alpha_df['environment'] == env]['observed_richness'].values for env in envs]\nshannon_groups = [alpha_df[alpha_df['environment'] == env]['shannon_entropy'].values for env in envs]\n\nkw_richness = kruskal(*richness_groups)\nkw_shannon = kruskal(*shannon_groups)\n\nprint(f\"\\nKruskal-Wallis test:\")\nprint(f\"  Richness: H={kw_richness.statistic:.4f}, p={kw_richness.pvalue:.6f}\")\nprint(f\"  Shannon:  H={kw_shannon.statistic:.4f}, p={kw_shannon.pvalue:.6f}\")\n\n# Pairwise Mann-Whitney U tests with FDR correction\nfrom itertools import combinations\n\nenv_list = sorted(alpha_df['environment'].unique())\npairs = list(combinations(env_list, 2))\n\n# Calculate pairwise tests for richness\nrichness_pvals = []\nrichness_u_stats = []\nrichness_effect_sizes = []\nfor env1, env2 in pairs:\n    g1 = alpha_df[alpha_df['environment'] == env1]['observed_richness'].values\n    g2 = alpha_df[alpha_df['environment'] == env2]['observed_richness'].values\n    u_stat, p_val = mannwhitneyu(g1, g2, alternative='two-sided')\n    # Effect size: rank-biserial correlation\n    n1, n2 = len(g1), len(g2)\n    effect_size = 1 - (2 * u_stat) / (n1 * n2)\n    richness_pvals.append(p_val)\n    richness_u_stats.append(u_stat)\n    richness_effect_sizes.append(effect_size)\n\n# Calculate pairwise tests for Shannon\nshannon_pvals = []\nshannon_u_stats = []\nshannon_effect_sizes = []\nfor env1, env2 in pairs:\n    g1 = alpha_df[alpha_df['environment'] == env1]['shannon_entropy'].values\n    g2 = alpha_df[alpha_df['environment'] == env2]['shannon_entropy'].values\n    u_stat, p_val = mannwhitneyu(g1, g2, alternative='two-sided')\n    n1, n2 = len(g1), len(g2)\n    effect_size = 1 - (2 * u_stat) / (n1 * n2)\n    shannon_pvals.append(p_val)\n    shannon_u_stats.append(u_stat)\n    shannon_effect_sizes.append(effect_size)\n\n# FDR correction using the provided fdr function\nrichness_fdr = fdr(richness_pvals)\nshannon_fdr = fdr(shannon_pvals)\n\nprint(f\"\\nPairwise Mann-Whitney U tests (Richness):\")\nfor i, (env1, env2) in enumerate(pairs):\n    print(f\"  {env1} vs {env2}: U={richness_u_stats[i]:.0f}, p_raw={richness_pvals[i]:.4f}, p_adj={richness_fdr['p_adj'][i]:.4f}, reject={richness_fdr['reject'][i]}, effect_size={richness_effect_sizes[i]:.4f}\")\n\nprint(f\"\\nPairwise Mann-Whitney U tests (Shannon):\")\nfor i, (env1, env2) in enumerate(pairs):\n    print(f\"  {env1} vs {env2}: U={shannon_u_stats[i]:.0f}, p_raw={shannon_pvals[i]:.4f}, p_adj={shannon_fdr['p_adj'][i]:.4f}, reject={shannon_fdr['reject'][i]}, effect_size={shannon_effect_sizes[i]:.4f}\")\n\n# Store results for claim\nresult = {\n    'alpha_df': alpha_df,\n    'kw_richness': kw_richness,\n    'kw_shannon': kw_shannon,\n    'pairs': pairs,\n    'richness_pvals': richness_pvals,\n    'richness_u_stats': richness_u_stats,\n    'richness_effect_sizes': richness_effect_sizes,\n    'richness_fdr': richness_fdr,\n    'shannon_pvals': shannon_pvals,\n    'shannon_u_stats': shannon_u_stats,\n    'shannon_effect_sizes': shannon_effect_sizes,\n    'shannon_fdr': shannon_fdr,\n    'env_groups': env_groups.to_dict()\n}",
+      "result": {
+        "alpha_df": {
+          "observed_richness": {
+            "SRR38958117": 84,
+            "SRR38958118": 123,
+            "SRR38958119": 59,
+            "SRR38958120": 46,
+            "SRR38958121": 76,
+            "SRR38958122": 69,
+            "SRR38958123": 79,
+            "SRR38958124": 51,
+            "SRR38958125": 52,
+            "SRR38958126": 80,
+            "SRR38958127": 66,
+            "SRR38958128": 23,
+            "SRR38958129": 90,
+            "SRR38958130": 16,
+            "SRR38958131": 45,
+            "SRR38958132": 91,
+            "SRR38958133": 92,
+            "SRR38958134": 86,
+            "SRR38958135": 70,
+            "SRR38958136": 55,
+            "SRR38958137": 85,
+            "SRR38958138": 76,
+            "SRR38958139": 76,
+            "SRR38958140": 59,
+            "SRR38958141": 36,
+            "SRR38958142": 34,
+            "SRR38958143": 82,
+            "SRR38958144": 46,
+            "SRR38958145": 45,
+            "SRR38958146": 63,
+            "SRR38958147": 53,
+            "SRR38958148": 122,
+            "SRR38958149": 68,
+            "SRR38958150": 30,
+            "SRR38958151": 101,
+            "SRR38958152": 70,
+            "SRR38958153": 55,
+            "SRR38958154": 47,
+            "SRR38958155": 69,
+            "SRR38958156": 69,
+            "SRR38958157": 63,
+            "SRR38958158": 74,
+            "SRR38958159": 110,
+            "SRR38958160": 105,
+            "SRR38966955": 153,
+            "SRR38966956": 16,
+            "SRR38966957": 117,
+            "SRR38966958": 117,
+            "SRR38966959": 73,
+            "SRR38966960": 107,
+            "SRR38966962": 62,
+            "SRR38966963": 25,
+            "SRR38966967": 153,
+            "SRR38966968": 63,
+            "SRR38966969": 161,
+            "SRR38966972": 33,
+            "SRR38966976": 123,
+            "SRR38966983": 131,
+            "SRR38966984": 147,
+            "SRR38966985": 26,
+            "SRR38966987": 89,
+            "SRR38966989": 30,
+            "SRR38966990": 77
+          },
+          "shannon_entropy": {
+            "SRR38958117": 4.3984,
+            "SRR38958118": 4.891,
+            "SRR38958119": 4.2112,
+            "SRR38958120": 4.1018,
+            "SRR38958121": 4.3066,
+            "SRR38958122": 4.962,
+            "SRR38958123": 4.9259,
+            "SRR38958124": 4.0522,
+            "SRR38958125": 3.7226,
+            "SRR38958126": 4.645,
+            "SRR38958127": 4.4483,
+            "SRR38958128": 3.4206,
+            "SRR38958129": 4.0632,
+            "SRR38958130": 3.0194,
+            "SRR38958131": 3.4411,
+            "SRR38958132": 4.0107,
+            "SRR38958133": 4.3404,
+            "SRR38958134": 3.8704,
+            "SRR38958135": 3.3941,
+            "SRR38958136": 3.8498,
+            "SRR38958137": 4.6517,
+            "SRR38958138": 4.0814,
+            "SRR38958139": 4.5279,
+            "SRR38958140": 4.5495,
+            "SRR38958141": 3.6579,
+            "SRR38958142": 3.5889,
+            "SRR38958143": 4.1067,
+            "SRR38958144": 3.6564,
+            "SRR38958145": 3.2325,
+            "SRR38958146": 3.507,
+            "SRR38958147": 3.1849,
+            "SRR38958148": 4.7075,
+            "SRR38958149": 4.0083,
+            "SRR38958150": 2.5953,
+            "SRR38958151": 4.1774,
+            "SRR38958152": 4.1666,
+            "SRR38958153": 4.2936,
+            "SRR38958154": 3.9467,
+            "SRR38958155": 4.4602,
+            "SRR38958156": 4.3557,
+            "SRR38958157": 4.0938,
+            "SRR38958158": 4.5228,
+            "SRR38958159": 4.5448,
+            "SRR38958160": 4.8289,
+            "SRR38966955": 5.3329,
+            "SRR38966956": 1.1012,
+            "SRR38966957": 3.5474,
+            "SRR38966958": 3.5336,
+            "SRR38966959": 2.0229,
+            "SRR38966960": 4.8063,
+            "SRR38966962": 2.4124,
+            "SRR38966963": 1.0868,
+            "SRR38966967": 5.1887,
+            "SRR38966968": 1.4158,
+            "SRR38966969": 5.2835,
+            "SRR38966972": 4.0521,
+            "SRR38966976": 5.1317,
+            "SRR38966983": 3.7047,
+            "SRR38966984": 5.8197,
+            "SRR38966985": 2.0813,
+            "SRR38966987": 4.4489,
+            "SRR38966989": 1.9955,
+            "SRR38966990": 2.461
+          },
+          "environment": {
+            "SRR38958117": "frost flowers",
+            "SRR38958118": "frost flowers",
+            "SRR38958119": "frost flowers",
+            "SRR38958120": "frost flowers",
+            "SRR38958121": "frost flowers",
+            "SRR38958122": "chamber air",
+            "SRR38958123": "chamber air",
+            "SRR38958124": "ice",
+            "SRR38958125": "ice",
+            "SRR38958126": "frost flowers",
+            "SRR38958127": "ice",
+            "SRR38958128": "ice",
+            "SRR38958129": "seawater",
+            "SRR38958130": "seawater",
+            "SRR38958131": "ice",
+            "SRR38958132": "ice",
+            "SRR38958133": "ice",
+            "SRR38958134": "ice",
+            "SRR38958135": "ice",
+            "SRR38958136": "ice",
+            "SRR38958137": "frost flowers",
+            "SRR38958138": "Brine",
+            "SRR38958139": "Brine",
+            "SRR38958140": "Brine",
+            "SRR38958141": "Brine",
+            "SRR38958142": "Brine",
+            "SRR38958143": "Brine",
+            "SRR38958144": "Brine",
+            "SRR38958145": "Brine",
+            "SRR38958146": "Brine",
+            "SRR38958147": "Brine",
+            "SRR38958148": "frost flowers",
+            "SRR38958149": "Brine",
+            "SRR38958150": "Brine",
+            "SRR38958151": "frost flowers",
+            "SRR38958152": "frost flowers",
+            "SRR38958153": "frost flowers",
+            "SRR38958154": "frost flowers",
+            "SRR38958155": "frost flowers",
+            "SRR38958156": "frost flowers",
+            "SRR38958157": "frost flowers",
+            "SRR38958158": "frost flowers",
+            "SRR38958159": "frost flowers",
+            "SRR38958160": "frost flowers",
+            "SRR38966955": "frost flowers",
+            "SRR38966956": "ice",
+            "SRR38966957": "seawater",
+            "SRR38966958": "seawater",
+            "SRR38966959": "ice",
+            "SRR38966960": "ice",
+            "SRR38966962": "Brine",
+            "SRR38966963": "Brine",
+            "SRR38966967": "frost flowers",
+            "SRR38966968": "ice",
+            "SRR38966969": "frost flowers",
+            "SRR38966972": "frost flowers",
+            "SRR38966976": "frost flowers",
+            "SRR38966983": "ice",
+            "SRR38966984": "frost flowers",
+            "SRR38966985": "Brine",
+            "SRR38966987": "ice",
+            "SRR38966989": "Brine",
+            "SRR38966990": "Brine"
+          }
+        },
+        "kw_richness": [
+          13.2333,
+          0.0102
+        ],
+        "kw_shannon": [
+          31.652,
+          0.0
+        ],
+        "pairs": [
+          [
+            "Brine",
+            "chamber air"
+          ],
+          [
+            "Brine",
+            "frost flowers"
+          ],
+          [
+            "Brine",
+            "ice"
+          ],
+          [
+            "Brine",
+            "seawater"
+          ],
+          [
+            "chamber air",
+            "frost flowers"
+          ],
+          [
+            "chamber air",
+            "ice"
+          ],
+          [
+            "chamber air",
+            "seawater"
+          ],
+          [
+            "frost flowers",
+            "ice"
+          ],
+          [
+            "frost flowers",
+            "seawater"
+          ],
+          [
+            "ice",
+            "seawater"
+          ]
+        ],
+        "richness_pvals": [
+          0.1263,
+          0.0005,
+          0.0938,
+          0.1391,
+          0.5963,
+          0.8366,
+          0.4811,
+          0.0975,
+          1.0,
+          0.3443
+        ],
+        "richness_u_stats": [
+          5.0,
+          72.5,
+          89.0,
+          17.0,
+          18.0,
+          18.0,
+          2.0,
+          252.5,
+          48.0,
+          21.5
+        ],
+        "richness_effect_sizes": [
+          0.7059,
+          0.6446,
+          0.3456,
+          0.5,
+          0.25,
+          -0.125,
+          0.5,
+          -0.3151,
+          0.0,
+          0.3281
+        ],
+        "richness_fdr": {
+          "p_adj": [
+            0.2782,
+            0.0052,
+            0.2782,
+            0.2782,
+            0.7453,
+            0.9296,
+            0.6873,
+            0.2782,
+            1.0,
+            0.5739
+          ],
+          "reject": [
+            false,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "n_sig": 1,
+          "n_tests": 10,
+          "alpha": 0.05
+        },
+        "shannon_pvals": [
+          0.0117,
+          0.0,
+          0.3219,
+          0.8291,
+          0.2215,
+          0.0131,
+          0.1333,
+          0.0001,
+          0.0004,
+          0.6819
+        ],
+        "shannon_u_stats": [
+          0.0,
+          34.0,
+          108.0,
+          31.0,
+          38.0,
+          32.0,
+          8.0,
+          333.0,
+          94.0,
+          37.0
+        ],
+        "shannon_effect_sizes": [
+          1.0,
+          0.8333,
+          0.2059,
+          0.0882,
+          -0.5833,
+          -1.0,
+          -1.0,
+          -0.7344,
+          -0.9583,
+          -0.1562
+        ],
+        "shannon_fdr": {
+          "p_adj": [
+            0.0261,
+            0.0001,
+            0.4023,
+            0.8291,
+            0.3165,
+            0.0261,
+            0.2222,
+            0.0005,
+            0.0013,
+            0.7577
+          ],
+          "reject": [
+            true,
+            true,
+            false,
+            false,
+            false,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "n_sig": 5,
+          "n_tests": 10,
+          "alpha": 0.05
+        },
+        "env_groups": {
+          "frost flowers": 24,
+          "Brine": 17,
+          "ice": 16,
+          "seawater": 4,
+          "chamber air": 2
+        }
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c7": {
+      "label": "alpha_diversity_statistics",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import entropy, kruskal, mannwhitneyu\nfrom itertools import combinations\n\n# Load data\nsub_counts = counts.loc[meta.index[meta['pipeline_in_counts']]]\nsub_meta = meta.loc[sub_counts.index]\n\n# Calculate alpha diversity metrics per sample\nobserved_richness = (sub_counts > 0).sum(axis=1)\nshannon_entropy = entropy(sub_counts.values, base=2, axis=1)\n\n# Create a combined dataframe\nalpha_df = pd.DataFrame({\n    'observed_richness': observed_richness,\n    'shannon_entropy': shannon_entropy,\n    'environment': sub_meta['biosample_env_local_scale']\n})\n\n# Group sizes\nenv_groups = alpha_df['environment'].value_counts().sort_index()\nprint(\"Group sizes:\")\nfor env, n in env_groups.items():\n    print(f\"  {env}: n={n}\")\n\n# Summary statistics by environment\nprint(\"\\nSummary statistics by environment:\")\nfor env in sorted(alpha_df['environment'].unique()):\n    subset = alpha_df[alpha_df['environment'] == env]\n    print(f\"\\n{env} (n={len(subset)}):\")\n    print(f\"  Richness: mean={subset['observed_richness'].mean():.2f}, median={subset['observed_richness'].median():.2f}, min={subset['observed_richness'].min()}, max={subset['observed_richness'].max()}\")\n    print(f\"  Shannon:  mean={subset['shannon_entropy'].mean():.2f}, median={subset['shannon_entropy'].median():.2f}, min={subset['shannon_entropy'].min():.2f}, max={subset['shannon_entropy'].max():.2f}\")\n\n# Kruskal-Wallis test for each metric across all 5 groups\nenvs = sorted(alpha_df['environment'].unique())\nrichness_groups = [alpha_df[alpha_df['environment'] == env]['observed_richness'].values for env in envs]\nshannon_groups = [alpha_df[alpha_df['environment'] == env]['shannon_entropy'].values for env in envs]\n\nkw_richness = kruskal(*richness_groups)\nkw_shannon = kruskal(*shannon_groups)\n\nprint(f\"\\nKruskal-Wallis test:\")\nprint(f\"  Richness: H={kw_richness.statistic:.4f}, p={kw_richness.pvalue:.6f}\")\nprint(f\"  Shannon:  H={kw_shannon.statistic:.4f}, p={kw_shannon.pvalue:.6f}\")\n\n# Pairwise Mann-Whitney U tests with FDR correction\npairs = list(combinations(envs, 2))\n\n# Calculate pairwise tests for richness\nrichness_pvals = []\nrichness_u_stats = []\nrichness_effect_sizes = []\nfor env1, env2 in pairs:\n    g1 = alpha_df[alpha_df['environment'] == env1]['observed_richness'].values\n    g2 = alpha_df[alpha_df['environment'] == env2]['observed_richness'].values\n    u_stat, p_val = mannwhitneyu(g1, g2, alternative='two-sided')\n    # Effect size: rank-biserial correlation\n    n1, n2 = len(g1), len(g2)\n    effect_size = 1 - (2 * u_stat) / (n1 * n2)\n    richness_pvals.append(p_val)\n    richness_u_stats.append(u_stat)\n    richness_effect_sizes.append(effect_size)\n\n# Calculate pairwise tests for Shannon\nshannon_pvals = []\nshannon_u_stats = []\nshannon_effect_sizes = []\nfor env1, env2 in pairs:\n    g1 = alpha_df[alpha_df['environment'] == env1]['shannon_entropy'].values\n    g2 = alpha_df[alpha_df['environment'] == env2]['shannon_entropy'].values\n    u_stat, p_val = mannwhitneyu(g1, g2, alternative='two-sided')\n    n1, n2 = len(g1), len(g2)\n    effect_size = 1 - (2 * u_stat) / (n1 * n2)\n    shannon_pvals.append(p_val)\n    shannon_u_stats.append(u_stat)\n    shannon_effect_sizes.append(effect_size)\n\n# FDR correction using the provided fdr function\nrichness_fdr = fdr(richness_pvals)\nshannon_fdr = fdr(shannon_pvals)\n\nprint(f\"\\nPairwise Mann-Whitney U tests (Richness):\")\nprint(f\"  {'Pair':<40} {'U':>6} {'p_raw':>8} {'p_adj':>8} {'reject':>6} {'effect':>8}\")\nfor i, (env1, env2) in enumerate(pairs):\n    print(f\"  {env1} vs {env2:<25} {richness_u_stats[i]:>6.0f} {richness_pvals[i]:>8.4f} {richness_fdr['p_adj'][i]:>8.4f} {str(richness_fdr['reject'][i]):>6} {richness_effect_sizes[i]:>8.4f}\")\n\nprint(f\"\\nPairwise Mann-Whitney U tests (Shannon):\")\nprint(f\"  {'Pair':<40} {'U':>6} {'p_raw':>8} {'p_adj':>8} {'reject':>6} {'effect':>8}\")\nfor i, (env1, env2) in enumerate(pairs):\n    print(f\"  {env1} vs {env2:<25} {shannon_u_stats[i]:>6.0f} {shannon_pvals[i]:>8.4f} {shannon_fdr['p_adj'][i]:>8.4f} {str(shannon_fdr['reject'][i]):>6} {shannon_effect_sizes[i]:>8.4f}\")\n\n# Store results for claim\nresult = {\n    'env_groups': env_groups.to_dict(),\n    'kw_richness_H': kw_richness.statistic,\n    'kw_richness_p': kw_richness.pvalue,\n    'kw_shannon_H': kw_shannon.statistic,\n    'kw_shannon_p': kw_shannon.pvalue,\n    'pairs': pairs,\n    'richness_pvals': richness_pvals,\n    'richness_u_stats': richness_u_stats,\n    'richness_effect_sizes': richness_effect_sizes,\n    'richness_fdr_p_adj': richness_fdr['p_adj'],\n    'richness_fdr_reject': richness_fdr['reject'],\n    'richness_fdr_n_sig': richness_fdr['n_sig'],\n    'richness_fdr_n_tests': richness_fdr['n_tests'],\n    'shannon_pvals': shannon_pvals,\n    'shannon_u_stats': shannon_u_stats,\n    'shannon_effect_sizes': shannon_effect_sizes,\n    'shannon_fdr_p_adj': shannon_fdr['p_adj'],\n    'shannon_fdr_reject': shannon_fdr['reject'],\n    'shannon_fdr_n_sig': shannon_fdr['n_sig'],\n    'shannon_fdr_n_tests': shannon_fdr['n_tests']\n}",
+      "result": {
+        "env_groups": {
+          "Brine": 17,
+          "chamber air": 2,
+          "frost flowers": 24,
+          "ice": 16,
+          "seawater": 4
+        },
+        "kw_richness_H": 13.2333,
+        "kw_richness_p": 0.0102,
+        "kw_shannon_H": 31.652,
+        "kw_shannon_p": 0.0,
+        "pairs": [
+          [
+            "Brine",
+            "chamber air"
+          ],
+          [
+            "Brine",
+            "frost flowers"
+          ],
+          [
+            "Brine",
+            "ice"
+          ],
+          [
+            "Brine",
+            "seawater"
+          ],
+          [
+            "chamber air",
+            "frost flowers"
+          ],
+          [
+            "chamber air",
+            "ice"
+          ],
+          [
+            "chamber air",
+            "seawater"
+          ],
+          [
+            "frost flowers",
+            "ice"
+          ],
+          [
+            "frost flowers",
+            "seawater"
+          ],
+          [
+            "ice",
+            "seawater"
+          ]
+        ],
+        "richness_pvals": [
+          0.1263,
+          0.0005,
+          0.0938,
+          0.1391,
+          0.5963,
+          0.8366,
+          0.4811,
+          0.0975,
+          1.0,
+          0.3443
+        ],
+        "richness_u_stats": [
+          5.0,
+          72.5,
+          89.0,
+          17.0,
+          18.0,
+          18.0,
+          2.0,
+          252.5,
+          48.0,
+          21.5
+        ],
+        "richness_effect_sizes": [
+          0.7059,
+          0.6446,
+          0.3456,
+          0.5,
+          0.25,
+          -0.125,
+          0.5,
+          -0.3151,
+          0.0,
+          0.3281
+        ],
+        "richness_fdr_p_adj": [
+          0.2782,
+          0.0052,
+          0.2782,
+          0.2782,
+          0.7453,
+          0.9296,
+          0.6873,
+          0.2782,
+          1.0,
+          0.5739
+        ],
+        "richness_fdr_reject": [
+          false,
+          true,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "richness_fdr_n_sig": 1,
+        "richness_fdr_n_tests": 10,
+        "shannon_pvals": [
+          0.0117,
+          0.0,
+          0.3219,
+          0.8291,
+          0.2215,
+          0.0131,
+          0.1333,
+          0.0001,
+          0.0004,
+          0.6819
+        ],
+        "shannon_u_stats": [
+          0.0,
+          34.0,
+          108.0,
+          31.0,
+          38.0,
+          32.0,
+          8.0,
+          333.0,
+          94.0,
+          37.0
+        ],
+        "shannon_effect_sizes": [
+          1.0,
+          0.8333,
+          0.2059,
+          0.0882,
+          -0.5833,
+          -1.0,
+          -1.0,
+          -0.7344,
+          -0.9583,
+          -0.1562
+        ],
+        "shannon_fdr_p_adj": [
+          0.0261,
+          0.0001,
+          0.4023,
+          0.8291,
+          0.3165,
+          0.0261,
+          0.2222,
+          0.0005,
+          0.0013,
+          0.7577
+        ],
+        "shannon_fdr_reject": [
+          true,
+          true,
+          false,
+          false,
+          false,
+          true,
+          false,
+          true,
+          true,
+          false
+        ],
+        "shannon_fdr_n_sig": 5,
+        "shannon_fdr_n_tests": 10
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c8": {
+      "label": "alpha_diversity_means_by_env",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import entropy\n\n# Load data\nsub_counts = counts.loc[meta.index[meta['pipeline_in_counts']]]\nsub_meta = meta.loc[sub_counts.index]\n\n# Calculate alpha diversity metrics per sample\nobserved_richness = (sub_counts > 0).sum(axis=1)\nshannon_entropy = entropy(sub_counts.values, base=2, axis=1)\n\n# Create a combined dataframe\nalpha_df = pd.DataFrame({\n    'observed_richness': observed_richness,\n    'shannon_entropy': shannon_entropy,\n    'environment': sub_meta['biosample_env_local_scale']\n})\n\n# Check depth (pipeline_total_reads) vs richness correlation\ndepth = sub_meta.loc[alpha_df.index, 'pipeline_total_reads']\nfrom scipy.stats import spearmanr\nrich_depth_corr, rich_depth_p = spearmanr(depth, alpha_df['observed_richness'])\nshannon_depth_corr, shannon_depth_p = spearmanr(depth, alpha_df['shannon_entropy'])\n\nprint(\"Depth vs alpha diversity correlations:\")\nprint(f\"  Richness vs depth: rho={rich_depth_corr:.4f}, p={rich_depth_p:.6f}\")\nprint(f\"  Shannon vs depth:  rho={shannon_depth_corr:.4f}, p={shannon_depth_p:.6f}\")\n\n# Summary statistics by environment\nprint(\"\\nMean alpha diversity by environment:\")\nfor env in sorted(alpha_df['environment'].unique()):\n    subset = alpha_df[alpha_df['environment'] == env]\n    depth_subset = depth.loc[subset.index]\n    print(f\"\\n{env} (n={len(subset)}):\")\n    print(f\"  Richness: mean={subset['observed_richness'].mean():.2f}, median={subset['observed_richness'].median():.2f}\")\n    print(f\"  Shannon:  mean={subset['shannon_entropy'].mean():.4f}, median={subset['shannon_entropy'].median():.4f}\")\n    print(f\"  Depth:    mean={depth_subset.mean():.0f}, median={depth_subset.median():.0f}\")\n\n# Store for claim\nresult = {\n    'rich_depth_corr': rich_depth_corr,\n    'rich_depth_p': rich_depth_p,\n    'shannon_depth_corr': shannon_depth_corr,\n    'shannon_depth_p': shannon_depth_p,\n}",
+      "result": {
+        "rich_depth_corr": 0.6262,
+        "rich_depth_p": 0.0,
+        "shannon_depth_corr": 0.0573,
+        "shannon_depth_p": 0.6553
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c9": {
+      "label": "complete pairwise Shannon comparisons + richness depth check",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import mannwhitneyu, spearmanr\n\n# Load data\nsub_meta = meta.loc[counts.index].copy()\nsub_counts = counts.copy()\n\n# Get environment groups\nenv = sub_meta['biosample_env_local_scale']\n\n# Compute Shannon entropy per sample (using raw counts, not rarefied)\nshannon = []\nfor idx in sub_counts.index:\n    row = sub_counts.loc[idx]\n    total = row.sum()\n    if total == 0:\n        shannon.append(np.nan)\n    else:\n        p = row / total\n        p_nonzero = p[p > 0]\n        shannon.append(-np.sum(p_nonzero * np.log2(p_nonzero)))\n\nshannon_series = pd.Series(shannon, index=sub_counts.index, name='shannon')\n\n# Compute observed richness per sample\nrichness = (sub_counts > 0).sum(axis=1)\n\n# Check depth by environment\ndepth_by_env = sub_meta['pipeline_total_reads'].groupby(env).mean()\nprint(\"Mean depth by environment:\")\nprint(depth_by_env)\n\n# Check Shannon by environment\nshannon_by_env = shannon_series.groupby(env).agg(['mean', 'std', 'count'])\nprint(\"\\nShannon by environment:\")\nprint(shannon_by_env)\n\n# Check richness by environment\nrichness_by_env = richness.groupby(env).agg(['mean', 'std', 'count'])\nprint(\"\\nRichness by environment:\")\nprint(richness_by_env)\n\n# Pairwise Mann-Whitney U tests for Shannon\nenvs = sorted(env.unique())\nshannon_pairs = []\nfor i, e1 in enumerate(envs):\n    for e2 in envs[i+1:]:\n        s1 = shannon_series[env == e1]\n        s2 = shannon_series[env == e2]\n        stat, p = mannwhitneyu(s1, s2, alternative='two-sided')\n        n1, n2 = len(s1), len(s2)\n        effect = 1 - (2 * stat) / (n1 * n2)\n        shannon_pairs.append({\n            'env1': e1, 'env2': e2,\n            'n1': n1, 'n2': n2,\n            'mean1': s1.mean(), 'mean2': s2.mean(),\n            'stat': stat, 'p': p, 'effect': effect\n        })\n\nshannon_df = pd.DataFrame(shannon_pairs)\nprint(\"\\nPairwise Shannon comparisons:\")\nprint(shannon_df[['env1', 'env2', 'n1', 'n2', 'mean1', 'mean2', 'stat', 'p', 'effect']])\n\n# FDR correction for Shannon\npvals_shannon = shannon_df['p'].values\nfdr_result_shannon = fdr(pvals_shannon)\nshannon_df['p_adj'] = fdr_result_shannon['p_adj']\nshannon_df['reject'] = fdr_result_shannon['reject']\nprint(\"\\nShannon with FDR correction:\")\nprint(shannon_df[['env1', 'env2', 'p', 'p_adj', 'reject', 'effect']])\n\n# Pairwise Mann-Whitney U tests for richness\nrichness_pairs = []\nfor i, e1 in enumerate(envs):\n    for e2 in envs[i+1:]:\n        r1 = richness[env == e1]\n        r2 = richness[env == e2]\n        stat, p = mannwhitneyu(r1, r2, alternative='two-sided')\n        n1, n2 = len(r1), len(r2)\n        effect = 1 - (2 * stat) / (n1 * n2)\n        richness_pairs.append({\n            'env1': e1, 'env2': e2,\n            'n1': n1, 'n2': n2,\n            'mean1': r1.mean(), 'mean2': r2.mean(),\n            'stat': stat, 'p': p, 'effect': effect\n        })\n\nrichness_df = pd.DataFrame(richness_pairs)\nprint(\"\\nPairwise richness comparisons:\")\nprint(richness_df[['env1', 'env2', 'n1', 'n2', 'mean1', 'mean2', 'stat', 'p', 'effect']])\n\n# FDR correction for richness\npvals_richness = richness_df['p'].values\nfdr_result_richness = fdr(pvals_richness)\nrichness_df['p_adj'] = fdr_result_richness['p_adj']\nrichness_df['reject'] = fdr_result_richness['reject']\nprint(\"\\nRichness with FDR correction:\")\nprint(richness_df[['env1', 'env2', 'p', 'p_adj', 'reject', 'effect']])\n\n# Check depth vs richness correlation\ndepth_corr, depth_p = spearmanr(sub_meta['pipeline_total_reads'], richness)\nprint(f\"\\nDepth vs richness: rho={depth_corr:.4f}, p={depth_p:.6f}\")\n\n# Check depth vs Shannon correlation\nshannon_corr, shannon_p = spearmanr(sub_meta['pipeline_total_reads'], shannon_series)\nprint(f\"Depth vs Shannon: rho={shannon_corr:.4f}, p={shannon_p:.6f}\")\n\n# Store results\nresult = {\n    'shannon_by_env': shannon_by_env,\n    'richness_by_env': richness_by_env,\n    'depth_by_env': depth_by_env,\n    'shannon_pairs': shannon_df,\n    'richness_pairs': richness_df,\n    'depth_richness_rho': depth_corr,\n    'depth_richness_p': depth_p,\n    'depth_shannon_rho': shannon_corr,\n    'depth_shannon_p': shannon_p,\n}",
+      "result": {
+        "shannon_by_env": {
+          "mean": {
+            "Brine": 3.2196,
+            "chamber air": 4.944,
+            "frost flowers": 4.588,
+            "ice": 3.5031,
+            "seawater": 3.5409
+          },
+          "std": {
+            "Brine": 0.9745,
+            "chamber air": 0.0255,
+            "frost flowers": 0.4813,
+            "ice": 1.078,
+            "seawater": 0.4262
+          },
+          "count": {
+            "Brine": 17,
+            "chamber air": 2,
+            "frost flowers": 24,
+            "ice": 16,
+            "seawater": 4
+          }
+        },
+        "richness_by_env": {
+          "mean": {
+            "Brine": 52.2353,
+            "chamber air": 74.0,
+            "frost flowers": 92.0,
+            "ice": 69.375,
+            "seawater": 85.0
+          },
+          "std": {
+            "Brine": 19.7501,
+            "chamber air": 7.0711,
+            "frost flowers": 37.2559,
+            "ice": 29.8438,
+            "seawater": 47.7284
+          },
+          "count": {
+            "Brine": 17,
+            "chamber air": 2,
+            "frost flowers": 24,
+            "ice": 16,
+            "seawater": 4
+          }
+        },
+        "depth_by_env": {
+          "Brine": 5722.0,
+          "chamber air": 6722.5,
+          "frost flowers": 6151.625,
+          "ice": 7464.9375,
+          "seawater": 10875.0
+        },
+        "shannon_pairs": {
+          "env1": {
+            "0": "Brine",
+            "1": "Brine",
+            "2": "Brine",
+            "3": "Brine",
+            "4": "chamber air",
+            "5": "chamber air",
+            "6": "chamber air",
+            "7": "frost flowers",
+            "8": "frost flowers",
+            "9": "ice"
+          },
+          "env2": {
+            "0": "chamber air",
+            "1": "frost flowers",
+            "2": "ice",
+            "3": "seawater",
+            "4": "frost flowers",
+            "5": "ice",
+            "6": "seawater",
+            "7": "ice",
+            "8": "seawater",
+            "9": "seawater"
+          },
+          "n1": {
+            "0": 17,
+            "1": 17,
+            "2": 17,
+            "3": 17,
+            "4": 2,
+            "5": 2,
+            "6": 2,
+            "7": 24,
+            "8": 24,
+            "9": 16
+          },
+          "n2": {
+            "0": 2,
+            "1": 24,
+            "2": 16,
+            "3": 4,
+            "4": 24,
+            "5": 16,
+            "6": 4,
+            "7": 16,
+            "8": 4,
+            "9": 4
+          },
+          "mean1": {
+            "0": 3.2196,
+            "1": 3.2196,
+            "2": 3.2196,
+            "3": 3.2196,
+            "4": 4.944,
+            "5": 4.944,
+            "6": 4.944,
+            "7": 4.588,
+            "8": 4.588,
+            "9": 3.5031
+          },
+          "mean2": {
+            "0": 4.944,
+            "1": 4.588,
+            "2": 3.5031,
+            "3": 3.5409,
+            "4": 4.588,
+            "5": 3.5031,
+            "6": 3.5409,
+            "7": 3.5031,
+            "8": 3.5409,
+            "9": 3.5409
+          },
+          "stat": {
+            "0": 0.0,
+            "1": 34.0,
+            "2": 108.0,
+            "3": 31.0,
+            "4": 38.0,
+            "5": 32.0,
+            "6": 8.0,
+            "7": 333.0,
+            "8": 94.0,
+            "9": 37.0
+          },
+          "p": {
+            "0": 0.0117,
+            "1": 0.0,
+            "2": 0.3219,
+            "3": 0.8291,
+            "4": 0.2215,
+            "5": 0.0131,
+            "6": 0.1333,
+            "7": 0.0001,
+            "8": 0.0004,
+            "9": 0.6819
+          },
+          "effect": {
+            "0": 1.0,
+            "1": 0.8333,
+            "2": 0.2059,
+            "3": 0.0882,
+            "4": -0.5833,
+            "5": -1.0,
+            "6": -1.0,
+            "7": -0.7344,
+            "8": -0.9583,
+            "9": -0.1562
+          },
+          "p_adj": {
+            "0": 0.0261,
+            "1": 0.0001,
+            "2": 0.4023,
+            "3": 0.8291,
+            "4": 0.3165,
+            "5": 0.0261,
+            "6": 0.2222,
+            "7": 0.0005,
+            "8": 0.0013,
+            "9": 0.7577
+          },
+          "reject": {
+            "0": true,
+            "1": true,
+            "2": false,
+            "3": false,
+            "4": false,
+            "5": true,
+            "6": false,
+            "7": true,
+            "8": true,
+            "9": false
+          }
+        },
+        "richness_pairs": {
+          "env1": {
+            "0": "Brine",
+            "1": "Brine",
+            "2": "Brine",
+            "3": "Brine",
+            "4": "chamber air",
+            "5": "chamber air",
+            "6": "chamber air",
+            "7": "frost flowers",
+            "8": "frost flowers",
+            "9": "ice"
+          },
+          "env2": {
+            "0": "chamber air",
+            "1": "frost flowers",
+            "2": "ice",
+            "3": "seawater",
+            "4": "frost flowers",
+            "5": "ice",
+            "6": "seawater",
+            "7": "ice",
+            "8": "seawater",
+            "9": "seawater"
+          },
+          "n1": {
+            "0": 17,
+            "1": 17,
+            "2": 17,
+            "3": 17,
+            "4": 2,
+            "5": 2,
+            "6": 2,
+            "7": 24,
+            "8": 24,
+            "9": 16
+          },
+          "n2": {
+            "0": 2,
+            "1": 24,
+            "2": 16,
+            "3": 4,
+            "4": 24,
+            "5": 16,
+            "6": 4,
+            "7": 16,
+            "8": 4,
+            "9": 4
+          },
+          "mean1": {
+            "0": 52.2353,
+            "1": 52.2353,
+            "2": 52.2353,
+            "3": 52.2353,
+            "4": 74.0,
+            "5": 74.0,
+            "6": 74.0,
+            "7": 92.0,
+            "8": 92.0,
+            "9": 69.375
+          },
+          "mean2": {
+            "0": 74.0,
+            "1": 92.0,
+            "2": 69.375,
+            "3": 85.0,
+            "4": 92.0,
+            "5": 69.375,
+            "6": 85.0,
+            "7": 69.375,
+            "8": 85.0,
+            "9": 85.0
+          },
+          "stat": {
+            "0": 5.0,
+            "1": 72.5,
+            "2": 89.0,
+            "3": 17.0,
+            "4": 18.0,
+            "5": 18.0,
+            "6": 2.0,
+            "7": 252.5,
+            "8": 48.0,
+            "9": 21.5
+          },
+          "p": {
+            "0": 0.1263,
+            "1": 0.0005,
+            "2": 0.0938,
+            "3": 0.1391,
+            "4": 0.5963,
+            "5": 0.8366,
+            "6": 0.4811,
+            "7": 0.0975,
+            "8": 1.0,
+            "9": 0.3443
+          },
+          "effect": {
+            "0": 0.7059,
+            "1": 0.6446,
+            "2": 0.3456,
+            "3": 0.5,
+            "4": 0.25,
+            "5": -0.125,
+            "6": 0.5,
+            "7": -0.3151,
+            "8": 0.0,
+            "9": 0.3281
+          },
+          "p_adj": {
+            "0": 0.2782,
+            "1": 0.0052,
+            "2": 0.2782,
+            "3": 0.2782,
+            "4": 0.7453,
+            "5": 0.9296,
+            "6": 0.6873,
+            "7": 0.2782,
+            "8": 1.0,
+            "9": 0.5739
+          },
+          "reject": {
+            "0": false,
+            "1": true,
+            "2": false,
+            "3": false,
+            "4": false,
+            "5": false,
+            "6": false,
+            "7": false,
+            "8": false,
+            "9": false
+          }
+        },
+        "depth_richness_rho": 0.6262,
+        "depth_richness_p": 0.0,
+        "depth_shannon_rho": 0.0573,
+        "depth_shannon_p": 0.6553
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c10": {
+      "label": "richness pairwise FDR correction",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import mannwhitneyu\n\n# Load data\nsub_meta = meta.loc[counts.index].copy()\nsub_counts = counts.copy()\nenv = sub_meta['biosample_env_local_scale']\nrichness = (sub_counts > 0).sum(axis=1)\n\nenvs = sorted(env.unique())\nrichness_pairs = []\nfor i, e1 in enumerate(envs):\n    for e2 in envs[i+1:]:\n        r1 = richness[env == e1]\n        r2 = richness[env == e2]\n        stat, p = mannwhitneyu(r1, r2, alternative='two-sided')\n        n1, n2 = len(r1), len(r2)\n        effect = 1 - (2 * stat) / (n1 * n2)\n        richness_pairs.append({\n            'env1': e1, 'env2': e2,\n            'n1': n1, 'n2': n2,\n            'mean1': r1.mean(), 'mean2': r2.mean(),\n            'stat': stat, 'p': p, 'effect': effect\n        })\n\nrichness_df = pd.DataFrame(richness_pairs)\n\n# FDR correction\npvals_richness = richness_df['p'].values\nfdr_result = fdr(pvals_richness)\nrichness_df['p_adj'] = fdr_result['p_adj']\nrichness_df['reject'] = fdr_result['reject']\n\nprint(\"Richness pairwise with FDR:\")\nfor _, row in richness_df.iterrows():\n    print(f\"{row['env1']} vs {row['env2']}: p={row['p']:.4f}, p_adj={row['p_adj']:.4f}, effect={row['effect']:.4f}, reject={row['reject']}\")\n\nresult = richness_df",
+      "result": {
+        "env1": {
+          "0": "Brine",
+          "1": "Brine",
+          "2": "Brine",
+          "3": "Brine",
+          "4": "chamber air",
+          "5": "chamber air",
+          "6": "chamber air",
+          "7": "frost flowers",
+          "8": "frost flowers",
+          "9": "ice"
+        },
+        "env2": {
+          "0": "chamber air",
+          "1": "frost flowers",
+          "2": "ice",
+          "3": "seawater",
+          "4": "frost flowers",
+          "5": "ice",
+          "6": "seawater",
+          "7": "ice",
+          "8": "seawater",
+          "9": "seawater"
+        },
+        "n1": {
+          "0": 17,
+          "1": 17,
+          "2": 17,
+          "3": 17,
+          "4": 2,
+          "5": 2,
+          "6": 2,
+          "7": 24,
+          "8": 24,
+          "9": 16
+        },
+        "n2": {
+          "0": 2,
+          "1": 24,
+          "2": 16,
+          "3": 4,
+          "4": 24,
+          "5": 16,
+          "6": 4,
+          "7": 16,
+          "8": 4,
+          "9": 4
+        },
+        "mean1": {
+          "0": 52.2353,
+          "1": 52.2353,
+          "2": 52.2353,
+          "3": 52.2353,
+          "4": 74.0,
+          "5": 74.0,
+          "6": 74.0,
+          "7": 92.0,
+          "8": 92.0,
+          "9": 69.375
+        },
+        "mean2": {
+          "0": 74.0,
+          "1": 92.0,
+          "2": 69.375,
+          "3": 85.0,
+          "4": 92.0,
+          "5": 69.375,
+          "6": 85.0,
+          "7": 69.375,
+          "8": 85.0,
+          "9": 85.0
+        },
+        "stat": {
+          "0": 5.0,
+          "1": 72.5,
+          "2": 89.0,
+          "3": 17.0,
+          "4": 18.0,
+          "5": 18.0,
+          "6": 2.0,
+          "7": 252.5,
+          "8": 48.0,
+          "9": 21.5
+        },
+        "p": {
+          "0": 0.1263,
+          "1": 0.0005,
+          "2": 0.0938,
+          "3": 0.1391,
+          "4": 0.5963,
+          "5": 0.8366,
+          "6": 0.4811,
+          "7": 0.0975,
+          "8": 1.0,
+          "9": 0.3443
+        },
+        "effect": {
+          "0": 0.7059,
+          "1": 0.6446,
+          "2": 0.3456,
+          "3": 0.5,
+          "4": 0.25,
+          "5": -0.125,
+          "6": 0.5,
+          "7": -0.3151,
+          "8": 0.0,
+          "9": 0.3281
+        },
+        "p_adj": {
+          "0": 0.2782,
+          "1": 0.0052,
+          "2": 0.2782,
+          "3": 0.2782,
+          "4": 0.7453,
+          "5": 0.9296,
+          "6": 0.6873,
+          "7": 0.2782,
+          "8": 1.0,
+          "9": 0.5739
+        },
+        "reject": {
+          "0": false,
+          "1": true,
+          "2": false,
+          "3": false,
+          "4": false,
+          "5": false,
+          "6": false,
+          "7": false,
+          "8": false,
+          "9": false
         }
       },
       "by": "qwen/qwen3.6-35b-a3b"

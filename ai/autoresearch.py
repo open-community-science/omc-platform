@@ -545,6 +545,8 @@ def format_briefing(b: dict) -> str:
             "    rarefy(df, depth=None, seed=0) -> (DataFrame, [ids dropped below depth])",
             "    permanova(counts_or_distances, groups, permutations=999) -> "
             "{'F', 'R2', 'p', 'n', 'groups', 'group_sizes'}",
+            "    alpha_diversity(counts) -> DataFrame[richness, shannon_nats, "
+            "shannon_bits, evenness, depth] — the unit is in the column name",
             # Shown, not prohibited. "Do not read files" has now failed in four
             # separate contexts, and a claim-sized context cannot inherit the
             # correction its predecessor was given — each one starts naive, so the
@@ -1334,6 +1336,30 @@ def clr(df, pseudocount=0.5):
     L = np.log(X)
     Z = L - L.mean(axis=1, keepdims=True)
     return pd.DataFrame(Z, index=getattr(df, "index", None), columns=getattr(df, "columns", None))
+def alpha_diversity(df):
+    """Per-sample alpha diversity, with the UNIT IN THE COLUMN NAME.
+
+    Two claims in one ledger reported frost-flower Shannon as 4.59 and 3.18. Both were
+    right — bits and nats — and neither said which, so a clean-room analyst computing
+    the other one refutes a correct claim over a logarithm base. Naming the column
+    `shannon_nats` removes the ambiguity without anyone having to declare a parameter.
+
+    Returns richness, shannon_nats, shannon_bits, evenness (Pielou, 0-1) and depth,
+    indexed like the rows of `df`."""
+    X = df.values.astype(float)
+    depth = X.sum(axis=1)
+    rich = (X > 0).sum(axis=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        P = np.divide(X, depth[:, None], out=np.zeros_like(X), where=depth[:, None] > 0)
+        logP = np.where(P > 0, np.log(P, where=P > 0), 0.0)
+        nats = -(P * logP).sum(axis=1)
+        even = np.divide(nats, np.log(rich), out=np.zeros_like(nats),
+                         where=rich > 1)
+    return pd.DataFrame({"richness": rich, "shannon_nats": nats,
+                         "shannon_bits": nats / np.log(2), "evenness": even,
+                         "depth": depth}, index=getattr(df, "index", None))
+
+
 def permanova(data, groups, permutations=999, seed=0):
     """PERMANOVA (Anderson 2001) — pseudo-F, R2 and a permutation p-value.
 
@@ -1426,7 +1452,8 @@ _ns = dict(np=np, pd=pd, counts=counts, props=props, tax=tax, meta=meta,
            pdist=pdist, squareform=squareform,
            braycurtis=braycurtis, entropy=entropy, pearsonr=pearsonr, spearmanr=spearmanr,
            kruskal=kruskal, mannwhitneyu=mannwhitneyu, PCA=PCA,
-           fdr=fdr, clr=clr, rarefy=rarefy, permanova=permanova)
+           fdr=fdr, clr=clr, rarefy=rarefy, permanova=permanova,
+           alpha_diversity=alpha_diversity)
 try:
     exec(sys.stdin.read(), _ns)
     print(json.dumps({"__ok__": _j(_ns["result"])} if "result" in _ns
@@ -1723,6 +1750,14 @@ class Autoresearcher:
                             "`tax` and `meta` are DataFrames: stay in pandas (.loc, "
                             ".groupby, .mean(axis=...)), or wrap a result back up with "
                             "pd.Series(arr, index=...).")
+                elif "unalignable boolean" in err.lower() or "do not match" in err.lower():
+                    # pandas' THIRD phrasing for this mistake, and the one that shows up
+                    # now that meta has 84 rows against counts' 63: a mask built from
+                    # meta cannot index counts until the frames are aligned.
+                    hint = ("That mask was built on a different index. `meta` has a row "
+                            "for every submitted sample and `counts` only the ones with "
+                            "reads — align first with meta.loc[counts.index], then build "
+                            "the mask from the aligned frame.")
                 elif "boolean index" in err.lower():
                     # numpy says "boolean index did not match"; pandas says "Boolean
                     # index has wrong length". Matching only one of them meant the
