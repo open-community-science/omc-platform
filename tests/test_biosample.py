@@ -596,6 +596,37 @@ class TestAlphaDiversityHelper:
         assert ok and r["shannon"] == 0.0 and r["rich"] == 0
 
 
+class TestNumericCoercion:
+    """`sra_read_count` arrives from samples.json as text, so
+    meta['sra_read_count'].median() raised "Cannot perform reduction with string dtype"
+    — a plainly numeric column refusing arithmetic."""
+
+    def _run(self, code):
+        import asyncio
+        from ai.autoresearch import SubprocessExecutor
+        return asyncio.run(SubprocessExecutor("/data/dev/testdata/1543a4c1").run(code))
+
+    def test_a_numeric_column_that_arrived_as_text_is_usable(self):
+        ok, r = self._run("result = {'dtype': str(meta['sra_read_count'].dtype), "
+                          "'median': float(meta['sra_read_count'].median())}")
+        assert ok and r["dtype"].startswith("float") and r["median"] > 0
+
+    def test_label_columns_are_not_turned_into_nans(self):
+        """Coercing too eagerly would destroy the grouping variables entirely."""
+        ok, r = self._run(
+            "result = {'env': int(meta['biosample_env_local_scale'].notna().sum()), "
+            "'lib': int(meta['sra_library_name'].notna().sum()), "
+            "'env_dtype': str(meta['biosample_env_local_scale'].dtype)}")
+        assert ok and r["env"] == 84 and r["lib"] == 84
+        assert not r["env_dtype"].startswith("float")
+
+    def test_the_stage_columns_are_integers(self):
+        ok, r = self._run("result = {c: str(meta[c].dtype) for c in meta.columns "
+                          "if c.startswith('pipeline_reads_')}")
+        assert ok and all(v.startswith("int") or v.startswith("float")
+                          for v in r.values())
+
+
 class TestSourcePrefixes:
     """Three sources reach `meta` and they are not interchangeable. Nothing in a value
     says which one produced it, so the column name has to."""

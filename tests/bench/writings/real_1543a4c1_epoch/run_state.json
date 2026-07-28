@@ -725,6 +725,213 @@
       ],
       "kind": "pattern",
       "investigation": "a3",
+      "by": "qwen/qwen3.6-35b-a3b",
+      "checked": [
+        "c18:run",
+        "c19:run"
+      ],
+      "judgment": {
+        "per": {},
+        "notes": {},
+        "by": "glm-4.7-flash",
+        "raw": "1.  **Analyze the Request:**\n    *   Role: Strict verification auditor.\n    *   Input:\n        *   CLAIM (broken into ASSERTIONS).\n        *   PARAMETERS (context, ignore for grading but good to know context like sample sizes and methods used in analysis vs raw data re-execution). Note that parameters are explicitly stated as \"do not grade\".\n        *   INDEPENDENT EVIDENCE: Re-extracted from the same source code/data pipeline with labels intact.\n    *   Task:\n        1.  Grade each assertion individually (SUPPORTED, CONTRADICTED, NOT_ADDRESSED).\n        2.  Reply format: One line per assertio",
+        "truncated": true,
+        "graded_nothing": true,
+        "unmatched": []
+      },
+      "assertion_verdicts": {},
+      "method": "judge-failed"
+    },
+    {
+      "id": "k9",
+      "statement": "Depth-richeress correlation is highly environment-dependent: frost flowers show near-perfect correlation (rho=0.98, p<0.001) while Brine shows essentially no correlation (rho=0.14, p=0.59), indicating that Brine's low diversity is a genuine biological feature rather than a sequencing depth artifact. Shannon entropy also shows environment-dependent depth relationships: frost flowers have strong positive correlation (rho=0.85, p<0.001) while Brine has significant negative correlation (rho=-0.59, p=0.013). Rarefaction to deeper depths increases the environmental signal (KW H=18.24 at 576 reads \u2192 H=21.85 at 1152 reads) and improves rank preservation (rho=0.93 \u2192 0.97). Three high-depth outliers (11099-18856 reads) have unexpectedly low richness (16-63 ASVs), suggesting genuine low-diversity communities rather than undersampling.",
+      "value": "frost_flowers_rich_rho=0.9754, frost_flowers_rich_p=0.0, brine_rich_rho=0.1399, brine_rich_p=0.5923, frost_flowers_shannon_rho=0.8513, frost_flowers_shannon_p=0.0, brine_shannon_rho=-0.5882, brine_shannon_p=0.013, rarefied_H_576=18.2389, rarefied_H_1152=21.8493, outlier_depth_1=11099, outlier_rich_1=16, outlier_depth_2=12381, outlier_rich_2=25, outlier_depth_3=18856, outlier_rich_3=63",
+      "assertions": [
+        {
+          "label": "frost_flowers_rich_rho",
+          "value": "0.9754",
+          "of": "frost flowers environment, n=24 samples"
+        },
+        {
+          "label": "frost_flowers_rich_p",
+          "value": "0.0",
+          "of": "frost flowers environment"
+        },
+        {
+          "label": "brine_rich_rho",
+          "value": "0.1399",
+          "of": "Brine environment, n=17 samples"
+        },
+        {
+          "label": "brine_rich_p",
+          "value": "0.5923",
+          "of": "Brine environment"
+        },
+        {
+          "label": "frost_flowers_shannon_rho",
+          "value": "0.8513",
+          "of": "frost flowers environment"
+        },
+        {
+          "label": "frost_flowers_shannon_p",
+          "value": "0.0",
+          "of": "frost flowers environment"
+        },
+        {
+          "label": "brine_shannon_rho",
+          "value": "-0.5882",
+          "of": "Brine environment"
+        },
+        {
+          "label": "brine_shannon_p",
+          "value": "0.013",
+          "of": "Brine environment"
+        },
+        {
+          "label": "rarefied_H_576",
+          "value": "18.2389",
+          "of": "KW test on rarefied richness at 576 reads, 5 env groups"
+        },
+        {
+          "label": "rarefied_H_1152",
+          "value": "21.8493",
+          "of": "KW test on rarefied richness at 1152 reads, 5 env groups"
+        },
+        {
+          "label": "outlier_depth_1",
+          "value": "11099",
+          "of": "SRR38966956, ice environment"
+        },
+        {
+          "label": "outlier_rich_1",
+          "value": "16",
+          "of": "SRR38966956"
+        },
+        {
+          "label": "outlier_depth_2",
+          "value": "12381",
+          "of": "SRR38966963, Brine environment"
+        },
+        {
+          "label": "outlier_rich_2",
+          "value": "25",
+          "of": "SRR38966963"
+        },
+        {
+          "label": "outlier_depth_3",
+          "value": "18856",
+          "of": "SRR38966968, ice environment"
+        },
+        {
+          "label": "outlier_rich_3",
+          "value": "63",
+          "of": "SRR38966968"
+        }
+      ],
+      "parameters": {},
+      "antecedents": [
+        "c20",
+        "k7",
+        "k8"
+      ],
+      "kind": "pattern",
+      "investigation": "a3",
+      "by": "qwen/qwen3.6-35b-a3b",
+      "checked": [
+        "c20:run",
+        "k7:nopath",
+        "k8:nopath"
+      ],
+      "judgment": {
+        "per": {},
+        "notes": {},
+        "by": "glm-4.7-flash",
+        "raw": "1.  **Analyze the Request:**\n    *   Role: Strict verification auditor.\n    *   Input:\n        *   CLAIM broken into ASSERTIONS with labels and parameters ($n$, environment).\n        *   PARAMETERS block describing how analysis was done (not graded, just context for understanding assertions vs evidence values if needed to interpret \"why\", though usually ignored in grading logic unless the assertion implies a specific calculation method not present). Here it's empty `{}`.\n        *   INDEPENDENT EVIDENCE: A JSON object with re-executed metrics (`env_rich_rho`, `rarefaction_results` etc.) and ra",
+        "truncated": true,
+        "graded_nothing": true,
+        "unmatched": []
+      },
+      "assertion_verdicts": {},
+      "method": "judge-failed"
+    },
+    {
+      "id": "k10",
+      "statement": "Sample attrition is strongly biased toward low-yield samples: dropped samples have dramatically lower read counts at denoising (median 106 vs 5709, U=22, p<0.001, effect=0.97) and chimera stages (median 0 vs 5706, U=0, p<0.001, effect=1.0), confirming the retained dataset overrepresents robust, high-yield communities. Attrition is not uniform across environments: frost flowers (31.4%) and Brine (29.2%) have higher drop rates than ice (15.8%), while seawater and chamber air had no drops.",
+      "value": "denoise_median_dropped=106.0, denoise_median_retained=5709.0, denoise_U_stat=22.0, denoise_p=0.0, denoise_effect_size=0.9667, chimera_median_dropped=0.0, chimera_median_retained=5706.0, chimera_U_stat=0.0, chimera_p=0.0, chimera_effect_size=1.0, frost_flowers_drop_rate=0.3143, brine_drop_rate=0.2917, ice_drop_rate=0.1579",
+      "assertions": [
+        {
+          "label": "denoise_median_dropped",
+          "value": "106.0",
+          "of": "dropped samples, pipeline_reads_denoise"
+        },
+        {
+          "label": "denoise_median_retained",
+          "value": "5709.0",
+          "of": "retained samples, pipeline_reads_denoise"
+        },
+        {
+          "label": "denoise_U_stat",
+          "value": "22.0",
+          "of": "dropped vs retained, pipeline_reads_denoise"
+        },
+        {
+          "label": "denoise_p",
+          "value": "0.0",
+          "of": "dropped vs retained, pipeline_reads_denoise"
+        },
+        {
+          "label": "denoise_effect_size",
+          "value": "0.9667",
+          "of": "dropped vs retained, pipeline_reads_denoise"
+        },
+        {
+          "label": "chimera_median_dropped",
+          "value": "0.0",
+          "of": "dropped samples, pipeline_reads_chimera"
+        },
+        {
+          "label": "chimera_median_retained",
+          "value": "5706.0",
+          "of": "retained samples, pipeline_reads_chimera"
+        },
+        {
+          "label": "chimera_U_stat",
+          "value": "0.0",
+          "of": "dropped vs retained, pipeline_reads_chimera"
+        },
+        {
+          "label": "chimera_p",
+          "value": "0.0",
+          "of": "dropped vs retained, pipeline_reads_chimera"
+        },
+        {
+          "label": "chimera_effect_size",
+          "value": "1.0",
+          "of": "dropped vs retained, pipeline_reads_chimera"
+        },
+        {
+          "label": "frost_flowers_drop_rate",
+          "value": "0.3143",
+          "of": "frost flowers environment"
+        },
+        {
+          "label": "brine_drop_rate",
+          "value": "0.2917",
+          "of": "Brine environment"
+        },
+        {
+          "label": "ice_drop_rate",
+          "value": "0.1579",
+          "of": "ice environment"
+        }
+      ],
+      "parameters": {},
+      "antecedents": [
+        "c23",
+        "c24"
+      ],
+      "kind": "pattern",
+      "investigation": "a4",
       "by": "qwen/qwen3.6-35b-a3b"
     }
   ],
@@ -2634,6 +2841,464 @@
         "n_samples": 63
       },
       "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c20": {
+      "label": "depth-diversity by environment and rarefaction sensitivity",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import spearmanr, kruskal, linregress\n\n# Get the 63 samples in counts\nsub_meta = meta.loc[counts.index]\nsub_counts = counts.loc[sub_meta.index]\nsub_props = props.loc[sub_meta.index]\n\n# Compute observed richness and Shannon entropy per sample\nrichness = (sub_counts > 0).sum(axis=1)\nshannon = -np.sum(sub_props * np.log2(sub_props + 1e-12), axis=1)\n\n# Depth-diversity correlations overall\nrho_rich, p_rich = spearmanr(sub_meta['pipeline_total_reads'], richness)\nrho_shan, p_shan = spearmanr(sub_meta['pipeline_total_reads'], shannon)\n\n# Stratify by environment\nenv_groups = sub_meta['biosample_env_local_scale']\nenv_rich_rho = {}\nenv_rich_p = {}\nenv_shan_rho = {}\nenv_shan_p = {}\nfor env in env_groups.unique():\n    mask = env_groups == env\n    depth_vals = sub_meta.loc[mask, 'pipeline_total_reads'].values\n    rich_vals = richness.loc[mask].values\n    shan_vals = shannon.loc[mask].values\n    if np.all(np.isfinite(depth_vals)) and np.all(np.isfinite(rich_vals)) and np.all(np.isfinite(shan_vals)):\n        n = len(depth_vals)\n        if n >= 3:\n            rho_r, p_r = spearmanr(depth_vals, rich_vals)\n            rho_s, p_s = spearmanr(depth_vals, shan_vals)\n            env_rich_rho[str(env)] = float(rho_r)\n            env_rich_p[str(env)] = float(p_r)\n            env_shan_rho[str(env)] = float(rho_s)\n            env_shan_p[str(env)] = float(p_s)\n\n# Rarefaction at multiple depths\nmin_depth = int(sub_meta['pipeline_total_reads'].min())\ntest_depths = [min_depth, int(min_depth * 1.5), int(min_depth * 2)]\nrarefaction_results = {}\n\nfor depth in test_depths:\n    rarefied, dropped = rarefy(sub_counts, depth=depth, seed=42)\n    rare_rich = (rarefied > 0).sum(axis=1)\n    rare_props = rarefied.div(rarefied.sum(axis=1), axis=0)\n    rare_shan = -np.sum(rare_props * np.log2(rare_props + 1e-12), axis=1)\n    \n    # Only compare samples that survived rarefaction\n    common_idx = rare_rich.index.intersection(shannon.index)\n    rank_rich = float(spearmanr(richness.loc[common_idx], rare_rich.loc[common_idx]).correlation)\n    rank_shan = float(spearmanr(shannon.loc[common_idx], rare_shan.loc[common_idx]).correlation)\n    \n    # KW test on rarefied richness by environment - use only samples that survived\n    env_arrays = []\n    for env in env_groups.unique():\n        vals = rare_rich.loc[env_groups.loc[rare_rich.index] == env].values\n        if len(vals) > 0 and np.all(np.isfinite(vals)):\n            env_arrays.append(vals)\n    if len(env_arrays) >= 2:\n        kw_stat, kw_p = kruskal(*env_arrays)\n    else:\n        kw_stat, kw_p = np.nan, np.nan\n    \n    rarefaction_results[str(depth)] = {\n        'n_dropped': len(dropped),\n        'rank_rich_rho': rank_rich,\n        'rank_shan_rho': rank_shan,\n        'kw_H': float(kw_stat),\n        'kw_p': float(kw_p)\n    }\n\n# Outlier analysis\nslope, intercept, r_val, p_val, std_err = linregress(sub_meta['pipeline_total_reads'], richness)\nresiduals = richness - (slope * sub_meta['pipeline_total_reads'] + intercept)\noutlier_idx = residuals.abs().nlargest(3).index\noutlier_info = {}\nfor idx in outlier_idx:\n    outlier_info[str(idx)] = {\n        'depth': int(sub_meta.loc[idx, 'pipeline_total_reads']),\n        'richness': int(richness.loc[idx]),\n        'residual': float(residuals.loc[idx]),\n        'env': str(env_groups.loc[idx])\n    }\n\nresult = {\n    'overall_rich_rho': float(rho_rich),\n    'overall_rich_p': float(p_rich),\n    'overall_shan_rho': float(rho_shan),\n    'overall_shan_p': float(p_shan),\n    'env_rich_rho': env_rich_rho,\n    'env_rich_p': env_rich_p,\n    'env_shan_rho': env_shan_rho,\n    'env_shan_p': env_shan_p,\n    'rarefaction_results': rarefaction_results,\n    'outlier_info': outlier_info,\n    'min_depth': min_depth\n}",
+      "result": {
+        "overall_rich_rho": 0.6262,
+        "overall_rich_p": 0.0,
+        "overall_shan_rho": 0.0573,
+        "overall_shan_p": 0.6553,
+        "env_rich_rho": {
+          "frost flowers": 0.9754,
+          "ice": 0.5,
+          "seawater": 0.9487,
+          "Brine": 0.1399
+        },
+        "env_rich_p": {
+          "frost flowers": 0.0,
+          "ice": 0.0486,
+          "seawater": 0.0513,
+          "Brine": 0.5923
+        },
+        "env_shan_rho": {
+          "frost flowers": 0.8513,
+          "ice": -0.2794,
+          "seawater": 0.4,
+          "Brine": -0.5882
+        },
+        "env_shan_p": {
+          "frost flowers": 0.0,
+          "ice": 0.2946,
+          "seawater": 0.6,
+          "Brine": 0.013
+        },
+        "rarefaction_results": {
+          "576": {
+            "n_dropped": 0,
+            "rank_rich_rho": 0.9303,
+            "rank_shan_rho": 0.9859,
+            "kw_H": 18.2389,
+            "kw_p": 0.0011
+          },
+          "864": {
+            "n_dropped": 1,
+            "rank_rich_rho": 0.9509,
+            "rank_shan_rho": 0.9927,
+            "kw_H": 18.2343,
+            "kw_p": 0.0011
+          },
+          "1152": {
+            "n_dropped": 2,
+            "rank_rich_rho": 0.9715,
+            "rank_shan_rho": 0.9959,
+            "kw_H": 21.8493,
+            "kw_p": 0.0002
+          }
+        },
+        "outlier_info": {
+          "SRR38966956": {
+            "depth": 11099,
+            "richness": 16,
+            "residual": -77.0766,
+            "env": "ice"
+          },
+          "SRR38966963": {
+            "depth": 12381,
+            "richness": 25,
+            "residual": -73.4725,
+            "env": "Brine"
+          },
+          "SRR38966968": {
+            "depth": 18856,
+            "richness": 63,
+            "residual": -62.7253,
+            "env": "ice"
+          }
+        },
+        "min_depth": 576
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c21": {
+      "label": "attrition_bias_test",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import mannwhitneyu\n\n# Split groups using the already-loaded `meta` DataFrame\nretained = meta[meta['pipeline_in_counts'] == True]\ndropped = meta[meta['pipeline_in_counts'] == False]\n\n# Metrics to compare\nmetrics = ['pipeline_total_reads', 'pipeline_n_asvs']\n\nresults = {}\nfor m in metrics:\n    u_stat, p_val = mannwhitneyu(dropped[m], retained[m], alternative='two-sided')\n    # Effect size: rank-biserial correlation = 1 - (2*U / (n1*n2))\n    n1 = len(dropped)\n    n2 = len(retained)\n    effect_size = 1 - (2 * u_stat / (n1 * n2))\n    \n    results[m] = {\n        'dropped_mean': dropped[m].mean(),\n        'dropped_median': dropped[m].median(),\n        'retained_mean': retained[m].mean(),\n        'retained_median': retained[m].median(),\n        'U_stat': u_stat,\n        'p_val': p_val,\n        'effect_size': effect_size\n    }\n\nresult = results",
+      "result": {
+        "pipeline_total_reads": {
+          "dropped_mean": NaN,
+          "dropped_median": NaN,
+          "retained_mean": 6687.254,
+          "retained_median": 5465.0,
+          "U_stat": NaN,
+          "p_val": NaN,
+          "effect_size": NaN
+        },
+        "pipeline_n_asvs": {
+          "dropped_mean": NaN,
+          "dropped_median": NaN,
+          "retained_mean": 74.5079,
+          "retained_median": 70.0,
+          "U_stat": NaN,
+          "p_val": NaN,
+          "effect_size": NaN
+        }
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c22": {
+      "label": "inspect_dropped_meta",
+      "code": "import numpy as np\nimport pandas as pd\n\n# Get dropped and retained samples\ndropped = meta[meta['pipeline_in_counts'] == False]\nretained = meta[meta['pipeline_in_counts'] == True]\n\n# Check which columns have non-null values for dropped samples\ncol_stats = {}\nfor col in meta.columns:\n    n_nonnull_dropped = dropped[col].notna().sum()\n    n_nonnull_retained = retained[col].notna().sum()\n    col_stats[col] = {'dropped_nonnull': n_nonnull_dropped, 'retained_nonnull': n_nonnull_retained}\n\nresult = {'col_stats': col_stats, 'n_dropped': len(dropped), 'n_retained': len(retained)}",
+      "result": {
+        "col_stats": {
+          "pipeline_x": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "pipeline_y": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "pipeline_total_reads": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "pipeline_n_asvs": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_sample_accession": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_library_name": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_description": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_experiment_title": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_library_strategy": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_library_source": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_library_layout": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_instrument_model": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_submission_accession": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_read_count": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_base_count": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_collection_date": {
+            "dropped_nonnull": 0.0,
+            "retained_nonnull": 63.0
+          },
+          "pipeline_reads_raw": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "pipeline_reads_primer": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "pipeline_reads_filter": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "pipeline_reads_denoise": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "pipeline_reads_merge": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "pipeline_reads_chimera": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "pipeline_reads_final": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "pipeline_in_counts": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_center_name": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "sra_submitter_accession": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "biosample_collection_date": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "biosample_env_broad_scale": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "biosample_env_local_scale": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "biosample_env_medium": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "biosample_geo_loc_name": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "biosample_lat_lon": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          },
+          "biosample_title": {
+            "dropped_nonnull": 21.0,
+            "retained_nonnull": 63.0
+          }
+        },
+        "n_dropped": 21,
+        "n_retained": 63
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c23": {
+      "label": "attrition_stage_analysis",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import mannwhitneyu\n\n# Get dropped and retained samples\ndropped = meta[meta['pipeline_in_counts'] == False]\nretained = meta[meta['pipeline_in_counts'] == True]\n\n# Pipeline read counts at each stage\nread_stages = ['pipeline_reads_raw', 'pipeline_reads_primer', 'pipeline_reads_filter', \n               'pipeline_reads_denoise', 'pipeline_reads_merge', 'pipeline_reads_chimera', 'pipeline_reads_final']\n\n# For dropped samples, check which stage they were dropped at\n# The prompt says: 11 at chimera, 6 at final, 3 at denoise, 1 at filter\n# Let's verify and get the actual read counts at each stage\n\nstage_drops = {}\nfor stage in read_stages:\n    stage_drops[stage] = {\n        'dropped_mean': dropped[stage].mean(),\n        'dropped_median': dropped[stage].median(),\n        'dropped_min': dropped[stage].min(),\n        'dropped_max': dropped[stage].max(),\n        'retained_mean': retained[stage].mean(),\n        'retained_median': retained[stage].median(),\n        'retained_min': retained[stage].min(),\n        'retained_max': retained[stage].max()\n    }\n\n# Also check biosample metadata for dropped samples\nbiosample_cols = ['biosample_env_local_scale', 'biosample_env_broad_scale', 'biosample_env_medium', 'biosample_geo_loc_name']\nbiosample_stats = {}\nfor col in biosample_cols:\n    biosample_stats[col] = dropped[col].value_counts().to_dict()\n\nresult = {'stage_drops': stage_drops, 'biosample_stats': biosample_stats, 'n_dropped': len(dropped), 'n_retained': len(retained)}",
+      "result": {
+        "stage_drops": {
+          "pipeline_reads_raw": {
+            "dropped_mean": 10733.5714,
+            "dropped_median": 8753.0,
+            "dropped_min": 277.0,
+            "dropped_max": 27313.0,
+            "retained_mean": 18615.8571,
+            "retained_median": 18213.0,
+            "retained_min": 946.0,
+            "retained_max": 39453.0
+          },
+          "pipeline_reads_primer": {
+            "dropped_mean": 10632.7619,
+            "dropped_median": 8670.0,
+            "dropped_min": 274.0,
+            "dropped_max": 27014.0,
+            "retained_mean": 18110.0,
+            "retained_median": 18059.0,
+            "retained_min": 936.0,
+            "retained_max": 38044.0
+          },
+          "pipeline_reads_filter": {
+            "dropped_mean": 9103.8095,
+            "dropped_median": 6476.0,
+            "dropped_min": 0.0,
+            "dropped_max": 25056.0,
+            "retained_mean": 12044.4762,
+            "retained_median": 12156.0,
+            "retained_min": 781.0,
+            "retained_max": 21641.0
+          },
+          "pipeline_reads_denoise": {
+            "dropped_mean": 499.5238,
+            "dropped_median": 106.0,
+            "dropped_min": 0.0,
+            "dropped_max": 3012.0,
+            "retained_mean": 6955.873,
+            "retained_median": 5709.0,
+            "retained_min": 619.0,
+            "retained_max": 20982.0
+          },
+          "pipeline_reads_merge": {
+            "dropped_mean": 499.5238,
+            "dropped_median": 106.0,
+            "dropped_min": 0.0,
+            "dropped_max": 3012.0,
+            "retained_mean": 6955.873,
+            "retained_median": 5709.0,
+            "retained_min": 619.0,
+            "retained_max": 20982.0
+          },
+          "pipeline_reads_chimera": {
+            "dropped_mean": 26.3333,
+            "dropped_median": 0.0,
+            "dropped_min": 0.0,
+            "dropped_max": 196.0,
+            "retained_mean": 6954.4286,
+            "retained_median": 5706.0,
+            "retained_min": 619.0,
+            "retained_max": 20982.0
+          },
+          "pipeline_reads_final": {
+            "dropped_mean": 0.0,
+            "dropped_median": 0.0,
+            "dropped_min": 0.0,
+            "dropped_max": 0.0,
+            "retained_mean": 6687.254,
+            "retained_median": 5465.0,
+            "retained_min": 576.0,
+            "retained_max": 20267.0
+          }
+        },
+        "biosample_stats": {
+          "biosample_env_local_scale": {
+            "frost flowers": 11,
+            "Brine": 7,
+            "ice": 3
+          },
+          "biosample_env_broad_scale": {
+            "Ice chamber": 21
+          },
+          "biosample_env_medium": {
+            "SI.FF-6;Frost Flower": 2,
+            "SI.FF-2;Frost Flower": 1,
+            "SI.FF-18;Frost Flower": 1,
+            "SI.FF-17;Frost Flower": 1,
+            "SI.FF-15;Frost Flower": 1,
+            "SI.B2-2;Brine": 1,
+            "SI.B2-5;Brine": 1,
+            "SI.B2-6;Brine": 1,
+            "SI.DI-1;Drained Ice": 1,
+            "SI.FF-10;Frost Flower": 1,
+            "SI.FF-3;Frost Flower": 1,
+            "SI.FF-5;Frost Flower": 1,
+            "SI.FF-7;Frost Flower": 1,
+            "SI.FF-16;Frost Flower": 1,
+            "SI.B1-1;Brine": 1,
+            "SI.B1-2;Brine": 1,
+            "SI.B1-3;Brine": 1,
+            "SI.WC-2;Whole Core": 1,
+            "SI.B1-5;Brine": 1,
+            "SI.DI-4;Drained Ice": 1
+          },
+          "biosample_geo_loc_name": {
+            "United Kingdom:Norwich": 21
+          }
+        },
+        "n_dropped": 21,
+        "n_retained": 63
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c24": {
+      "label": "attrition_mannwhitney_tests",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import mannwhitneyu\n\n# Get dropped and retained samples\ndropped = meta[meta['pipeline_in_counts'] == False]\nretained = meta[meta['pipeline_in_counts'] == True]\n\n# Pipeline read counts at each stage\nread_stages = ['pipeline_reads_raw', 'pipeline_reads_primer', 'pipeline_reads_filter', \n               'pipeline_reads_denoise', 'pipeline_reads_merge', 'pipeline_reads_chimera', 'pipeline_reads_final']\n\n# Run Mann-Whitney U tests at each stage\nmw_results = {}\nfor stage in read_stages:\n    u_stat, p_val = mannwhitneyu(dropped[stage], retained[stage], alternative='two-sided')\n    # Effect size: rank-biserial correlation\n    n1 = len(dropped)\n    n2 = len(retained)\n    effect_size = 1 - (2 * u_stat / (n1 * n2))\n    \n    mw_results[stage] = {\n        'U_stat': u_stat,\n        'p_val': p_val,\n        'effect_size': effect_size,\n        'dropped_median': dropped[stage].median(),\n        'retained_median': retained[stage].median(),\n        'dropped_mean': dropped[stage].mean(),\n        'retained_mean': retained[stage].mean()\n    }\n\n# Also check if the attrition is biased toward certain environments\n# Dropped samples: frost flowers (11), Brine (7), ice (3)\n# Retained samples by environment\nenv_dist = meta.groupby('biosample_env_local_scale')['pipeline_in_counts'].agg(['sum', 'count'])\nenv_dist['drop_rate'] = 1 - env_dist['sum'] / env_dist['count']\n\nresult = {'mw_results': mw_results, 'env_distribution': env_dist.to_dict()}",
+      "result": {
+        "mw_results": {
+          "pipeline_reads_raw": {
+            "U_stat": 337.0,
+            "p_val": 0.0008,
+            "effect_size": 0.4906,
+            "dropped_median": 8753.0,
+            "retained_median": 18213.0,
+            "dropped_mean": 10733.5714,
+            "retained_mean": 18615.8571
+          },
+          "pipeline_reads_primer": {
+            "U_stat": 343.0,
+            "p_val": 0.001,
+            "effect_size": 0.4815,
+            "dropped_median": 8670.0,
+            "retained_median": 18059.0,
+            "dropped_mean": 10632.7619,
+            "retained_mean": 18110.0
+          },
+          "pipeline_reads_filter": {
+            "U_stat": 459.0,
+            "p_val": 0.0369,
+            "effect_size": 0.3061,
+            "dropped_median": 6476.0,
+            "retained_median": 12156.0,
+            "dropped_mean": 9103.8095,
+            "retained_mean": 12044.4762
+          },
+          "pipeline_reads_denoise": {
+            "U_stat": 22.0,
+            "p_val": 0.0,
+            "effect_size": 0.9667,
+            "dropped_median": 106.0,
+            "retained_median": 5709.0,
+            "dropped_mean": 499.5238,
+            "retained_mean": 6955.873
+          },
+          "pipeline_reads_merge": {
+            "U_stat": 22.0,
+            "p_val": 0.0,
+            "effect_size": 0.9667,
+            "dropped_median": 106.0,
+            "retained_median": 5709.0,
+            "dropped_mean": 499.5238,
+            "retained_mean": 6955.873
+          },
+          "pipeline_reads_chimera": {
+            "U_stat": 0.0,
+            "p_val": 0.0,
+            "effect_size": 1.0,
+            "dropped_median": 0.0,
+            "retained_median": 5706.0,
+            "dropped_mean": 26.3333,
+            "retained_mean": 6954.4286
+          },
+          "pipeline_reads_final": {
+            "U_stat": 0.0,
+            "p_val": 0.0,
+            "effect_size": 1.0,
+            "dropped_median": 0.0,
+            "retained_median": 5465.0,
+            "dropped_mean": 0.0,
+            "retained_mean": 6687.254
+          }
+        },
+        "env_distribution": {
+          "sum": {
+            "Brine": 17,
+            "chamber air": 2,
+            "frost flowers": 24,
+            "ice": 16,
+            "seawater": 4
+          },
+          "count": {
+            "Brine": 24,
+            "chamber air": 2,
+            "frost flowers": 35,
+            "ice": 19,
+            "seawater": 4
+          },
+          "drop_rate": {
+            "Brine": 0.2917,
+            "chamber air": 0.0,
+            "frost flowers": 0.3143,
+            "ice": 0.1579,
+            "seawater": 0.0
+          }
+        }
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
     }
   },
   "agenda": [
@@ -2655,14 +3320,14 @@
       "id": "a3",
       "question": "Sequencing depth vs. diversity metrics: Does pipeline_total_reads correlate with observed ASV richness or Shannon entropy in the 63 retained samples? Use Spearman correlation. Determine if richness saturates or scales linearly, and whether rarefaction to equal depth alters diversity rankings or environmental groupings.",
       "rationale": "Amplicon datasets are inherently biased by sequencing depth. Establishing the depth-diversity relationship validates whether observed alpha diversity patterns reflect biology or technical undersampling, and informs whether rarefaction is necessary for downstream comparisons.",
-      "status": "in_progress",
+      "status": "interrupted",
       "parent": null
     },
     {
       "id": "a4",
       "question": "Systematic bias from sample attrition: Do the 21 dropped samples (absent from counts) differ from the 63 retained samples in pipeline_total_reads and pipeline_n_asvs? Use Mann-Whitney U to test if the final dataset is biased toward high-yield or high-quality samples, and quantify the magnitude of this bias.",
       "rationale": "The pipeline dropped 25% of samples (21/84) due to zero reads at various stages. If dropped samples systematically differ in yield or complexity, the retained dataset may overrepresent robust communities and underrepresent rare or degraded ones, biasing ecological inferences.",
-      "status": "pending",
+      "status": "in_progress",
       "parent": null
     },
     {

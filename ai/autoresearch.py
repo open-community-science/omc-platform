@@ -1321,6 +1321,15 @@ if _runmap:
                    ("sra_submitter_accession", "submitter_acc")):
         _fill = pd.Series({_i: (_runmap.get(_i) or {}).get(_k) for _i in meta.index})
         meta[_c] = meta[_c].fillna(_fill) if _c in meta.columns else _fill
+# Numbers that arrived as text. `sra_read_count` and `sra_base_count` come out of
+# samples.json as strings, so meta['sra_read_count'].median() raises "Cannot perform
+# reduction with string dtype" — a column that is plainly numeric refusing arithmetic.
+for _c in list(meta.columns):
+    if meta[_c].dtype == object or str(meta[_c].dtype) == "str":
+        _num = pd.to_numeric(meta[_c], errors="coerce")
+        # only if it really is numeric: don't turn a labels column into NaNs
+        if _num.notna().sum() and _num.notna().sum() >= meta[_c].notna().sum():
+            meta[_c] = _num
 _sa = _rj("sample_attributes") or {}
 if _sa and "sra_sample_accession" in meta.columns:
     _at = pd.DataFrame.from_dict(_sa, orient="index")
