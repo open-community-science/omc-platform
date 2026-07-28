@@ -656,7 +656,8 @@ _LABEL_SYNONYMS = {"pseudof": "f", "fstat": "f", "rsquared": "r2", "rsq": "r2",
                    "kwh": "kw", "kwstatistic": "kw", "num": "n", "count": "n"}
 
 
-_LABEL_NOISE = {"stat", "statistic", "value", "val", "the", "of", "vs", "versus", "and"}
+_LABEL_NOISE = {"stat", "statistic", "value", "val", "the", "of", "vs", "versus", "and",
+                "pseudo", "overall", "observed", "test"}
 
 
 def _label_key(label: str) -> str:
