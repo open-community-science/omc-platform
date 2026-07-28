@@ -2464,8 +2464,16 @@ class Autoresearcher:
         finally:
             if item["status"] != "done":
                 # A tip that banked a claim leaves the investigation OPEN — a successor
-                # picks it up. One that banked nothing simply ran out.
-                item["status"] = "pending" if (one_claim and recorded()) else "interrupted"
+                # picks it up. One that banked NOTHING used to close the investigation
+                # outright, so a5 died with its first context's finding banked and its
+                # actual question unanswered because the second context wedged. A bad
+                # context should cost a context, not the investigation: allow one more
+                # attempt, then stop so a genuinely stuck item cannot loop.
+                if one_claim and recorded():
+                    item["status"] = "pending"
+                else:
+                    item["wedged"] = item.get("wedged", 0) + 1
+                    item["status"] = "pending" if item["wedged"] < 2 else "interrupted"
             self._active_tip = None
             # Emitted so a watcher can tell a finished tip from an abandoned one while
             # the run is still going. Without it the two are indistinguishable until

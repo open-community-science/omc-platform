@@ -2090,14 +2090,36 @@ class TestClaimSizedContexts:
         asyncio.run(ar._grow_tip(item, max_steps=4, one_claim=True))
         assert item["status"] == "pending"
 
-    def test_a_context_that_banks_nothing_is_still_interrupted(self):
+    def test_a_context_that_banks_nothing_gets_one_more_try(self):
+        """a5 banked a verified finding in its first context, wedged in its second, and
+        the investigation was closed with its actual question unanswered. A bad context
+        should cost a context, not the investigation."""
         c = _ScriptedClient(germinate=[_AGENDA2],
                             tip=[[("run_analysis", {"code": "x"})]] * 20)
         ar = _hyphal(c)
         asyncio.run(ar._germinate())
         item = ar._next_tip(None)
         asyncio.run(ar._grow_tip(item, max_steps=2, one_claim=True))
-        assert item["status"] == "interrupted"
+        assert item["status"] == "pending" and item["wedged"] == 1
+
+    def test_a_second_wedge_does_close_it(self):
+        """Otherwise a genuinely stuck investigation loops for the whole budget."""
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[("run_analysis", {"code": "x"})]] * 40)
+        ar = _hyphal(c)
+        asyncio.run(ar._germinate())
+        item = ar._next_tip(None)
+        for _ in range(2):
+            asyncio.run(ar._grow_tip(item, max_steps=2, one_claim=True))
+        assert item["status"] == "interrupted" and item["wedged"] == 2
+
+    def test_banking_a_claim_clears_nothing_but_keeps_it_open(self):
+        c = _ScriptedClient(germinate=[_AGENDA2], tip=[[_claim_call("x", "1")]] * 4)
+        ar = _hyphal(c)
+        asyncio.run(ar._germinate())
+        item = ar._next_tip(None)
+        asyncio.run(ar._grow_tip(item, max_steps=4, one_claim=True))
+        assert item["status"] == "pending" and "wedged" not in item
 
     def test_an_investigation_cannot_spawn_successors_forever(self):
         """Without a cap, an item that keeps banking claims is never finished."""
