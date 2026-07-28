@@ -2208,6 +2208,7 @@ class Autoresearcher:
         *purpose* (which tools, what seeds it, what ends it) supplied by the caller.
         Every hyphal phase is one of these; none of them outlives its own return."""
         messages = [{"role": "system", "content": system}, {"role": "user", "content": seed}]
+        cutstreak = 0                    # consecutive replies cut off at the token limit
         for step in range(max_steps):
             messages = _compact_messages(messages)   # a well-behaved tip never needs this
             if prod is not None and (say := prod(step, max_steps)):
@@ -2221,17 +2222,32 @@ class Autoresearcher:
                 if cut:
                     # Out of generation budget mid-thought. Saying so beats the generic
                     # nudge, which reads as "you did nothing" and invites a repeat.
-                    await self._emit("truncated", {"tip": tag, "step": step})
-                    messages.append({"role": "assistant", "content": msg.content or ""})
-                    messages.append({"role": "user", "content":
-                        "Your reply was cut off at the token limit before you called a "
-                        "tool. Keep the reasoning short and make the call."})
+                    cutstreak += 1
+                    await self._emit("truncated", {"tip": tag, "step": step,
+                                                   "streak": cutstreak})
+                    if cutstreak >= 2:
+                        # Keeping the cut-off text is what makes the next reply likelier
+                        # to be cut off as well: the context grows by a paragraph that
+                        # went nowhere, so the spiral tightens. One investigation burned
+                        # three consecutive steps this way. Drop it and be blunt.
+                        messages.append({"role": "user", "content":
+                            "Cut off again. Stop explaining and call the tool now. If "
+                            "the analysis is long, run a small piece of it first and "
+                            "build up from what comes back."})
+                    else:
+                        messages.append({"role": "assistant",
+                                         "content": msg.content or ""})
+                        messages.append({"role": "user", "content":
+                            "Your reply was cut off at the token limit before you called "
+                            "a tool. Keep the reasoning short and make the call."})
                     continue
+                cutstreak = 0
                 if "DONE" in _strip_think(msg.content or "").upper():
                     return step + 1
                 messages.append({"role": "assistant", "content": msg.content or ""})
                 messages.append({"role": "user", "content": nudge})
                 continue
+            cutstreak = 0
             messages.append({"role": "assistant", "content": msg.content or "",
                              "tool_calls": [tc.model_dump() for tc in msg.tool_calls]})
             for tc in msg.tool_calls:

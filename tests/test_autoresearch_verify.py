@@ -37,6 +37,54 @@ def _step(n: int, n_tools: int = 2, size: int = 4000) -> list[dict]:
                for k in range(n_tools)])
 
 
+class TestTruncationSpiral:
+    """One investigation burned three consecutive steps being cut off. Each cut-off
+    reply was appended to the transcript, so the context grew by a paragraph that went
+    nowhere and the next reply was likelier to be cut off in turn."""
+
+    def _loop(self, finish_reasons):
+        """Drive _agent_loop against a client that returns the given finish_reasons."""
+        import asyncio
+        from types import SimpleNamespace
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        seen = []
+
+        class _Client:
+            def __init__(self): self.i = 0
+            async def chat(self, *a, **k):
+                seen.append([dict(m) for m in k.get("messages") or a[0]])
+                fr = finish_reasons[min(self.i, len(finish_reasons) - 1)]
+                self.i += 1
+                return SimpleNamespace(choices=[SimpleNamespace(
+                    finish_reason=fr,
+                    message=SimpleNamespace(content="thinking " * 50, tool_calls=None))])
+
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        ar._chat = lambda role, messages, **kw: _Client.chat(c, messages=messages, **kw)
+        c = _Client()
+        asyncio.run(ar._agent_loop(system="s", seed="q", tools=[],
+                                   max_steps=len(finish_reasons), nudge="n", tag="t"))
+        return seen
+
+    def test_the_first_cutoff_keeps_the_text_and_asks_for_brevity(self):
+        seen = self._loop(["length", "length"])
+        assert any(m["role"] == "assistant" and "thinking" in (m.get("content") or "")
+                   for m in seen[1]), "first cut-off text should be kept"
+        assert "cut off at the token limit" in seen[1][-1]["content"]
+
+    def test_a_repeat_cutoff_drops_the_dead_text(self):
+        """The second cut-off paragraph is what tightens the spiral, so it must not be
+        carried forward."""
+        seen = self._loop(["length", "length", "length"])
+        before = sum("thinking" in (m.get("content") or "") for m in seen[1])
+        after = sum("thinking" in (m.get("content") or "") for m in seen[2])
+        assert after == before, "a repeat cut-off must not add another dead paragraph"
+        assert "Cut off again" in seen[2][-1]["content"]
+
+
 class TestCompactMessages:
     """Nothing trimmed the explore transcript, so every run above the step cap would
     have overflowed the window — and an overflow drops from the FRONT, taking the
