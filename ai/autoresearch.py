@@ -538,6 +538,8 @@ def format_briefing(b: dict) -> str:
             "'n_tests': int, 'alpha': float}",
             "    clr(df, pseudocount=0.5) -> DataFrame, same axes",
             "    rarefy(df, depth=None, seed=0) -> (DataFrame, [ids dropped below depth])",
+            "    permanova(counts_or_distances, groups, permutations=999) -> "
+            "{'F', 'R2', 'p', 'n', 'groups', 'group_sizes'}",
             # Shown, not prohibited. "Do not read files" has now failed in four
             # separate contexts, and a claim-sized context cannot inherit the
             # correction its predecessor was given — each one starts naive, so the
@@ -1299,6 +1301,54 @@ def clr(df, pseudocount=0.5):
     L = np.log(X)
     Z = L - L.mean(axis=1, keepdims=True)
     return pd.DataFrame(Z, index=getattr(df, "index", None), columns=getattr(df, "columns", None))
+def permanova(data, groups, permutations=999, seed=0):
+    """PERMANOVA (Anderson 2001) — pseudo-F, R2 and a permutation p-value.
+
+    Supplied because five independent analysts hand-rolled this test and returned
+    F = 0.0048, 0.39, 22.89 and 92.01 for a dataset whose answer is 4.19 — four orders
+    of magnitude, none right, while `fdr`, `clr` and `rarefy` were used correctly every
+    time. The difference was availability, not care.
+
+    `data` is either a square distance matrix or a samples x features table, in which
+    case Bray-Curtis distances are computed from it. `groups` is one label per sample,
+    in the same order as the rows."""
+    X = np.asarray(getattr(data, "values", data), dtype=float)
+    square = X.ndim == 2 and X.shape[0] == X.shape[1] and X.shape[0] > 1
+    if square and np.allclose(np.diag(X), 0) and np.allclose(X, X.T):
+        D = X
+    else:
+        D = squareform(pdist(X, metric="braycurtis"))
+    g = np.asarray(getattr(groups, "values", groups), dtype=object)
+    if len(g) != D.shape[0]:
+        raise ValueError(f"{len(g)} group labels for {D.shape[0]} samples — they must "
+                         "line up row for row (meta.loc[counts.index] aligns them)")
+    levels, d2, N = np.unique(g), D ** 2, D.shape[0]
+    a = len(levels)
+    if a < 2 or N <= a:
+        raise ValueError(f"need at least 2 groups and more samples than groups; "
+                         f"got {a} groups over {N} samples")
+
+    def _F(labels):
+        sst = d2.sum() / (2 * N)
+        ssw = 0.0
+        for lev in levels:
+            idx = np.where(labels == lev)[0]
+            if len(idx) > 1:
+                ssw += d2[np.ix_(idx, idx)].sum() / (2 * len(idx))
+        ssa = sst - ssw
+        return ((ssa / (a - 1)) / (ssw / (N - a)) if ssw > 0 else float("nan"),
+                ssa / sst if sst > 0 else float("nan"))
+
+    F, R2 = _F(g)
+    rng = np.random.default_rng(seed)
+    ge = sum(1 for _ in range(permutations) if _F(rng.permutation(g))[0] >= F)
+    return {"F": round(float(F), 4), "R2": round(float(R2), 4),
+            "p": round((ge + 1) / (permutations + 1), 4),
+            "n": int(N), "groups": int(a), "group_sizes":
+                {str(l): int((g == l).sum()) for l in levels},
+            "permutations": int(permutations)}
+
+
 def rarefy(df, depth=None, seed=0):
     """Subsample every sample to a common depth without replacement (seeded, so
     the result re-executes identically at verification time). Rows below `depth`
@@ -1343,7 +1393,7 @@ _ns = dict(np=np, pd=pd, counts=counts, props=props, tax=tax, meta=meta,
            pdist=pdist, squareform=squareform,
            braycurtis=braycurtis, entropy=entropy, pearsonr=pearsonr, spearmanr=spearmanr,
            kruskal=kruskal, mannwhitneyu=mannwhitneyu, PCA=PCA,
-           fdr=fdr, clr=clr, rarefy=rarefy)
+           fdr=fdr, clr=clr, rarefy=rarefy, permanova=permanova)
 try:
     exec(sys.stdin.read(), _ns)
     print(json.dumps({"__ok__": _j(_ns["result"])} if "result" in _ns

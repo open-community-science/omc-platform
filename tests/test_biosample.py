@@ -432,6 +432,52 @@ class TestResultEncoding:
         assert ok and r == {"n": 5, "x": 1.2346, "ok": True, "none": None}
 
 
+class TestPermanovaHelper:
+    """Five independent analysts hand-rolled PERMANOVA and returned F = 0.0048, 0.39,
+    22.89 and 92.01 for a dataset whose answer is 4.19 — four orders of magnitude, none
+    right, while fdr/clr/rarefy were used correctly every time. The difference was
+    availability, not care."""
+
+    def _run(self, code):
+        import asyncio
+        from ai.autoresearch import SubprocessExecutor
+        return asyncio.run(SubprocessExecutor("/data/dev/testdata/1543a4c1").run(code))
+
+    SETUP = ("g = meta.loc[counts.index, 'biosample_env_local_scale']\n"
+             "P = counts.div(counts.sum(axis=1), axis=0)\n")
+
+    def test_it_gets_the_answer_the_analysts_could_not(self):
+        ok, r = self._run(self.SETUP + "result = permanova(P, g, permutations=199)")
+        assert ok
+        assert abs(r["F"] - 4.19) < 0.01
+        assert abs(r["R2"] - 0.224) < 0.005
+        assert r["n"] == 63 and r["groups"] == 5
+
+    def test_a_precomputed_distance_matrix_is_accepted_as_is(self):
+        ok, r = self._run(self.SETUP + "D = squareform(pdist(P.values, metric='braycurtis'))\n"
+                          "result = permanova(D, g, permutations=199)")
+        assert ok and abs(r["F"] - 4.19) < 0.01
+
+    def test_random_labels_sit_at_the_null(self):
+        """A test that cannot tell signal from noise is worse than none."""
+        ok, r = self._run(self.SETUP + "import numpy as np\n"
+                          "rng = np.random.default_rng(0)\n"
+                          "result = permanova(P, rng.permutation(g.values), permutations=199)")
+        assert ok and r["F"] < 2.0 and r["p"] > 0.05
+
+    def test_misaligned_labels_are_refused_not_silently_wrong(self):
+        ok, r = self._run("result = permanova(counts, ['a', 'b'], permutations=9)")
+        assert not ok and "line up row for row" in str(r)
+
+    def test_one_group_is_refused(self):
+        ok, r = self._run(self.SETUP + "result = permanova(P, ['x'] * 63, permutations=9)")
+        assert not ok and "at least 2 groups" in str(r)
+
+    def test_the_signature_is_declared_in_the_briefing(self):
+        text = format_briefing({"available": ["permanova"]})
+        assert "permanova(counts_or_distances, groups" in text
+
+
 class TestSourcePrefixes:
     """Three sources reach `meta` and they are not interchangeable. Nothing in a value
     says which one produced it, so the column name has to."""
