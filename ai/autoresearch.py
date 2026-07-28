@@ -2047,14 +2047,25 @@ class Autoresearcher:
             # was not enough. Claim-sized contexts (#61) make this the default failure
             # rather than an oddity: each one starts fresh, works the same question,
             # and reaches the same answer. Instruction loses; identity is checkable.
-            _sig = sorted((_label_key(a.get("label")), str(a.get("value", "")))
-                          for a in assertions)
+            # Equality was not enough either. Having been beaten by respelling, by
+            # synonyms and by word order, it was beaten a fourth time by SUBTRACTION: one
+            # investigation banked nine assertions, then banked five of the same nine
+            # again under the same labels with the same values, and the sorted lists
+            # differed in length so they never compared equal. A claim whose every
+            # assertion already sits in an earlier claim adds nothing checkable, whatever
+            # its prose says. Containment catches that and the exact case together, and
+            # cannot misfire: one genuinely new assertion breaks it.
+            _sig = {(_label_key(a.get("label")), str(a.get("value", "")))
+                    for a in assertions}
             for prior in self.ledger:
-                if _sig and sorted((_label_key(a.get("label")), str(a.get("value", "")))
-                                   for a in (prior.get("assertions") or [])) == _sig:
+                _theirs = {(_label_key(a.get("label")), str(a.get("value", "")))
+                           for a in (prior.get("assertions") or [])}
+                if _sig and _sig <= _theirs:
                     self.refused_claims += 1
+                    same = "exactly these values" if _sig == _theirs else \
+                           "every value you are asserting here"
                     return {"recorded": False, "error":
-                            f"{prior['id']} already asserts exactly these values. Either "
+                            f"{prior['id']} already asserts {same}. Either "
                             "take this investigation further than it did, or call "
                             "mark_done if there is nothing left to find."}
             # Contradiction on the same investigation. Four successor contexts each

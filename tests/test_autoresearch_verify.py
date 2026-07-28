@@ -37,6 +37,55 @@ def _step(n: int, n_tools: int = 2, size: int = 4000) -> list[dict]:
                for k in range(n_tools)])
 
 
+class TestDuplicateClaimBySubset:
+    """The duplicate guard has now been beaten four ways: by respelling, by synonyms, by
+    word order, and — this one — by subtraction. a10 banked k21 with nine assertions,
+    then k23 with five of the same nine, same labels, same values."""
+
+    def _ar(self):
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        return Autoresearcher(DirDataSource(d, study={}, overview=None),
+                              LLMClient(None, "x"), SubprocessExecutor(d))
+
+    def _record(self, ar, labels_values):
+        import asyncio
+        return asyncio.run(ar._exec_tool("record_claim", {
+            "statement": "a statement", "antecedents": ["c1"],
+            "assertions": [{"label": l, "value": v, "of": "x"}
+                           for l, v in labels_values]}))
+
+    def test_a_strict_subset_of_an_earlier_claim_is_refused(self):
+        ar = self._ar()
+        ar.computations["c1"] = {"label": "c", "code": "result = 1", "result": 1}
+        nine = [("n_asvs_batch1", "418"), ("n_asvs_batch2", "317"),
+                ("n_shared_asvs", "0"), ("domain_batch1", "Bacteria"),
+                ("domain_batch2", "Eukaryota")]
+        assert self._record(ar, nine)["recorded"]
+        five = [("n_shared_asvs", "0"), ("n_batch1_asvs", "418"),
+                ("domain_batch1", "Bacteria")]
+        out = self._record(ar, five)
+        assert not out["recorded"]
+        assert "every value you are asserting here" in out["error"]
+
+    def test_an_exact_repeat_still_says_exactly(self):
+        ar = self._ar()
+        ar.computations["c1"] = {"label": "c", "code": "result = 1", "result": 1}
+        vals = [("n_shared_asvs", "0"), ("domain_batch1", "Bacteria")]
+        assert self._record(ar, vals)["recorded"]
+        out = self._record(ar, vals)
+        assert not out["recorded"] and "exactly these values" in out["error"]
+
+    def test_one_new_assertion_is_enough_to_get_recorded(self):
+        """Containment must not block a claim that genuinely adds something."""
+        ar = self._ar()
+        ar.computations["c1"] = {"label": "c", "code": "result = 1", "result": 1}
+        assert self._record(ar, [("n_shared_asvs", "0")])["recorded"]
+        assert self._record(ar, [("n_shared_asvs", "0"),
+                                 ("within_batch_R2", "0.4294")])["recorded"]
+
+
 class TestEpochBoundary:
     """Epoch 2 re-opened a1 — an investigation closed at its claim cap in epoch 1 —
     every single round, and would have done so again in epoch 3."""
