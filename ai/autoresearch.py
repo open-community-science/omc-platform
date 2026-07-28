@@ -1999,6 +1999,16 @@ class Autoresearcher:
                             "turns it into the square distance matrix, and squareform "
                             "of a square matrix gives you the condensed form back — "
                             "whichever one this call wants.")
+                elif "groupby() got an unexpected keyword argument 'axis'" in err:
+                    # pandas 3 removed groupby(axis=1), and the analyst reaching for it is
+                    # always hand-rolling taxonomic aggregation. `by_rank` was supplied
+                    # for exactly that and went UNUSED across an entire ten-hour run —
+                    # 150+ computations, zero calls — while analysts rebuilt it by hand
+                    # and hit a removal they cannot guess their way around.
+                    hint = ("`groupby(axis=1)` was removed in pandas 3. To aggregate the "
+                            "ASV table to a taxonomic rank, `by_rank(counts_df, tax_df, "
+                            "'Genus')` is already bound here and does it — it returns a "
+                            "samples x taxa frame at that rank.")
                 elif "did not set a `result`" in err:
                     hint = "Assign what you want returned to `result`."
                 elif ("rarefy(" in (args.get("code") or "")

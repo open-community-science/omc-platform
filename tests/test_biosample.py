@@ -825,6 +825,26 @@ class TestSandboxHints:
         r = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": "result = 1"}))
         assert "request_package" in r["hint"] and "is installed" not in r["hint"]
 
+    def test_groupby_axis_points_at_by_rank(self):
+        """pandas 3 removed groupby(axis=1), and an analyst reaching for it is always
+        hand-rolling taxonomic aggregation. `by_rank` was supplied for exactly that and
+        went unused across a ten-hour run — 150+ computations, zero calls."""
+        r = self._run("result = counts.groupby(tax['Genus'], axis=1).sum()")
+        assert not r["ok"]
+        assert "by_rank(counts_df, tax_df" in r["hint"]
+        assert "removed in pandas 3" in r["hint"]
+
+    def test_by_rank_actually_does_what_the_hint_promises(self):
+        """The hint asserts a shape. If by_rank drifts from it the hint starts lying,
+        which is the failure this file has caught three times already."""
+        r = self._run("g = by_rank(counts, tax, 'Genus')\n"
+                      "result = {'rows': int(g.shape[0]), 'same_index': "
+                      "bool((g.index == counts.index).all()), 'cols_gt_1': "
+                      "bool(g.shape[1] > 1)}")
+        assert r["ok"], r
+        assert r["result"]["rows"] == 63 and r["result"]["same_index"]
+        assert r["result"]["cols_gt_1"]
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")
