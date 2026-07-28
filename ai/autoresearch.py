@@ -1977,9 +1977,18 @@ class Autoresearcher:
                             "and `props` are samples (rows) x ASVs (columns): a "
                             "per-sample mask selects rows, a per-ASV mask selects "
                             "columns — `df.loc[sample_mask]` vs `df.loc[:, asv_mask]`.")
-                elif "1-dimensional, but 2 were indexed" in err:
+                elif ("1-dimensional, but 2 were indexed" in err
+                      or re.search(r"2-dimensional array must be passed.*Shape was \(\d+,\)",
+                                   err)):
+                    # scipy's fourth wording for the same confusion, and the one a Mantel
+                    # test hits: "A 2-dimensional array must be passed. (Shape was (63,))".
+                    # Three consecutive steps failed on it and the repeated-error
+                    # escalation did not rescue them — "change your approach" does not
+                    # help when the approach is right and one call is missing.
                     hint = ("`pdist` returns a CONDENSED 1-D array. `squareform(...)` "
-                            "turns it into the square distance matrix.")
+                            "turns it into the square distance matrix, and squareform "
+                            "of a square matrix gives you the condensed form back — "
+                            "whichever one this call wants.")
                 elif "did not set a `result`" in err:
                     hint = "Assign what you want returned to `result`."
                 elif ("rarefy(" in (args.get("code") or "")

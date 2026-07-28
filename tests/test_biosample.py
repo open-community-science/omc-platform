@@ -764,6 +764,37 @@ class TestSandboxHints:
                       "result = permanova(counts.loc[idx], pd.Series(list('abc'), index=idx))")
         assert not r["ok"] and "more samples than groups" in r["error"]
 
+    def test_scipys_other_condensed_wording_is_recognised(self):
+        """"A 2-dimensional array must be passed. (Shape was (63,))" is the same
+        confusion as "1-dimensional, but 2 were indexed". A Mantel test hit it three
+        steps running and the repeated-error escalation did not rescue it — "change your
+        approach" does not help when the approach is right and one call is missing."""
+        from ai.autoresearch import Autoresearcher, DirDataSource, LLMClient, \
+            SubprocessExecutor
+        import asyncio
+        d = "/data/dev/testdata/1543a4c1"
+        for err in ("ValueError: A 2-dimensional array must be passed. (Shape was (63,)).",
+                    "ValueError: A 2-dimensional array must be passed. (Shape was (1953,))."):
+            ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                                LLMClient(None, "x"), SubprocessExecutor(d))
+            ar.executor.run = _fake_run(err)
+            r = asyncio.run(ar._exec_tool("run_analysis",
+                                          {"label": "t", "code": "result = 1"}))
+            assert "squareform" in r.get("hint", ""), err
+
+    def test_a_two_dimensional_complaint_about_a_2d_shape_is_not_the_condensed_hint(self):
+        """Only a 1-D shape means a condensed array; (63, 2) is a different problem."""
+        from ai.autoresearch import Autoresearcher, DirDataSource, LLMClient, \
+            SubprocessExecutor
+        import asyncio
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        ar.executor.run = _fake_run(
+            "ValueError: A 2-dimensional array must be passed. (Shape was (63, 2)).")
+        r = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": "result = 1"}))
+        assert "squareform" not in (r.get("hint") or "")
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")
