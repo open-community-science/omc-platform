@@ -252,6 +252,17 @@ async def _print_progress(event: str, detail: dict):
         print(f"    ✓ {detail['id']} {detail['status']} ({detail.get('claims')} claims)", flush=True)
     elif event == "sweep":
         print(f"  sweeping {detail.get('claims')} claims for assumptions…", flush=True)
+    elif event == "verify":
+        # The judge emitted these from the start and nothing printed them, so a run
+        # where judging had quietly stalled at 2 of 19 claims looked exactly like a run
+        # where it was keeping up. Verdicts are the point of the subsystem; show them.
+        v = detail.get("verdict", "?")
+        mark = {"verified": "✔", "replicated": "✔", "partial": "◐", "refuted": "✘",
+                "overturned": "✘", "disputed": "⚠", "contested": "⚠"}.get(v, "?")
+        print(f"      {mark} {detail.get('claim')} {v}", flush=True)
+    elif event == "verify_error":
+        print(f"      ✘ {detail.get('claim')} judge error — {detail.get('error')}",
+              flush=True)
     elif event == "run_analysis":
         # Printed mainly so silence means something. A tip can spend many minutes on
         # analyses without recording anything, and an unbroken quiet log is otherwise
@@ -292,7 +303,7 @@ def _progress_for(ar: Autoresearcher):
     available, to a viewer and to a post-mortem alike."""
     async def _progress(event: str, detail: dict):
         await _print_progress(event, detail)
-        if event in ("agenda", "tip", "tip_done", "sweep", "hyphal_done") or (
+        if event in ("agenda", "tip", "tip_done", "sweep", "hyphal_done", "verify") or (
                 event == "record_claim" and (detail.get("result") or {}).get("recorded")):
             _write_json(OUT / "run_state.json", _ledger_dict(ar, None))
     return _progress

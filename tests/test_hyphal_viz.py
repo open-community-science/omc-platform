@@ -60,6 +60,32 @@ PROPOSED = """\
 """
 
 
+class TestVerifyProgress:
+    """Judging stalled at 2 claims of 19 and the log looked identical to a run where it
+    was keeping up, because nothing rendered the events the judge was already emitting."""
+
+    def _cap(self, event, detail):
+        import asyncio, io, contextlib, importlib
+        R = importlib.import_module("results_explorer")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            asyncio.run(R._print_progress(event, detail))
+        return buf.getvalue()
+
+    def test_a_verdict_is_printed(self):
+        out = self._cap("verify", {"claim": "k7", "verdict": "verified"})
+        assert "k7" in out and "verified" in out
+
+    def test_a_refutation_is_visually_distinct_from_a_pass(self):
+        ok = self._cap("verify", {"claim": "k1", "verdict": "verified"})
+        no = self._cap("verify", {"claim": "k2", "verdict": "refuted"})
+        assert ok.strip()[0] != no.strip()[0]
+
+    def test_a_judge_error_is_printed_not_swallowed(self):
+        out = self._cap("verify_error", {"claim": "k9", "error": "connection reset"})
+        assert "k9" in out and "connection reset" in out
+
+
 class TestProposedAgenda:
     """A tip only appeared in the log when it STARTED, so a run showed one item for
     its first ten minutes and revealed the rest one at a time over hours."""
