@@ -1792,10 +1792,15 @@ class Autoresearcher:
     async def _exec_tool(self, name: str, args: dict) -> dict:
         """Execute one agent tool call against instance state (was ``_exec_tool``)."""
         if name == "propose_agenda":
+            had = len(self.agenda)
             for it in args.get("items", [])[:20]:
                 self.agenda.append({"id": f"a{len(self.agenda) + 1}", "question": it.get("question", ""),
                                     "rationale": it.get("rationale", ""), "status": "pending", "parent": None})
-            if self.agenda:
+            # Promote the first item ONLY on the first agenda, for the linear loop's
+            # benefit. On a later epoch agenda[0] is a1 — long since closed at its claim
+            # cap — and germination's cleanup turns in_progress back into pending, so
+            # this quietly resurrected the same finished investigation every round.
+            if self.agenda and not had:
                 self.agenda[0]["status"] = "in_progress"
             return {"agenda": [{"id": a["id"], "question": a["question"], "status": a["status"]} for a in self.agenda]}
         if name == "get_agenda":

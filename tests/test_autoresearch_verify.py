@@ -37,6 +37,38 @@ def _step(n: int, n_tools: int = 2, size: int = 4000) -> list[dict]:
                for k in range(n_tools)])
 
 
+class TestEpochBoundary:
+    """Epoch 2 re-opened a1 — an investigation closed at its claim cap in epoch 1 —
+    every single round, and would have done so again in epoch 3."""
+
+    def _ar(self):
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        return Autoresearcher(DirDataSource(d, study={}, overview=None),
+                              LLMClient(None, "x"), SubprocessExecutor(d))
+
+    def test_the_first_agenda_promotes_its_first_item(self):
+        """The linear loop relies on this."""
+        import asyncio
+        ar = self._ar()
+        asyncio.run(ar._exec_tool("propose_agenda", {"items": [
+            {"question": "q1"}, {"question": "q2"}]}))
+        assert ar.agenda[0]["status"] == "in_progress"
+
+    def test_a_later_agenda_does_not_reopen_a_closed_investigation(self):
+        """agenda[0] on a later epoch is a1, long since finished. Germination's cleanup
+        turns in_progress back into pending, so promoting it here silently resurrected
+        it and cost a whole tip re-capping the same item."""
+        import asyncio
+        ar = self._ar()
+        asyncio.run(ar._exec_tool("propose_agenda", {"items": [{"question": "q1"}]}))
+        ar.agenda[0]["status"] = "interrupted"          # closed at its claim cap
+        asyncio.run(ar._exec_tool("propose_agenda", {"items": [{"question": "q2"}]}))
+        assert ar.agenda[0]["status"] == "interrupted", "a1 must stay closed"
+        assert ar.agenda[1]["status"] == "pending"
+
+
 class TestTruncationSpiral:
     """One investigation burned three consecutive steps being cut off. Each cut-off
     reply was appended to the transcript, so the context grew by a paragraph that went
