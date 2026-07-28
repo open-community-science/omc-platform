@@ -37,6 +37,58 @@ def _step(n: int, n_tools: int = 2, size: int = 4000) -> list[dict]:
                for k in range(n_tools)])
 
 
+class TestTruncatedJudgeIsNotUnverifiable:
+    """A claim whose evidence re-executed perfectly was recorded `unverifiable` because
+    the judge ran out of tokens mid-sentence. k22's judge emitted "n_batch_418 =" — the
+    label welded to its value — so only 2 of 8 assertions mapped, both not_addressed.
+    Saying "unverifiable" blames the claim for the judge's failure."""
+
+    def _ar(self, per, truncated, n_assertions=8):
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        ar.computations["c1"] = {"label": "x", "code": "result = 1", "result": 1}
+        claim = {"id": "k1", "statement": "s", "antecedents": ["c1"],
+                 "assertions": [{"label": f"a{i}", "value": str(i)}
+                                for i in range(n_assertions)]}
+        ar.ledger = [claim]
+
+        class _C:
+            client = object()
+        ar.client_for = lambda role: _C()
+
+        async def _judge(*a, **k):
+            return {"per": per, "notes": {}, "by": "m", "truncated": truncated,
+                    "graded_nothing": not per}
+        ar._judge = _judge
+        asyncio.run(ar._verify_one(claim))
+        return claim
+
+    def test_a_truncated_judge_that_addressed_nothing_is_a_judge_failure(self):
+        c = self._ar({"mangled_label": "not_addressed"}, truncated=True)
+        assert c.get("verdict") is None, "must not grade the claim"
+        assert c["method"] == "judge-failed"
+
+    def test_most_assertions_ungraded_is_a_judge_failure_even_untruncated(self):
+        c = self._ar({"a0": "not_addressed"}, truncated=False, n_assertions=8)
+        assert c.get("verdict") is None and c["method"] == "judge-failed"
+
+    def test_a_judge_that_addressed_everything_still_says_unverifiable(self):
+        """When the judge really did engage and found the evidence silent, that IS a
+        property of the claim and must keep its verdict."""
+        per = {f"a{i}": "not_addressed" for i in range(8)}
+        c = self._ar(per, truncated=False, n_assertions=8)
+        assert c["verdict"] == "unverifiable" and c["method"] == "judged"
+
+    def test_a_real_grade_is_untouched(self):
+        per = {f"a{i}": "supported" for i in range(8)}
+        c = self._ar(per, truncated=False, n_assertions=8)
+        assert c["verdict"] == "verified"
+
+
 class TestJudgeRetryBudget:
     """The judge retry fires because the first call ran out of room, and was then given
     a fifth of that room. Measured against the live verify model: 1024 tokens of

@@ -2957,15 +2957,24 @@ class Autoresearcher:
                 self.verify_model, assertions)
             c["judgment"] = j
             c["assertion_verdicts"] = j["per"]
-            if j.get("graded_nothing"):
-                # Not judged at all. Leave it ungraded rather than calling it
-                # unverifiable: the end-of-run pass picks up anything without a
-                # verdict_round1, so it gets another chance instead of a false one.
+            roll = self._roll_up(j["per"], "supported", "contradicted")
+            # A truncated judge that addressed nothing has FAILED, and saying
+            # "unverifiable" about the claim blames the wrong party. graded_nothing
+            # caught the empty case; this is the same lie through the next door along.
+            # k22's judge emitted "n_batch_418 =" — the label welded to its value — so
+            # only 2 of 8 assertions mapped, both as not_addressed; k24's invented a
+            # label absent from its own assertion list. Both re-executed their evidence
+            # perfectly and were recorded as unverifiable.
+            half_ungraded = len(j.get("per") or {}) * 2 < len(assertions)
+            if j.get("graded_nothing") or (
+                    roll == "unaddressed" and (j.get("truncated") or half_ungraded)):
+                # Not judged. Leave it ungraded rather than calling it unverifiable: the
+                # end-of-run pass picks up anything without a verdict_round1, so it gets
+                # another chance instead of a false verdict.
                 c["method"] = "judge-failed"
                 await self._emit("judge_failed", {"claim": c["id"], "by": j.get("by"),
                                                   "truncated": bool(j.get("truncated"))})
                 return
-            roll = self._roll_up(j["per"], "supported", "contradicted")
             c["verdict"] = {"all": "verified", "mixed": "partial", "none": "refuted",
                             "unaddressed": "unverifiable"}[roll]
             # Which assertions actually failed — what the writer must not restate,
