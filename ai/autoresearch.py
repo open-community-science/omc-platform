@@ -846,6 +846,14 @@ EXPLORE_CHAR_BUDGET = 140_000    # ≈35k tokens of transcript at ~4 chars/token
 # code sets one of these and whose `parameters` is empty is not reproducible: a
 # clean-room analyst picks a different value and refutes a correct claim. Observed three
 # times in one evening — a Shannon log base, a fitting method, an invented ordinal scale.
+# Everything bound into the analysis namespace. An analyst wrote `import permanova` and
+# would have been told the package "cannot be installed", which is false: it is a name
+# in scope, not a distribution.
+_SANDBOX_NAMES = frozenset({
+    "np", "pd", "counts", "props", "tax", "meta", "pdist", "squareform", "braycurtis",
+    "entropy", "pearsonr", "spearmanr", "kruskal", "mannwhitneyu", "PCA",
+    "fdr", "clr", "rarefy", "permanova", "alpha_diversity", "by_rank"})
+
 _CHOICE_KWARGS = ("base", "metric", "method", "depth", "permutations", "pseudocount",
                   "alpha", "threshold", "deg", "n_components", "min_count", "cutoff",
                   "quantile", "q", "center", "ddof")
@@ -1807,7 +1815,13 @@ class Autoresearcher:
                     # skbio — the package this tool was built for — and was told nothing.
                     want = (re.search(r"No module named '([^']+)'", err) or [None, ""])[1]
                     root = want.split(".")[0]
-                    if root in (self.grantable_packages or ()):
+                    if root in _SANDBOX_NAMES:
+                        # It tried to import a name we BIND. Saying "not available and
+                        # cannot be installed" would be false and would send it looking
+                        # for a package that does not exist.
+                        hint = (f"`{root}` is not a module — it is already bound in this "
+                                "sandbox. Call it directly, without importing anything.")
+                    elif root in (self.grantable_packages or ()):
                         hint = (f"`{root}` is not installed but CAN be: call "
                                 f"request_package with package=\"{root}\" and it will be "
                                 "available for your next analysis.")

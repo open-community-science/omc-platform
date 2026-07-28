@@ -468,6 +468,31 @@ class TestSandboxHints:
             r = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": "x"}))
             assert expected in (r.get("hint") or ""), f"no hint for: {err[:50]}"
 
+    def test_importing_a_bound_helper_says_it_is_not_a_module(self):
+        """An analyst wrote `import permanova`. The missing-module hint would have said
+        the package "cannot be installed" — false, and it sends the analyst looking for
+        a distribution that does not exist."""
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        ar.grantable_packages = ("skbio",)
+        r = asyncio.run(ar._exec_tool("run_analysis", {
+            "label": "t", "code": "import permanova\nresult = 1"}))
+        assert "not a module" in r["hint"] and "already bound" in r["hint"]
+        assert "cannot be installed" not in r["hint"]
+
+    def test_the_declared_bound_names_are_actually_bound(self):
+        """The hint asserts these names exist. If the list drifts from the sandbox it
+        starts telling the analyst something false in the other direction."""
+        import asyncio
+        from ai.autoresearch import SubprocessExecutor, _SANDBOX_NAMES
+        ok, r = asyncio.run(SubprocessExecutor("/data/dev/testdata/1543a4c1").run(
+            "result = sorted(set(%r) - set(globals()))" % (sorted(_SANDBOX_NAMES),)))
+        assert ok and r == []
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")
