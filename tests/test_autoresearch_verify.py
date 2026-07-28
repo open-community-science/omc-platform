@@ -1582,6 +1582,59 @@ class TestDuplicateClaims:
         assert "further" in r["error"] and "mark_done" in r["error"]
 
 
+class TestJudgeFailure:
+    """glm-4.7-flash ran out of tokens mid-reasoning and emitted no ASSERTION lines.
+    The empty grade rolled up to `unverifiable` — a JUDGE failure reported as a
+    property of the CLAIM, which is the one lie this subsystem exists to prevent."""
+
+    ANALYSE = ("run_analysis", {"code": "code_a", "label": "x"})
+
+    def _client(self, judge_reply):
+        outer = _ScriptedClient(germinate=[_AGENDA2],
+                                tip=[[self.ANALYSE],
+                                     [_claim_call("x", "1", antecedents=["c1"])],
+                                     [("mark_done", {})], [("mark_done", {})]])
+        real = outer.chat.completions.create
+
+        async def create(**kw):
+            if kw["messages"][0]["content"] == JUDGE_SYSTEM:
+                class M: content, tool_calls = judge_reply, None
+                class C: message = M()
+                class R: choices = [C()]
+                return R()
+            return await real(**kw)
+
+        outer.chat.completions.create = create
+        return outer
+
+    def test_a_judge_that_graded_nothing_leaves_the_claim_ungraded(self):
+        c = self._client("Let me re-read the instructions carefully:")
+        ar = _hyphal(c, results={"code_a": {"x": 1}})
+        asyncio.run(ar.explore_hyphal(tip_steps=6, live_verify=True))
+        claim = ar.ledger[0]
+        assert claim.get("verdict") != "unverifiable"
+        assert not claim.get("verdict_round1")
+        assert claim.get("method") == "judge-failed"
+
+    def test_the_end_of_run_pass_picks_it_up(self):
+        """Leaving it ungraded is only right because something retries it."""
+        c = self._client("Let me re-read the instructions carefully:")
+        ar = _hyphal(c, results={"code_a": {"x": 1}})
+        asyncio.run(ar.explore_hyphal(tip_steps=6, live_verify=True))
+        c.chat.completions.create = _ScriptedClient().chat.completions.create
+        ar.llm = LLMClient(_stub_client(judge=SUPPORTED), "stub")
+        ar.clients = {}
+        asyncio.run(ar.verify())
+        assert ar.ledger[0]["verdict_round1"] == "verified"
+
+    def test_a_judge_that_really_says_not_addressed_is_still_unverifiable(self):
+        """Silence from the EVIDENCE is a real verdict; silence from the JUDGE is not."""
+        c = self._client("ASSERTION x: NOT_ADDRESSED — the evidence says nothing")
+        ar = _hyphal(c, results={"code_a": {"x": 1}})
+        asyncio.run(ar.explore_hyphal(tip_steps=6, live_verify=True))
+        assert ar.ledger[0]["verdict_round1"] == "unverifiable"
+
+
 class TestLiveVerification:
     """#61 — the judge runs on the other machine while the analyst explores, and the
     verdicts it returns seed the contexts that come after."""

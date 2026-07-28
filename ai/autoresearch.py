@@ -2272,7 +2272,8 @@ class Autoresearcher:
         resp = await self._chat(
             "verify",
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            model=model, max_tokens=4000, temperature=0.0)
+            model=model, max_tokens=self.max_tokens, temperature=0.0)
+        cut = getattr(resp.choices[0], "finish_reason", None) == "length"
         text = _strip_think(resp.choices[0].message.content or "")
         per, notes = {}, {}
         for m in re.finditer(
@@ -2303,8 +2304,13 @@ class Autoresearcher:
                 # The judge decomposed further than we did — a finer grading of the same
                 # claim is more information, not less. Take its labels.
                 mapped, mapped_notes = dict(per), dict(notes)
+        # A judge that ran out of tokens mid-reasoning emitted no ASSERTION lines at
+        # all, and the empty grade rolled up to `unverifiable` — reporting a JUDGE
+        # failure as a property of the CLAIM. That is the one lie this subsystem
+        # exists to prevent, so say which happened.
         return {"per": mapped, "notes": mapped_notes, "by": model,
-                "raw": text.strip()[:600],
+                "raw": text.strip()[:600], "truncated": cut,
+                "graded_nothing": not mapped,
                 "unmatched": [l for l in per if not _match_label(l, known)]}
 
     @staticmethod
@@ -2386,6 +2392,14 @@ class Autoresearcher:
                 self.verify_model, assertions)
             c["judgment"] = j
             c["assertion_verdicts"] = j["per"]
+            if j.get("graded_nothing"):
+                # Not judged at all. Leave it ungraded rather than calling it
+                # unverifiable: the end-of-run pass picks up anything without a
+                # verdict_round1, so it gets another chance instead of a false one.
+                c["method"] = "judge-failed"
+                await self._emit("judge_failed", {"claim": c["id"], "by": j.get("by"),
+                                                  "truncated": bool(j.get("truncated"))})
+                return
             roll = self._roll_up(j["per"], "supported", "contradicted")
             c["verdict"] = {"all": "verified", "mixed": "partial", "none": "refuted",
                             "unaddressed": "unverifiable"}[roll]
