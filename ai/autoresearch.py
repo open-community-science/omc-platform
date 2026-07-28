@@ -1495,6 +1495,16 @@ def permanova(data, groups, permutations=999, seed=0):
     levels, d2, N = np.unique(g), D ** 2, D.shape[0]
     a = len(levels)
     if a < 2 or N <= a:
+        # Name the single level. Testing turnover by date within one assay, an analyst
+        # hit "1 groups over 18 samples" twice running: true, but it does not say that
+        # the grouping variable is CONSTANT in this subset, which is the fact that
+        # answers the question — there is no variation here to partition.
+        if a < 2:
+            only = repr(levels[0]) if a else "none"
+            raise ValueError(
+                f"the grouping variable is constant over these {N} samples — every one "
+                f"of them is {only}. There is nothing to compare; whatever selected this "
+                "subset already determines the group")
         raise ValueError(f"need at least 2 groups and more samples than groups; "
                          f"got {a} groups over {N} samples")
     # Degenerate input must refuse, not answer. Asked for the ASVs shared between two

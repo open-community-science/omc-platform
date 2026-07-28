@@ -746,6 +746,24 @@ class TestSandboxHints:
         r = self._run("counts.shape")
         assert r["ok"] and r["result"] == [63, 735]
 
+    def test_a_constant_grouping_variable_says_so_and_names_the_value(self):
+        """Testing turnover by date within one assay, an analyst hit "1 groups over 18
+        samples" twice running. True, but it never said the grouping variable is
+        CONSTANT here — which is the fact that answers the question."""
+        r = self._run("m = meta.loc[counts.index]\n"
+                      "idx = m.index[(m['biosample_env_local_scale'] == 'frost flowers')"
+                      " & (m['sra_submission_accession'] == 'SUB16229131')]\n"
+                      "result = permanova(counts.loc[idx], m.loc[idx, 'sra_collection_date'])")
+        assert not r["ok"]
+        assert "constant over these 18 samples" in r["error"]
+        assert "2026-06-04" in r["error"]
+
+    def test_too_few_samples_keeps_the_other_message(self):
+        r = self._run("import pandas as pd\n"
+                      "idx = counts.index[:3]\n"
+                      "result = permanova(counts.loc[idx], pd.Series(list('abc'), index=idx))")
+        assert not r["ok"] and "more samples than groups" in r["error"]
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")
@@ -823,7 +841,9 @@ class TestPermanovaHelper:
 
     def test_one_group_is_refused(self):
         ok, r = self._run(self.SETUP + "result = permanova(P, ['x'] * 63, permutations=9)")
-        assert not ok and "at least 2 groups" in str(r)
+        # Names the constant value: "1 group" is true but does not say WHY there is
+        # nothing to test, which is the fact the analyst needs.
+        assert not ok and "constant over these 63 samples" in str(r) and "'x'" in str(r)
 
     def test_the_signature_is_declared_in_the_briefing(self):
         text = format_briefing({"available": ["permanova"]})
