@@ -493,6 +493,28 @@ class TestSandboxHints:
             "result = sorted(set(%r) - set(globals()))" % (sorted(_SANDBOX_NAMES),)))
         assert ok and r == []
 
+    def test_a_pairwise_correlation_loop_is_pointed_at_the_matrix_call(self):
+        """Killed building a co-occurrence network: 269,745 pairs, one `spearmanr` call
+        each. "Try a smaller subset" is wrong advice — the data is small, the loop is the
+        problem, and subsetting would have discarded most of the network for nothing."""
+        from ai.autoresearch import _loop_hint
+        h = _loop_hint("for a, b in combinations(P.columns, 2):\n"
+                       "    rho, p = spearmanr(P[a], P[b])")
+        assert "whole matrix at once" in h and "spearmanr(df.values)" in h
+
+    def test_a_pairwise_distance_loop_is_pointed_at_pdist(self):
+        from ai.autoresearch import _loop_hint
+        h = _loop_hint("for a, b in combinations(idx, 2):\n"
+                       "    d = braycurtis(P.loc[a], P.loc[b])")
+        assert "pdist" in h and "one call" in h
+
+    def test_a_kill_with_no_pairwise_loop_gets_no_loop_hint(self):
+        """The hint has to stay silent when it does not apply, or it becomes noise on
+        every resource kill."""
+        from ai.autoresearch import _loop_hint
+        assert _loop_hint("result = permanova(counts, g, permutations=99999)") == ""
+        assert _loop_hint("for c in counts.columns:\n    x = counts[c].sum()") == ""
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")

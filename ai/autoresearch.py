@@ -854,6 +854,31 @@ _SANDBOX_NAMES = frozenset({
     "entropy", "pearsonr", "spearmanr", "kruskal", "mannwhitneyu", "PCA",
     "fdr", "clr", "rarefy", "permanova", "alpha_diversity", "by_rank"})
 
+def _loop_hint(code: str) -> str:
+    """A resource kill caused by looping in Python over what scipy vectorises.
+
+    Building a co-occurrence network, the analyst looped over all 269,745 ASV pairs
+    calling `spearmanr` on two columns at a time. Killed at 25s. The identical result
+    from one call on the whole matrix takes 0.03 seconds. The generic "try a smaller
+    subset" advice is actively wrong here: the data is small, the loop is the problem,
+    and subsetting would have thrown away most of the network to no purpose.
+    """
+    looping = "for " in code and ("combinations(" in code or "product(" in code
+                                  or code.count("for ") > 1)
+    if not looping:
+        return ""
+    if "spearmanr(" in code or "pearsonr(" in code:
+        return (" Note: you are calling a correlation inside a loop over pairs. "
+                "`spearmanr(df.values)` takes the whole matrix at once and returns "
+                "the full correlation and p-value matrices — same numbers, and it "
+                "finishes in a fraction of a second where the loop cannot finish at all.")
+    if "braycurtis(" in code:
+        return (" Note: you are computing distances inside a loop over pairs. "
+                "`squareform(pdist(df.values, metric='braycurtis'))` does every pair "
+                "in one call.")
+    return ""
+
+
 _CHOICE_KWARGS = ("base", "metric", "method", "depth", "permutations", "pseudocount",
                   "alpha", "threshold", "deg", "n_components", "min_count", "cutoff",
                   "quantile", "q", "center", "ddof")
@@ -1592,7 +1617,7 @@ class SubprocessExecutor:
             return False, (f"the analysis process produced no output{sig} — it was "
                            "killed before finishing, most often by the memory or CPU "
                            "limit on this sandbox. Try it on a smaller subset, or with "
-                           "fewer permutations."
+                           "fewer permutations." + _loop_hint(code)
                            + (f" stderr: {why[-1][:200]}" if why else ""))
         return (True, r["__ok__"]) if "__ok__" in r else (False, r.get("__err__", "error"))
 
