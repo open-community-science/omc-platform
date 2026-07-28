@@ -2703,7 +2703,27 @@ class Autoresearcher:
         exists between them."""
         if not self.ledger:
             return 0
+        # Shown the claims alone, the sweep had to guess at the knobs and said so:
+        # "999 or 9999 permutations", "|r| > 0.7 or p < 0.05", "pseudocount (e.g. +1)".
+        # An assumption that offers two values is an admission it could not tell, and the
+        # answer was sitting in the code the whole time. Pass the choices the
+        # computations actually made — compact, and it turns each guess into a fact.
+        used: dict[str, set] = {}
+        for c in self.ledger:
+            for ant in self._resolved_antecedents(c):
+                for k, v in _choices_in_code(
+                        (self.computations.get(ant) or {}).get("code", "")).items():
+                    # Literals only. The extractor also catches expressions —
+                    # `depth=sub.sum(axis=1`, `threshold={val:.6f}` — and a variable
+                    # name is not a recorded parameter, it is more to look up.
+                    if re.fullmatch(r"[-\w.+]+", v) and not v.endswith("."):
+                        used.setdefault(k, set()).add(v)
+        knobs = "\n".join(f"  {k} = {', '.join(sorted(vs))}"
+                          for k, vs in sorted(used.items()))
         seed = ("Every claim on record:\n" + self._claim_lines(self.ledger)
+                + ("\n\nParameters the code actually used (do not guess at these — "
+                   "where a knob shows more than one value, different claims used "
+                   f"different ones):\n{knobs}" if knobs else "")
                 + "\n\nAssumptions already recorded:\n" + ("\n".join(
                     f"  {a['id']}: {a['statement']}" for a in self.assumptions) or "  (none yet)")
                 + "\n\nRecord the assumptions these findings rest on.")

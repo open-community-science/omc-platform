@@ -37,6 +37,49 @@ def _step(n: int, n_tools: int = 2, size: int = 4000) -> list[dict]:
                for k in range(n_tools)])
 
 
+class TestSweepSeesTheParameters:
+    """Shown only the claim statements, the sweep guessed at the knobs and said so:
+    "999 or 9999 permutations", "pseudocount (e.g., +1)". The pseudocount guess was
+    wrong — the code uses 0.5 — so the assumption record held a false value."""
+
+    def _ar(self):
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        ar.computations["c1"] = {"label": "x", "result": 1, "code":
+                                 "a = clr(counts, pseudocount=0.5)\n"
+                                 "r = permanova(a, g, permutations=999)"}
+        ar.ledger = [{"id": "k1", "statement": "s", "antecedents": ["c1"],
+                      "assertions": [{"label": "F", "value": "3.4"}]}]
+        return ar
+
+    def _seed(self, ar):
+        import asyncio
+        seen = {}
+
+        async def _loop(**kw):
+            seen.update(kw)
+            return 0
+        ar._agent_loop = _loop
+        asyncio.run(ar._sweep_assumptions(max_steps=2))
+        return seen.get("seed", "")
+
+    def test_the_actual_parameter_values_reach_the_sweep(self):
+        seed = self._seed(self._ar())
+        assert "pseudocount = 0.5" in seed and "permutations = 999" in seed
+        assert "do not guess" in seed
+
+    def test_expressions_are_not_offered_as_values(self):
+        """The extractor also catches `depth=sub.sum(axis=1` — a variable name is not a
+        recorded parameter, it is more to look up."""
+        ar = self._ar()
+        ar.computations["c1"]["code"] += "\nrarefy(counts, depth=sub.sum(axis=1).min())"
+        seed = self._seed(ar)
+        assert "sub.sum" not in seed
+
+
 class TestDuplicateClaimBySubset:
     """The duplicate guard has now been beaten four ways: by respelling, by synonyms, by
     word order, and — this one — by subtraction. a10 banked k21 with nine assertions,
