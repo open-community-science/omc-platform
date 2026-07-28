@@ -1696,6 +1696,7 @@ class Autoresearcher:
         self.computations: dict[str, Any] = {}   # cid -> {label, code, result}
         self.failures: list[dict] = []            # analyses that errored, with their code
         self._result_seen: dict[str, str] = {}    # result fingerprint -> first cid
+        self.preinstalled_packages: tuple[str, ...] = ()   # grantable, already present
         self.ledger: list[dict] = []              # claim dicts
         self.assumptions: list[dict] = []         # acknowledged, unconfirmable assumptions
         self.agenda: list[dict] = []              # {id, question, rationale, status, parent}
@@ -3265,6 +3266,12 @@ class Autoresearcher:
                 # checkable assertions just looks unproductive, which is a different
                 # problem with a different fix.
                 "claims_refused": self.refused_claims,
+                # The sandbox is a shared interpreter, so a package installed by one
+                # run is simply there for the next. Two runs of "the same" configuration
+                # were therefore not the same experiment, and nothing recorded it.
+                # Uninstalling is worse than the drift — several of these are load-bearing
+                # elsewhere — so record the baseline instead of mutating it.
+                "packages_preinstalled": sorted(self.preinstalled_packages),
                 # What analysts reached for and did not have, most-wanted first.
                 "packages_requested": {
                     p: sum(r["package"] == p for r in self.package_requests)

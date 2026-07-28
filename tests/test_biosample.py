@@ -624,6 +624,19 @@ class TestSandboxHints:
                                            {"label": "n2", "code": "result = 84"}))
         assert "note" not in second
 
+    def test_the_run_records_which_grantable_packages_were_already_there(self):
+        """The sandbox is a shared interpreter, so a package one run installs is simply
+        there for the next. Two runs of "the same" configuration were not the same
+        experiment and nothing said so."""
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        assert ar.run_summary()["packages_preinstalled"] == []
+        ar.preinstalled_packages = ("skbio", "networkx")
+        assert ar.run_summary()["packages_preinstalled"] == ["networkx", "skbio"]
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")

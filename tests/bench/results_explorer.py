@@ -47,7 +47,8 @@ from ai.autoresearch import (
     dag_mermaid, _flatten_numbers,
 )
 from ai.manuscript_checks import check_numbers_supported
-from ai.sandbox_packages import ALLOWED as GRANTABLE_PACKAGES, install as install_package
+from ai.sandbox_packages import (ALLOWED as GRANTABLE_PACKAGES,
+                                 install as install_package, is_available as is_package_available)
 from fixtures import load_fixture, STUDY_GROUNDED, DATA_DIR
 from run_bench import _unload_all, _lms_load
 
@@ -322,6 +323,11 @@ def _make_researcher(llm: LLMClient) -> Autoresearcher:
                         package_installer=install_package)
     ar.on_progress = _progress_for(ar)      # needs the researcher it reports on
     ar.grantable_packages = tuple(sorted(GRANTABLE_PACKAGES))
+    # The bench sandbox is this interpreter, so anything a previous run installed is
+    # still here. Record what was already present rather than pretending each run
+    # starts clean — several of these are load-bearing elsewhere and must not be removed.
+    ar.preinstalled_packages = tuple(sorted(
+        p for p in GRANTABLE_PACKAGES if is_package_available(p)))
     return ar
 
 
