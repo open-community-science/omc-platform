@@ -1480,6 +1480,52 @@ class _Proc:
         self.returncode, self.stdout, self.stderr = rc, out, err
 
 
+class TestBankBeforeTheCap:
+    """A tip spent all fourteen steps and eight successful computations on a three-part
+    investigation and recorded NOTHING — still working towards a complete answer when
+    the budget ran out. Its seed already said to record one claim and stop; nothing
+    noticed that it hadn't."""
+
+    ANALYSE = ("run_analysis", {"code": "code_a", "label": "x"})
+
+    def test_a_tip_with_no_claim_is_prodded_at_the_halfway_point(self):
+        c = _ScriptedClient(germinate=[_AGENDA2], tip=[[self.ANALYSE]] * 20)
+        ar = _hyphal(c, results={"code_a": {"x": 1}})
+        asyncio.run(ar._germinate())
+        item = ar._next_tip(None)
+        asyncio.run(ar._grow_tip(item, max_steps=8, one_claim=True))
+        prods = [m for _p, msgs, _t in c.calls for m in msgs
+                 if m.get("role") == "user" and "no claim recorded" in (m.get("content") or "")]
+        assert prods, "never prodded"
+        assert "carry on from there" in prods[0]["content"]
+
+    def test_the_prod_happens_once_not_every_step(self):
+        c = _ScriptedClient(germinate=[_AGENDA2], tip=[[self.ANALYSE]] * 20)
+        ar = _hyphal(c, results={"code_a": {"x": 1}})
+        asyncio.run(ar._germinate())
+        asyncio.run(ar._grow_tip(ar._next_tip(None), max_steps=10, one_claim=True))
+        last = [msgs for _p, msgs, _t in c.calls][-1]
+        assert sum(1 for m in last if "no claim recorded" in (m.get("content") or "")) == 1
+
+    def test_a_tip_that_already_banked_a_claim_is_left_alone(self):
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[_claim_call("x", "1")]] + [[self.ANALYSE]] * 10)
+        ar = _hyphal(c, results={"code_a": {"x": 1}})
+        asyncio.run(ar._germinate())
+        asyncio.run(ar._grow_tip(ar._next_tip(None), max_steps=8, one_claim=True))
+        assert not [m for _p, msgs, _t in c.calls for m in msgs
+                    if "no claim recorded" in (m.get("content") or "")]
+
+    def test_the_linear_driver_is_not_prodded(self):
+        """one_claim=False means a tip is meant to work the whole investigation."""
+        c = _ScriptedClient(germinate=[_AGENDA2], tip=[[self.ANALYSE]] * 20)
+        ar = _hyphal(c, results={"code_a": {"x": 1}})
+        asyncio.run(ar._germinate())
+        asyncio.run(ar._grow_tip(ar._next_tip(None), max_steps=8, one_claim=False))
+        assert not [m for _p, msgs, _t in c.calls for m in msgs
+                    if "no claim recorded" in (m.get("content") or "")]
+
+
 class TestDuplicateClaims:
     """A successor context re-derived its predecessor's claim and recorded it word for
     word. Claim-sized contexts make this the DEFAULT failure rather than an oddity:

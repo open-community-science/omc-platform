@@ -1841,7 +1841,7 @@ class Autoresearcher:
 
     # -- hyphal growth (#58) ----------------------------------------------------
     async def _agent_loop(self, *, system: str, seed: str, tools: list, max_steps: int,
-                          nudge: str, stop=None, tag: str = "") -> int:
+                          nudge: str, stop=None, tag: str = "", prod=None) -> int:
         """One bounded tool-calling loop in its OWN context. Returns steps used.
 
         This is the plumbing the linear ``explore`` grew organically — parse the tool
@@ -1851,6 +1851,8 @@ class Autoresearcher:
         messages = [{"role": "system", "content": system}, {"role": "user", "content": seed}]
         for step in range(max_steps):
             messages = _compact_messages(messages)   # a well-behaved tip never needs this
+            if prod is not None and (say := prod(step, max_steps)):
+                messages.append({"role": "user", "content": say})
             r = await self._chat("explore", messages, model=self.explore_model, tools=tools,
                                  tool_choice="auto", temperature=0.25,
                                  max_tokens=self.max_tokens)
@@ -2176,10 +2178,28 @@ class Autoresearcher:
         recorded = lambda: len(self.ledger) > before        # noqa: E731
         await self._emit("tip", {"id": item["id"], "question": item["question"],
                                  "parent": item.get("parent"), "claims_seen": before})
+        prodded = [False]
+
+        def _prod(step: int, total: int) -> str | None:
+            """Bank what you have, once. A tip spent fourteen steps and eight successful
+            computations on a three-part investigation and recorded NOTHING, because it
+            was still working towards a complete answer when the budget ran out. The
+            instruction to record one claim and stop was already in its seed; what was
+            missing was anything that noticed it hadn't."""
+            if prodded[0] or not one_claim or recorded() or step < total // 2:
+                return None
+            prodded[0] = True
+            n = len(self.computations)
+            return (f"You are halfway through this investigation's budget with {n} "
+                    "computations and no claim recorded. Record what you have "
+                    "established so far, even if it is only part of the question — a "
+                    "fresh analyst will be given this same investigation and your claim, "
+                    "and can carry on from there.")
+
         try:
             return await self._agent_loop(
                 system=TIP_SYSTEM, seed=await self._tip_seed(item, one_claim=one_claim),
-                tools=TIP_TOOLS, max_steps=max_steps,
+                tools=TIP_TOOLS, max_steps=max_steps, prod=_prod,
                 nudge=("Record the claim this investigation has reached, or call "
                        "mark_done if it is finished." if one_claim else
                        "Continue with this investigation, or call mark_done if it is finished."),
