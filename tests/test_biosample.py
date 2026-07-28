@@ -394,6 +394,36 @@ class TestSandboxHints:
             "a = counts.values\nresult = {'m': float(a.values.mean())}"}))
         assert "same error" in second["hint"]
 
+    def test_a_missing_grantable_module_points_at_request_package(self):
+        """ModuleNotFoundError contains neither "ImportError" nor "cannot import name",
+        so the one failure that should point straight at request_package fired no hint
+        at all — an analyst reached for skbio, the package the tool was built for, and
+        was told nothing."""
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        from ai.sandbox_packages import ALLOWED
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        ar.grantable_packages = tuple(sorted(ALLOWED))
+        r = asyncio.run(ar._exec_tool("run_analysis",
+                                      {"label": "t", "code": "import skbio\nresult = 1"}))
+        assert "request_package" in r["hint"] and 'package="skbio"' in r["hint"]
+
+    def test_a_missing_ungrantable_module_says_so_and_lists_what_is(self):
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        from ai.sandbox_packages import ALLOWED
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        ar.grantable_packages = tuple(sorted(ALLOWED))
+        r = asyncio.run(ar._exec_tool("run_analysis",
+                                      {"label": "t", "code": "import torch\nresult = 1"}))
+        assert "cannot be installed" in r["hint"] and "skbio" in r["hint"]
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")

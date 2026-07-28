@@ -1,530 +1,60 @@
 {
-  "claims": [
-    {
-      "id": "k1",
-      "statement": "PERMANOVA on Bray-Curtis distances shows strong community separation across 5 environment types (frost flowers, brine, ice, seawater, chamber air), F=92.01, p<0.0001 (9999 permutations). This indicates microbial communities differ systematically by environment.",
-      "value": "F_statistic=92.01, p_value=0.0",
-      "assertions": [
-        {
-          "label": "F_statistic",
-          "value": "92.01",
-          "of": "Bray-Curtis PERMANOVA, 5 environment groups"
-        },
-        {
-          "label": "p_value",
-          "value": "0.0",
-          "of": "Bray-Curtis PERMANOVA, 9999 permutations"
-        }
-      ],
-      "parameters": {},
-      "antecedents": [
-        "c3"
-      ],
-      "kind": "pattern",
-      "investigation": "a1",
-      "by": "qwen/qwen3.6-35b-a3b"
-    }
-  ],
-  "computations": {
-    "c1": {
-      "label": "explore_environment_groups_in_counts",
-      "code": "import pandas as pd\nimport numpy as np\n\n# Get the 63 samples that are in counts\nsub_meta = meta.loc[meta.index[meta['pipeline_in_counts']]]\n\n# Check environment groups available in the subset\nenv_groups = sub_meta['biosample_env_local_scale'].value_counts()\nresult = {\n    'env_groups': env_groups.to_dict(),\n    'total_samples_in_counts': int(sub_meta.shape[0]),\n    'unique_envs': sub_meta['biosample_env_local_scale'].unique().tolist(),\n    'missing_env': int(sub_meta['biosample_env_local_scale'].isna().sum()),\n    'biosample_title_groups': sub_meta['biosample_title'].value_counts().to_dict()\n}",
-      "result": {
-        "env_groups": {
-          "frost flowers": 24,
-          "Brine": 17,
-          "ice": 16,
-          "seawater": 4,
-          "chamber air": 2
-        },
-        "total_samples_in_counts": 63,
-        "unique_envs": [
-          "frost flowers",
-          "chamber air",
-          "ice",
-          "seawater",
-          "Brine"
-        ],
-        "missing_env": 0,
-        "biosample_title_groups": {
-          "MIMS Environmental/Metagenome sample from ice metagenome": 40,
-          "MIMS Environmental/Metagenome sample from brine metagenome": 17,
-          "MIMS Environmental/Metagenome sample from seawater metagenome": 4,
-          "MIMS Environmental/Metagenome sample from air metagenome": 2
-        }
-      },
-      "by": "qwen/qwen3.6-35b-a3b"
-    },
-    "c2": {
-      "label": "permanova_bray_curtis_by_environment",
-      "code": "import pandas as pd\nimport numpy as np\nfrom scipy.spatial.distance import pdist, squareform\nfrom scipy import stats\n\n# Get the 63 samples in counts\nsub_meta = meta.loc[meta.index[meta['pipeline_in_counts']]]\nsub_counts = counts.loc[sub_meta.index]\n\n# Bray-Curtis distance matrix\nbc_dist = squareform(pdist(sub_counts, metric='braycurtis'))\n\n# Environment groups\nenv = sub_meta['biosample_env_local_scale']\ngroups = env.unique()\nn_groups = len(groups)\n\n# PERMANOVA (adonis-like) using permutational MANOVA on Bray-Curtis\n# We'll compute F-statistic manually: between-group / within-group SS\ndef permanova_f(dist_matrix, groups):\n    \"\"\"Compute PERMANOVA F-statistic from distance matrix and group labels.\"\"\"\n    n = dist_matrix.shape[0]\n    grand_mean = dist_matrix.sum() / (n * n)\n    \n    # Total SS\n    total_ss = ((dist_matrix - dist_matrix.mean()) ** 2).sum().sum() / (n - 1)\n    \n    # Between-group SS\n    group_means = {}\n    group_sizes = {}\n    for g in groups.unique():\n        idx = groups == g\n        group_means[g] = dist_matrix[idx][:, idx].sum() / (idx.sum() * (idx.sum() - 1) / 2) if idx.sum() > 1 else 0\n        group_sizes[g] = idx.sum()\n    \n    # Actually compute SS properly\n    grand_mean_val = dist_matrix.sum() / (n * n)\n    \n    # Between-group sum of squares\n    bg_ss = 0\n    for g in groups.unique():\n        idx_g = groups == g\n        n_g = idx_g.sum()\n        mean_g = dist_matrix[idx_g][:, idx_g].sum() / (n_g * (n_g - 1)) if n_g > 1 else 0\n        # This is wrong - let me use proper formula\n        pass\n    \n    # Proper PERMANOVA: use the standard formula\n    # H = sum(n_g * (d_bar_g - d_bar)^2) / (2 * d_bar^2) ... no\n    # Let me use the standard approach:\n    # A = adjacency matrix (1 if same group, 0 otherwise)\n    # Actually, let me just use the standard PERMANOVA F formula\n    \n    # Center the distance matrix\n    n = dist_matrix.shape[0]\n    B = -0.5 * (1 - np.eye(n)) @ dist_matrix**2 @ (1 - np.eye(n))\n    \n    # Between-group sum of squares\n    A = np.zeros((n, n))\n    for g in groups.unique():\n        idx_g = groups == g\n        A[np.ix_(idx_g, idx_g)] = 1 / idx_g.sum()\n    \n    bg_ss = np.trace(A @ B @ A)\n    wg_ss = np.trace(B @ B) - bg_ss\n    \n    df_bg = n_groups - 1\n    df_wg = n - n_groups\n    \n    F = (bg_ss / df_bg) / (wg_ss / df_wg) if wg_ss > 0 else 0\n    \n    return F, bg_ss, wg_ss\n\nF_obs, bg_ss, wg_ss = permanova_f(bc_dist, env)\nprint(f\"Observed F-statistic: {F_obs:.4f}\")\n\n# Permutation test\nn_perm = 9999\nperm_F = np.zeros(n_perm)\nfor i in range(n_perm):\n    perm_groups = env.sample(frac=1, random_state=i+42).values\n    F_perm, _, _ = permanova_f(bc_dist, pd.Series(perm_groups, index=env.index))\n    perm_F[i] = F_perm\n\np_val = (perm_F >= F_obs).sum() / n_perm\nprint(f\"PERMANOVA p-value: {p_val}\")\nprint(f\"Permuted F stats - mean: {perm_F.mean():.4f}, max: {perm_F.max():.4f}\")\n\nresult = {\n    'F_statistic': float(F_obs),\n    'p_value': float(p_val),\n    'n_permutations': n_perm,\n    'bg_ss': float(bg_ss),\n    'wg_ss': float(wg_ss),\n    'n_groups': n_groups,\n    'group_sizes': {g: int((env == g).sum()) for g in groups}\n}",
-      "result": {
-        "F_statistic": -0.0002,
-        "p_value": 0.0001,
-        "n_permutations": 9999,
-        "bg_ss": -83433.0522,
-        "wg_ss": 6961963808.8042,
-        "n_groups": 5,
-        "group_sizes": {
-          "frost flowers": 24,
-          "chamber air": 2,
-          "ice": 16,
-          "seawater": 4,
-          "Brine": 17
-        }
-      },
-      "by": "qwen/qwen3.6-35b-a3b"
-    },
-    "c3": {
-      "label": "permanova_bray_curtis_correct",
-      "code": "import pandas as pd\nimport numpy as np\nfrom scipy.spatial.distance import pdist, squareform\n\n# Get the 63 samples in counts\nsub_meta = meta.loc[meta.index[meta['pipeline_in_counts']]]\nsub_counts = counts.loc[sub_meta.index]\n\n# Bray-Curtis distance matrix\nbc_dist = squareform(pdist(sub_counts, metric='braycurtis'))\n\n# Environment groups\nenv = sub_meta['biosample_env_local_scale']\ngroups = env.unique()\nn_groups = len(groups)\nn = bc_dist.shape[0]\n\n# Proper PERMANOVA implementation\n# Using the formula from Anderson (2001):\n# F = (SS_between / df_between) / (SS_within / df_within)\n# where SS_between = sum_g n_g * (d_bar_g - d_bar_..)^2 ... no\n# Actually for distance-based PERMANOVA:\n# A_ij = 1 if i,j in same group, 0 otherwise\n# H = A - (diag(A) * ones^T + ones * diag(A)^T) / (n-1) + (sum(A) / (n*(n-1))) * ones * ones^T\n# F = trace(H @ B) / trace((H @ B) ** 2 / df) ... this is getting complex\n# Let me use the simpler approach:\n\n# Standard PERMANOVA F:\n# 1. Compute double-centered distance matrix (principal coordinates style)\n# 2. Partition sums of squares\n\n# Actually, let me use the straightforward approach:\n# SS_total = sum of all squared distances / (2n)\n# SS_between = sum over groups of n_g * mean_within_group_distance... no\n\n# Let me use the correct formula:\n# For PERMANOVA on distances:\n# A = matrix where A_ij = 1 if samples i,j are in same group\n# B = -0.5 * J @ D^2 @ J where J = I - 1/n * ones*ones^T\n# SS_between = trace(A @ B)\n# SS_total = trace(B @ B)\n# SS_within = SS_total - SS_between\n\nD2 = bc_dist ** 2\nJ = np.eye(n) - np.ones((n, n)) / n\nB = -0.5 * J @ D2 @ J\n\n# Between-group matrix\nA = np.zeros((n, n))\nfor g in groups:\n    idx_g = (env == g).values\n    A[np.ix_(idx_g, idx_g)] = 1\n\nSS_between = np.trace(A @ B)\nSS_total = np.trace(B @ B)\nSS_within = SS_total - SS_between\n\ndf_between = n_groups - 1\ndf_within = n - n_groups\n\nMS_between = SS_between / df_between\nMS_within = SS_within / df_within\n\nF_obs = MS_between / MS_within if MS_within > 0 else 0\n\nprint(f\"SS_between: {SS_between:.4f}\")\nprint(f\"SS_within: {SS_within:.4f}\")\nprint(f\"SS_total: {SS_total:.4f}\")\nprint(f\"F_obs: {F_obs:.4f}\")\n\n# Permutation test\nn_perm = 9999\nperm_F = np.zeros(n_perm)\nfor i in range(n_perm):\n    perm_env = env.sample(frac=1, random_state=i+42).values\n    A_perm = np.zeros((n, n))\n    for g in groups:\n        idx_g = (perm_env == g)\n        A_perm[np.ix_(idx_g, idx_g)] = 1\n    SS_b = np.trace(A_perm @ B)\n    SS_w = SS_total - SS_b\n    F_perm = (SS_b / df_between) / (SS_w / df_within) if SS_w > 0 else 0\n    perm_F[i] = F_perm\n\np_val = (perm_F >= F_obs).sum() / n_perm\nprint(f\"p-value: {p_val}\")\nprint(f\"F_obs vs perm mean: {F_obs:.4f} vs {perm_F.mean():.4f}\")\n\nresult = {\n    'F_statistic': float(F_obs),\n    'p_value': float(p_val),\n    'n_permutations': n_perm,\n    'SS_between': float(SS_between),\n    'SS_within': float(SS_within),\n    'SS_total': float(SS_total),\n    'df_between': df_between,\n    'df_within': df_within,\n    'group_sizes': {g: int((env == g).sum()) for g in groups}\n}",
-      "result": {
-        "F_statistic": 92.0107,
-        "p_value": 0.0,
-        "n_permutations": 9999,
-        "SS_between": 66.1224,
-        "SS_within": 10.4202,
-        "SS_total": 76.5426,
-        "df_between": 4,
-        "df_within": 58,
-        "group_sizes": {
-          "frost flowers": 24,
-          "chamber air": 2,
-          "ice": 16,
-          "seawater": 4,
-          "Brine": 17
-        }
-      },
-      "by": "qwen/qwen3.6-35b-a3b"
-    },
-    "c4": {
-      "label": "differential_abundance_by_environment_fixed2",
-      "code": "import pandas as pd\nimport numpy as np\nfrom scipy import stats\n\n# Get the 63 samples in counts\nsub_meta = meta.loc[meta.index[meta['pipeline_in_counts']]]\nsub_counts = counts.loc[sub_meta.index]\nenv = sub_meta['biosample_env_local_scale']\n\n# Get taxonomic info\ntax_sub = tax.loc[sub_counts.columns]\n\n# Use proportions to avoid depth bias\nprops = sub_counts.div(sub_counts.sum(axis=1), axis=0)\n\n# Environment groups\nenv_groups = env.unique()\n\n# For each ASV, compute Kruskal-Wallis test across environments\nasv_kw_pvals = []\nasv_F = []\nasv_names = []\n\nfor asv_idx in sub_counts.columns:\n    vals = sub_counts[asv_idx].values\n    # Skip ASVs with all zeros\n    if vals.sum() == 0:\n        asv_kw_pvals.append(1.0)\n        asv_F.append(0.0)\n        asv_names.append(asv_idx)\n        continue\n    # Kruskal-Wallis across groups\n    groups_data = [vals[env == g] for g in env_groups]\n    # Remove zeros for meaningful comparison\n    groups_data = [g[g > 0] for g in groups_data]\n    if all(len(g) < 2 for g in groups_data):\n        asv_kw_pvals.append(1.0)\n        asv_F.append(0.0)\n        asv_names.append(asv_idx)\n        continue\n    stat, pval = stats.kruskal(*groups_data)\n    asv_kw_pvals.append(pval)\n    asv_F.append(stat)\n    asv_names.append(asv_idx)\n\nasv_kw_pvals = np.array(asv_kw_pvals)\nasv_F = np.array(asv_F)\nasv_names = np.array(asv_names)\n\n# FDR correction using the provided fdr function\nfdr_result = fdr(asv_kw_pvals)\nasv_p_adj = np.array(fdr_result['p_adj'])\nasv_reject = np.array(fdr_result['reject'])\nn_sig = fdr_result['n_sig']\nn_tests = fdr_result['n_tests']\n\nprint(f\"Total ASVs tested: {n_tests}\")\nprint(f\"Significant at FDR 0.05: {n_sig}\")\n\n# Get top significant ASVs\nsig_mask = asv_reject\nsig_asvs = asv_names[sig_mask]\nsig_pvals = asv_kw_pvals[sig_mask]\nsig_p_adj = asv_p_adj[sig_mask]\nsig_F = asv_F[sig_mask]\n\n# Sort by adjusted p-value\nsig_order = np.argsort(sig_p_adj)\nsig_asvs_sorted = sig_asvs[sig_order]\nsig_pvals_sorted = sig_pvals[sig_order]\nsig_p_adj_sorted = sig_p_adj[sig_order]\nsig_F_sorted = sig_F[sig_order]\n\nprint(\"\\nTop 20 significant ASVs:\")\nfor i in range(min(20, len(sig_asvs_sorted))):\n    asv = sig_asvs_sorted[i]\n    tax_row = tax_sub.loc[asv]\n    print(f\"  {asv}: p={sig_pvals_sorted[i]:.2e}, p_adj={sig_p_adj_sorted[i]:.2e}, F={sig_F_sorted[i]:.2f}, \"\n          f\"tax={dict(tax_row)}\")\n\n# For top ASVs, show mean proportions per environment\ntop_n = 15\ntop_asvs = sig_asvs_sorted[:top_n]\nprint(\"\\nMean proportions of top ASVs by environment:\")\nfor asv in top_asvs:\n    tax_row = tax_sub.loc[asv]\n    print(f\"\\n  {asv} ({tax_row['Genus'] if pd.notna(tax_row['Genus']) else 'unclassified'}):\")\n    for g in env_groups:\n        idx = env == g\n        mean_prop = props.loc[idx, asv].mean()\n        median_prop = props.loc[idx, asv].median()\n        n_with_reads = (sub_counts.loc[idx, asv] > 0).sum()\n        print(f\"    {g}: mean_prop={mean_prop:.6f}, median_prop={median_prop:.6f}, n_with_reads={n_with_reads}/{idx.sum()}\")\n\nresult = {\n    'n_tests': int(n_tests),\n    'n_sig_fdr05': int(n_sig),\n    'top_asvs': [(str(a), float(p), float(pa), float(f)) for a, p, pa, f in zip(sig_asvs_sorted[:20], sig_pvals_sorted[:20], sig_p_adj_sorted[:20], sig_F_sorted[:20])],\n    'top_asv_details': {}\n}\n\nfor asv in top_asvs:\n    tax_row = tax_sub.loc[asv]\n    result['top_asv_details'][str(asv)] = {\n        'Genus': str(tax_row['Genus']) if pd.notna(tax_row['Genus']) else 'unclassified',\n        'Family': str(tax_row['Family']) if pd.notna(tax_row['Family']) else 'unclassified',\n        'Phylum': str(tax_row['Phylum']) if pd.notna(tax_row['Phylum']) else 'unclassified',\n        'Domain': str(tax_row['Domain']) if pd.notna(tax_row['Domain']) else 'unclassified',\n        'mean_props_by_env': {g: float(props.loc[env == g, asv].mean()) for g in env_groups}\n    }",
-      "result": {
-        "n_tests": 735,
-        "n_sig_fdr05": 0,
-        "top_asvs": [],
-        "top_asv_details": {}
-      },
-      "by": "qwen/qwen3.6-35b-a3b"
-    },
-    "c5": {
-      "label": "taxa_level_analysis_by_environment",
-      "code": "import pandas as pd\nimport numpy as np\nfrom scipy import stats\n\n# Get the 63 samples in counts\nsub_meta = meta.loc[meta.index[meta['pipeline_in_counts']]]\nsub_counts = counts.loc[sub_meta.index]\nenv = sub_meta['biosample_env_local_scale']\n\n# Get taxonomic info\ntax_sub = tax.loc[sub_counts.columns]\n\n# Use proportions to avoid depth bias\nprops = sub_counts.div(sub_counts.sum(axis=1), axis=0)\n\n# Environment groups\nenv_groups = env.unique()\n\n# Aggregate to genus level\n# First, create a mapping from ASV to genus\nasv_to_genus = tax_sub['Genus'].to_dict()\n\n# For each genus, sum proportions across ASVs\ngenus_props = {}\nfor asv, genus in asv_to_genus.items():\n    if pd.isna(genus) or genus == 'unclassified':\n        continue\n    if genus not in genus_props:\n        genus_props[genus] = props[asv].copy()\n    else:\n        genus_props[genus] += props[asv]\n\n# Convert to DataFrame\ngenus_props_df = pd.DataFrame(genus_props)\n\n# For each genus, compute Kruskal-Wallis across environments\ngenus_kw_pvals = []\ngenus_F = []\ngenus_names = []\n\nfor genus in genus_props_df.columns:\n    vals = genus_props_df[genus].values\n    # Skip genera with all zeros\n    if vals.sum() == 0:\n        genus_kw_pvals.append(1.0)\n        genus_F.append(0.0)\n        genus_names.append(genus)\n        continue\n    # Kruskal-Wallis across groups\n    groups_data = [vals[env == g] for g in env_groups]\n    # Remove zeros for meaningful comparison\n    groups_data = [g[g > 0] for g in groups_data]\n    if all(len(g) < 2 for g in groups_data):\n        genus_kw_pvals.append(1.0)\n        genus_F.append(0.0)\n        genus_names.append(genus)\n        continue\n    stat, pval = stats.kruskal(*groups_data)\n    genus_kw_pvals.append(pval)\n    genus_F.append(stat)\n    genus_names.append(genus)\n\ngenus_kw_pvals = np.array(genus_kw_pvals)\ngenus_F = np.array(genus_F)\ngenus_names = np.array(genus_names)\n\n# FDR correction\nfdr_result = fdr(genus_kw_pvals)\ngenus_p_adj = np.array(fdr_result['p_adj'])\ngenus_reject = np.array(fdr_result['reject'])\nn_sig = fdr_result['n_sig']\nn_tests = fdr_result['n_tests']\n\nprint(f\"Total genera tested: {n_tests}\")\nprint(f\"Significant at FDR 0.05: {n_sig}\")\n\n# Get significant genera\nsig_mask = genus_reject\nsig_genera = genus_names[sig_mask]\nsig_pvals = genus_kw_pvals[sig_mask]\nsig_p_adj = genus_p_adj[sig_mask]\nsig_F = genus_F[sig_mask]\n\n# Sort by adjusted p-value\nsig_order = np.argsort(sig_p_adj)\nsig_genera_sorted = sig_genera[sig_order]\nsig_pvals_sorted = sig_pvals[sig_order]\nsig_p_adj_sorted = sig_p_adj[sig_order]\nsig_F_sorted = sig_F[sig_order]\n\nprint(\"\\nSignificant genera (FDR < 0.05):\")\nfor i in range(len(sig_genera_sorted)):\n    genus = sig_genera_sorted[i]\n    print(f\"  {genus}: p={sig_pvals_sorted[i]:.2e}, p_adj={sig_p_adj_sorted[i]:.2e}, F={sig_F_sorted[i]:.2f}\")\n\n# For significant genera, show mean proportions per environment\nif len(sig_genera_sorted) > 0:\n    print(\"\\nMean proportions of significant genera by environment:\")\n    for genus in sig_genera_sorted:\n        print(f\"\\n  {genus}:\")\n        for g in env_groups:\n            idx = env == g\n            mean_prop = genus_props_df.loc[idx, genus].mean()\n            median_prop = genus_props_df.loc[idx, genus].median()\n            n_with_reads = (genus_props_df.loc[idx, genus] > 0).sum()\n            print(f\"    {g}: mean_prop={mean_prop:.6f}, median_prop={median_prop:.6f}, n_with_reads={n_with_reads}/{idx.sum()}\")\n\n# Also show top 20 by uncorrected p-value for context\nuncorr_order = np.argsort(genus_kw_pvals)\ntop20_genera = genus_names[uncorr_order[:20]]\nprint(\"\\nTop 20 genera by uncorrected p-value:\")\nfor genus in top20_genera:\n    idx_genus = genus_names == genus\n    pval = genus_kw_pvals[idx_genus][0]\n    F = genus_F[idx_genus][0]\n    mean_all = genus_props_df[genus].mean()\n    print(f\"  {genus}: p={pval:.2e}, F={F:.2f}, mean_prop={mean_all:.6f}\")\n\nresult = {\n    'n_tests': int(n_tests),\n    'n_sig_fdr05': int(n_sig),\n    'sig_genera': [(str(g), float(p), float(pa), float(f)) for g, p, pa, f in zip(sig_genera_sorted, sig_pvals_sorted, sig_p_adj_sorted, sig_F_sorted)],\n    'top20_genera_unsorted': [(str(g), float(genus_kw_pvals[genus_names == g][0]), float(genus_F[genus_names == g][0])) for g in top20_genera],\n    'sig_genera_details': {}\n}\n\nfor genus in sig_genera_sorted:\n    result['sig_genera_details'][str(genus)] = {\n        'mean_props_by_env': {g: float(genus_props_df.loc[env == g, genus].mean()) for g in env_groups}\n    }",
-      "result": {
-        "n_tests": 152,
-        "n_sig_fdr05": 0,
-        "sig_genera": [],
-        "top20_genera_unsorted": [
-          [
-            "Neptuniibacter",
-            0.0,
-            30.1803
-          ],
-          [
-            "Pseudomonas",
-            0.0,
-            28.0523
-          ],
-          [
-            "SAR92 clade",
-            0.0,
-            27.1123
-          ],
-          [
-            "Pseudoalteromonas",
-            0.0001,
-            24.2347
-          ],
-          [
-            "Pseudophaeobacter",
-            0.0005,
-            20.2141
-          ],
-          [
-            "Flavicella",
-            0.0005,
-            20.1513
-          ],
-          [
-            "Alteromonas",
-            0.001,
-            18.5512
-          ],
-          [
-            "Marinobacter",
-            0.0021,
-            16.8504
-          ],
-          [
-            "Paraglaciecola",
-            0.0026,
-            16.3746
-          ],
-          [
-            "Roseibacillus",
-            0.0027,
-            16.235
-          ],
-          [
-            "Polaribacter",
-            0.0037,
-            15.5289
-          ],
-          [
-            "Candidatus Actinomarina",
-            0.0058,
-            14.5358
-          ],
-          [
-            "Arcobacter",
-            0.0105,
-            13.1573
-          ],
-          [
-            "Synechococcus CC9902",
-            0.0123,
-            12.8058
-          ],
-          [
-            "Sulfitobacter",
-            0.0148,
-            12.3727
-          ],
-          [
-            "Incertae Sedis",
-            0.0155,
-            12.269
-          ],
-          [
-            "Glaciecola",
-            0.04,
-            10.0261
-          ],
-          [
-            "Zhongshania",
-            0.0936,
-            7.9455
-          ],
-          [
-            "Candidatus Puniceispirillum",
-            0.0941,
-            7.9308
-          ],
-          [
-            "Amylibacter",
-            0.1296,
-            7.1223
-          ]
-        ],
-        "sig_genera_details": {}
-      },
-      "by": "qwen/qwen3.6-35b-a3b"
-    },
-    "c6": {
-      "label": "genus_level_detailed_analysis",
-      "code": "import pandas as pd\nimport numpy as np\nfrom scipy import stats\n\n# Get the 63 samples in counts\nsub_meta = meta.loc[meta.index[meta['pipeline_in_counts']]]\nsub_counts = counts.loc[sub_meta.index]\nenv = sub_meta['biosample_env_local_scale']\n\n# Get taxonomic info\ntax_sub = tax.loc[sub_counts.columns]\n\n# Use proportions to avoid depth bias\nprops = sub_counts.div(sub_counts.sum(axis=1), axis=0)\n\n# Environment groups\nenv_groups = env.unique()\n\n# Aggregate to genus level\nasv_to_genus = tax_sub['Genus'].to_dict()\n\n# For each genus, sum proportions across ASVs\ngenus_props = {}\nfor asv, genus in asv_to_genus.items():\n    if pd.isna(genus) or genus == 'unclassified':\n        continue\n    if genus not in genus_props:\n        genus_props[genus] = props[asv].copy()\n    else:\n        genus_props[genus] += props[asv]\n\n# Convert to DataFrame\ngenus_props_df = pd.DataFrame(genus_props)\n\n# Focus on the top genera that showed strong signals\ntop_genera = ['Neptuniibacter', 'Pseudomonas', 'SAR92 clade', 'Pseudoalteromonas', 'Pseudophaeobacter', \n              'Flavicella', 'Alteromonas', 'Marinobacter', 'Paraglaciecola', 'Roseibacillus',\n              'Polaribacter', 'Candidatus Actinomarina', 'Arcobacter', 'Synechococcus CC9902', 'Sulfitobacter']\n\nprint(\"Detailed genus proportions by environment:\")\nprint(\"=\" * 80)\nfor genus in top_genera:\n    if genus not in genus_props_df.columns:\n        continue\n    print(f\"\\n{genus}:\")\n    for g in env_groups:\n        idx = env == g\n        vals = genus_props_df.loc[idx, genus]\n        mean_prop = vals.mean()\n        median_prop = vals.median()\n        n_with_reads = (vals > 0).sum()\n        max_prop = vals.max()\n        min_prop = vals.min()\n        print(f\"  {g:15s}: mean={mean_prop:.6f}, median={median_prop:.6f}, \"\n              f\"n_with_reads={n_with_reads}/{idx.sum()}, \"\n              f\"range=[{min_prop:.6f}, {max_prop:.6f}]\")\n\n# Also check at phylum level\nprint(\"\\n\" + \"=\" * 80)\nprint(\"Phylum-level analysis:\")\nprint(\"=\" * 80)\n\nasv_to_phylum = tax_sub['Phylum'].to_dict()\nphylum_props = {}\nfor asv, phylum in asv_to_phylum.items():\n    if pd.isna(phylum) or phylum == 'unclassified':\n        continue\n    if phylum not in phylum_props:\n        phylum_props[phylum] = props[asv].copy()\n    else:\n        phylum_props[phylum] += props[asv]\n\nphylum_props_df = pd.DataFrame(phylum_props)\n\nfor phylum in phylum_props_df.columns:\n    print(f\"\\n{phylum}:\")\n    for g in env_groups:\n        idx = env == g\n        vals = phylum_props_df.loc[idx, phylum]\n        mean_prop = vals.mean()\n        median_prop = vals.median()\n        n_with_reads = (vals > 0).sum()\n        print(f\"  {g:15s}: mean={mean_prop:.6f}, median={median_prop:.6f}, n_with_reads={n_with_reads}/{idx.sum()}\")\n\nresult = {\n    'top_genera_details': {},\n    'phylum_details': {}\n}\n\nfor genus in top_genera:\n    if genus in genus_props_df.columns:\n        result['top_genera_details'][genus] = {g: float(genus_props_df.loc[env == g, genus].mean()) for g in env_groups}\n\nfor phylum in phylum_props_df.columns:\n    result['phylum_details'][phylum] = {g: float(phylum_props_df.loc[env == g, phylum].mean()) for g in env_groups}",
-      "result": {
-        "top_genera_details": {
-          "Neptuniibacter": {
-            "frost flowers": 0.3078,
-            "chamber air": 0.0426,
-            "ice": 0.0844,
-            "seawater": 0.002,
-            "Brine": 0.0016
-          },
-          "Pseudomonas": {
-            "frost flowers": 0.002,
-            "chamber air": 0.0918,
-            "ice": 0.0651,
-            "seawater": 0.2937,
-            "Brine": 0.1086
-          },
-          "SAR92 clade": {
-            "frost flowers": 0.013,
-            "chamber air": 0.0099,
-            "ice": 0.0059,
-            "seawater": 0.0014,
-            "Brine": 0.0026
-          },
-          "Pseudoalteromonas": {
-            "frost flowers": 0.0205,
-            "chamber air": 0.0965,
-            "ice": 0.0354,
-            "seawater": 0.0998,
-            "Brine": 0.1045
-          },
-          "Pseudophaeobacter": {
-            "frost flowers": 0.0413,
-            "chamber air": 0.0546,
-            "ice": 0.0171,
-            "seawater": 0.0015,
-            "Brine": 0.0118
-          },
-          "Flavicella": {
-            "frost flowers": 0.0162,
-            "chamber air": 0.0278,
-            "ice": 0.009,
-            "seawater": 0.0013,
-            "Brine": 0.0012
-          },
-          "Alteromonas": {
-            "frost flowers": 0.1019,
-            "chamber air": 0.1253,
-            "ice": 0.0367,
-            "seawater": 0.0103,
-            "Brine": 0.1927
-          },
-          "Marinobacter": {
-            "frost flowers": 0.0023,
-            "chamber air": 0.0018,
-            "ice": 0.0004,
-            "seawater": 0.0005,
-            "Brine": 0.0004
-          },
-          "Paraglaciecola": {
-            "frost flowers": 0.0184,
-            "chamber air": 0.0375,
-            "ice": 0.0066,
-            "seawater": 0.0011,
-            "Brine": 0.0146
-          },
-          "Roseibacillus": {
-            "frost flowers": 0.0012,
-            "chamber air": 0.0106,
-            "ice": 0.0004,
-            "seawater": 0.0001,
-            "Brine": 0.0002
-          },
-          "Polaribacter": {
-            "frost flowers": 0.003,
-            "chamber air": 0.0079,
-            "ice": 0.0013,
-            "seawater": 0.0009,
-            "Brine": 0.0005
-          },
-          "Candidatus Actinomarina": {
-            "frost flowers": 0.0014,
-            "chamber air": 0.0049,
-            "ice": 0.004,
-            "seawater": 0.0009,
-            "Brine": 0.0014
-          },
-          "Arcobacter": {
-            "frost flowers": 0.0671,
-            "chamber air": 0.1658,
-            "ice": 0.2576,
-            "seawater": 0.0411,
-            "Brine": 0.132
-          },
-          "Synechococcus CC9902": {
-            "frost flowers": 0.0005,
-            "chamber air": 0.0168,
-            "ice": 0.0027,
-            "seawater": 0.0013,
-            "Brine": 0.001
-          },
-          "Sulfitobacter": {
-            "frost flowers": 0.0028,
-            "chamber air": 0.0042,
-            "ice": 0.0017,
-            "seawater": 0.0006,
-            "Brine": 0.006
-          }
-        },
-        "phylum_details": {
-          "SAR": {
-            "frost flowers": 0.1937,
-            "chamber air": 0.0,
-            "ice": 0.2561,
-            "seawater": 0.142,
-            "Brine": 0.1452
-          },
-          "Archaeplastida": {
-            "frost flowers": 0.0211,
-            "chamber air": 0.0,
-            "ice": 0.0972,
-            "seawater": 0.325,
-            "Brine": 0.1449
-          },
-          "Campylobacterota": {
-            "frost flowers": 0.0671,
-            "chamber air": 0.1658,
-            "ice": 0.2576,
-            "seawater": 0.0411,
-            "Brine": 0.132
-          },
-          "Pseudomonadota": {
-            "frost flowers": 0.6366,
-            "chamber air": 0.7361,
-            "ice": 0.338,
-            "seawater": 0.4505,
-            "Brine": 0.5674
-          },
-          "Amorphea": {
-            "frost flowers": 0.0323,
-            "chamber air": 0.0,
-            "ice": 0.0188,
-            "seawater": 0.0288,
-            "Brine": 0.0034
-          },
-          "Bacteroidota": {
-            "frost flowers": 0.0393,
-            "chamber air": 0.0569,
-            "ice": 0.02,
-            "seawater": 0.0055,
-            "Brine": 0.0033
-          },
-          "Incertae Sedis": {
-            "frost flowers": 0.0023,
-            "chamber air": 0.0,
-            "ice": 0.0027,
-            "seawater": 0.0036,
-            "Brine": 0.0005
-          },
-          "Actinomycetota": {
-            "frost flowers": 0.0017,
-            "chamber air": 0.0083,
-            "ice": 0.0046,
-            "seawater": 0.0011,
-            "Brine": 0.0016
-          },
-          "Cyanobacteriota": {
-            "frost flowers": 0.0012,
-            "chamber air": 0.0168,
-            "ice": 0.0034,
-            "seawater": 0.0013,
-            "Brine": 0.0011
-          },
-          "Planctomycetota": {
-            "frost flowers": 0.0011,
-            "chamber air": 0.0055,
-            "ice": 0.0003,
-            "seawater": 0.0002,
-            "Brine": 0.0002
-          },
-          "Verrucomicrobiota": {
-            "frost flowers": 0.0029,
-            "chamber air": 0.0106,
-            "ice": 0.001,
-            "seawater": 0.0003,
-            "Brine": 0.0002
-          },
-          "": {
-            "frost flowers": 0.0006,
-            "chamber air": 0.0,
-            "ice": 0.0002,
-            "seawater": 0.0005,
-            "Brine": 0.0001
-          },
-          "Bdellovibrionota": {
-            "frost flowers": 0.0001,
-            "chamber air": 0.0,
-            "ice": 0.0,
-            "seawater": 0.0,
-            "Brine": 0.0
-          },
-          "Patescibacteria": {
-            "frost flowers": 0.0,
-            "chamber air": 0.0,
-            "ice": 0.0,
-            "seawater": 0.0,
-            "Brine": 0.0001
-          },
-          "Picozoa": {
-            "frost flowers": 0.0,
-            "chamber air": 0.0,
-            "ice": 0.0,
-            "seawater": 0.0,
-            "Brine": 0.0
-          },
-          "Cryptophyceae": {
-            "frost flowers": 0.0,
-            "chamber air": 0.0,
-            "ice": 0.0,
-            "seawater": 0.0,
-            "Brine": 0.0
-          },
-          "Balneolota": {
-            "frost flowers": 0.0,
-            "chamber air": 0.0,
-            "ice": 0.0,
-            "seawater": 0.0,
-            "Brine": 0.0
-          }
-        }
-      },
-      "by": "qwen/qwen3.6-35b-a3b"
-    }
-  },
+  "claims": [],
+  "computations": {},
   "agenda": [
     {
       "id": "a1",
-      "question": "Do microbial communities differ systematically across the five environmental types (frost flowers, brine, ice, seawater, chamber air), and which taxa drive any observed separation in Bray-Curtis ordination space?",
-      "rationale": "The samples span a gradient from frozen (frost flowers) to liquid (brine, seawater) to gaseous (air) phases. If environmental filtering is strong, we should see distinct community composition along this gradient. Identifying which taxa differentiate environments reveals the ecological niche structure of this extreme environment system.",
+      "question": "Do ice, brine, seawater, and air samples form distinct communities in Bray-Curtis ordination, and which ASVs drive the separation?",
+      "rationale": "The biosample_title column defines four environmental groups (ice n=54, brine n=24, seawater n=4, air n=2) that represent fundamentally different habitats. If community composition tracks environment, this would confirm that the microbial assemblages are ecologically structured rather than stochastic. PERMANOVA on Bray-Curtis distances with post-hoc pairwise tests identifies which environment pairs differ, and indicator species analysis or SIMPER-style decomposition of the ordination axes reveals which ASVs contribute most to each separation \u2014 critical for understanding habitat filtering.",
       "status": "in_progress",
       "parent": null
     },
     {
       "id": "a2",
-      "question": "Is there a significant prokaryote-to-eukaryote ASV ratio difference across environments, and do eukaryotic ASVs (317 detected in this 16S dataset) co-occur with specific prokaryotic taxa or environments?",
-      "rationale": "The renorm_stats reveal 317 eukaryotic ASVs detected across 19 samples with substantial read counts (213,606 reads). This is unexpected for a 16S amplicon study and could indicate 18S contamination, misannotation, or genuine eukaryotic signal. Testing whether eukaryotic abundance correlates with environment or prokaryotic community structure could reveal cross-kingdom ecological patterns or technical artifacts.",
+      "question": "Is the 25% sample attrition (21 of 84 samples dropped) biased toward specific environments, and does this bias distort community comparisons?",
+      "rationale": "21 samples produced zero reads and are absent from counts entirely (not zero rows). If attrition is non-random \u2014 e.g., all air samples dropped, or all seawater samples dropped \u2014 then any environment-level comparison is confounded by differential detection. Testing whether the proportion of dropped samples differs across biosample_title or biosample_env_local_scale groups using a chi-squared test of independence, and comparing pipeline metrics (pipeline_total_reads, pipeline_n_asvs) across environments for the retained samples, reveals whether the observed patterns could be artifacts of uneven sequencing depth or PCR failure.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a3",
-      "question": "Are the 21 dropped samples (zero reads in final table) non-randomly distributed across environments, submission dates, or collection dates, suggesting systematic bias in sample processing or DNA extraction efficiency?",
-      "rationale": "25% of samples failed entirely. If dropout is correlated with environment (e.g., frost flowers more likely to fail) or submission batch, this could confound any environmental comparisons. Understanding the attrition pattern is essential for interpreting the remaining 63 samples.",
+      "question": "Does the eukaryotic fraction (317 ASVs, 213,606 reads across 19 samples) show environment-driven structure, and are these eukaryotes biologically meaningful or technical artifacts?",
+      "rationale": "The renorm_stats reveals a substantial eukaryotic component (Amorphea, Archaeplastida, SAR phyla) with 213,606 reads \u2014 nearly half the total. This is unexpected for a 16S amplicon study. Testing whether eukaryotic community composition differs across environments (PERMANOVA on eukaryote-only ASV table) determines if this is structured biology or noise. Comparing eukaryotic read proportions to chloroplast read proportions and to sample metadata (e.g., sra_description) helps distinguish true eukaryotic communities from host/plant contamination or cross-amplification artifacts.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a4",
-      "question": "Does alpha diversity (observed ASV richness, Shannon entropy) differ across environments after rarefaction to a common depth, and is there a monotonic relationship between diversity and environmental harshness (frost flowers \u2192 brine \u2192 ice \u2192 seawater \u2192 air)?",
-      "rationale": "Extreme environments often show reduced diversity due to environmental filtering. Frost flowers and brine are hypersaline and cold; air is desiccating. Testing whether diversity declines along the environmental gradient tests a fundamental ecological prediction about stress-diversity relationships in polar systems.",
+      "question": "Are alpha diversity metrics (richness, Shannon entropy, evenness) different across environments, and are differences robust to rarefaction depth?",
+      "rationale": "Different environments (ice vs brine vs seawater vs air) impose different selective pressures and should theoretically differ in diversity. Computing observed ASV richness, Shannon entropy, and Pielou evenness per sample on the full ASV table, then comparing across biosample_env_local_scale groups using Kruskal-Wallis (non-parametric due to unequal sample sizes), tests this. Rarefying to multiple depths (e.g., 1000, 5000, 10000 reads) and re-computing diversity metrics tests whether observed differences are driven by sequencing depth artifacts rather than true ecological differences.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a5",
-      "question": "Are there ASVs with significantly different abundances between the two submission batches (SUB16229131 vs SUB16229383, collected on different dates), after FDR correction for multiple testing?",
-      "rationale": "The two submissions were collected on different dates (2026-06-04 vs 2026-06-21), potentially representing different time points or sampling events. Batch effects could confound environmental comparisons if the batches are unevenly distributed across environments. Identifying batch-discriminatory ASVs helps assess whether temporal or technical variation dominates the signal.",
+      "question": "Which ASVs are environment-indicative (enriched in one environment but rare/absent in others), and what is their taxonomic identity?",
+      "rationale": "Indicator species analysis identifies taxa whose abundance is disproportionately concentrated in one environment, suggesting they are either adapted to or uniquely present in that habitat. Computing indicator values (IndVal) for each ASV across the four biosample_title groups, then applying FDR correction, identifies statistically significant indicators. Taxonomic annotation of these ASVs (via the tax DataFrame) reveals whether indicators cluster at high taxonomic levels (e.g., a whole genus is ice-specific) or are scattered (suggesting niche partitioning at finer scales). This is ecologically actionable for identifying habitat specialists.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a6",
-      "question": "Which ASVs are the strongest positive predictors of each environment in a compositional analysis (e.g., CLR-transformed abundances regressed against environment), and do these taxa match known polar/extremophile taxa from the taxonomy table?",
-      "rationale": "Beyond overall community differences, identifying specific indicator taxa for each environment provides mechanistic ecological insight. The taxonomy table (tax) allows linking statistical signals to biological identity. This is more informative than ordination alone because it identifies the actual organisms driving patterns.",
+      "question": "Is there a correlation between total read depth (pipeline_total_reads) and community composition, and does composition persist after controlling for sequencing depth?",
+      "rationale": "With pipeline_total_reads varying widely across the 63 samples (from the renorm_stats, total reads range from 84 to 207,607 for prokaryote subsets), compositional differences between environments could be driven by depth-dependent detection of rare taxa rather than true abundance differences. Computing the correlation between log10(pipeline_total_reads) and each sample's position in PCoA space (via Mantel test or envfit-style projection), and re-running PERMANOVA on rarefied or CLR-transformed data, tests whether environmental signals persist after depth normalization.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a7",
-      "question": "Is there a distance-decay or environmental gradient pattern in Bray-Curtis dissimilarity \u2014 i.e., do samples from the same environment cluster more tightly together than samples from different environments, and does this pattern hold when controlling for batch/submission?",
-      "rationale": "Testing whether environmental similarity predicts community similarity is a core test of environmental filtering. If samples from the same environment are more similar to each other than to samples from other environments, this supports strong niche-based assembly rules. Controlling for batch ensures the pattern is ecological, not technical.",
+      "question": "Do the two collection dates (2026-06-04 vs 2026-06-21) show compositional turnover, and is this turnover independent of environmental grouping?",
+      "rationale": "The sra_collection_date column defines two sampling events 17 days apart. In a dynamic system like sea ice, even a short time interval could produce measurable community shifts. Testing whether samples cluster by collection date in ordination space (PERMANOVA on date groups), and then testing whether the date effect persists after accounting for environment (using a stratified or partial PERMANOVA framework), determines if temporal dynamics are a confounding factor or an independent signal. This is critical for interpreting whether observed patterns are ecological or temporal artifacts.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a8",
-      "question": "Does the proportion of unclassified taxa (at genus level) vary across environments, and is there a 'microbial dark matter' gradient where harsher environments have higher proportions of unclassified ASVs?",
-      "rationale": "Only 537/735 ASVs (73%) are classified at genus level. If harsher environments (frost flowers, brine) have higher proportions of unclassified taxa, this could indicate novel or understudied polar lineages. This tests whether environmental stress selects for poorly characterized organisms.",
-      "status": "pending",
-      "parent": null
-    },
-    {
-      "id": "a9",
-      "question": "Are there significant ASV co-occurrence or exclusion patterns (positive or negative correlations in CLR-transformed abundances) that differ between environments, suggesting environment-dependent ecological interactions?",
-      "rationale": "Microbial interaction networks can be environment-dependent. Testing whether correlation structures differ between, say, brine and frost flower communities could reveal context-dependent interactions (e.g., mutualism in one environment, competition in another). This goes beyond single-taxon tests to community-level ecology.",
-      "status": "pending",
-      "parent": null
-    },
-    {
-      "id": "a10",
-      "question": "Is there a relationship between pipeline_total_reads (sequencing depth) and observed ASV richness in the 63 samples, and does rarefaction to different depths change which environmental comparisons are statistically significant?",
-      "rationale": "Uneven sequencing depth can create spurious diversity differences. Testing the depth-richness relationship and performing sensitivity analyses across rarefaction depths ensures that any observed diversity differences are biological, not artifacts of sampling effort.",
+      "question": "What is the structure of the ASV co-occurrence network, and are there environment-specific modules of co-occurring taxa?",
+      "rationale": "Co-occurrence patterns can reveal putative ecological interactions (syntrophy, competition, shared niche preferences). Building a correlation-based network from CLR-transformed counts (to handle compositionality), identifying modules using community detection (e.g., Louvain), and testing whether module membership is enriched in specific environments tests whether co-occurrence structure is environment-dependent. This goes beyond single-taxon tests to reveal community-level organization that individual indicator species analysis would miss.",
       "status": "pending",
       "parent": null
     }
@@ -537,7 +67,7 @@
     "exploration": "hyphal",
     "claims_refused": 0,
     "packages_requested": {},
-    "investigations_total": 10,
+    "investigations_total": 8,
     "replication_attempted": 0,
     "replication_rounds": 0,
     "replication_agreed": 0,
@@ -545,8 +75,6 @@
     "replication_overturned": 0,
     "replication_contested": 0,
     "adjudicated": 0,
-    "models": [
-      "qwen/qwen3.6-35b-a3b"
-    ]
+    "models": []
   }
 }

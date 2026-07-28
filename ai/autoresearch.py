@@ -1657,6 +1657,22 @@ class Autoresearcher:
                 elif "is not defined" in err:
                     hint = ("Only the names listed in the briefing exist in this "
                             "sandbox; nothing else can be imported or loaded.")
+                elif "No module named" in err:
+                    # The one failure that should point straight at request_package,
+                    # and it fired no hint at all: ModuleNotFoundError contains neither
+                    # "ImportError" nor "cannot import name". An analyst reached for
+                    # skbio — the package this tool was built for — and was told nothing.
+                    want = (re.search(r"No module named '([^']+)'", err) or [None, ""])[1]
+                    root = want.split(".")[0]
+                    if root in (self.grantable_packages or ()):
+                        hint = (f"`{root}` is not installed but CAN be: call "
+                                f"request_package with package=\"{root}\" and it will be "
+                                "available for your next analysis.")
+                    else:
+                        hint = (f"`{root}` is not available and cannot be installed. "
+                                + (f"These can: {', '.join(self.grantable_packages)}. "
+                                   if self.grantable_packages else "")
+                                + "Otherwise work with what the briefing lists.")
                 elif "cannot import name" in err or "ImportError" in err:
                     # Two different cases, and the earlier wording covered only one.
                     # `fdr`/`clr`/`rarefy` are ours and exist nowhere else; but
