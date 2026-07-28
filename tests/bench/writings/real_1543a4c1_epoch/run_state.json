@@ -932,6 +932,110 @@
       ],
       "kind": "pattern",
       "investigation": "a4",
+      "by": "qwen/qwen3.6-35b-a3b",
+      "checked": [
+        "c23:run",
+        "c24:run"
+      ],
+      "judgment": {
+        "per": {},
+        "notes": {},
+        "by": "glm-4.7-flash",
+        "raw": "Let's analyze each assertion one by one against the provided evidence.\n\n**Assertion: denoise_median_dropped = 106.0**\n*Label:* `dropped samples`, pipeline_reads_denoise.\n*evidence value from [c23]:*\n`\"pipeline_reads_denoise\": { \"retained_mean\"..., ... , dropped_min...`\nWait, let's look at the specific key for denoise in c24 to get U stats and medians. The evidence text says:\n```\n  pipeline_reads_chimera: {\n   ...\n    droppped_median...\n``` No.\nLet's check [c23] again.\n\n[c23]:\n`\"pipeline_reads_denoise\": { \"dropped_mean\"..., ... , dropped_min...`\n\nWait, I need to find the median for `pipelne_rea",
+        "truncated": true,
+        "graded_nothing": true,
+        "unmatched": []
+      },
+      "assertion_verdicts": {},
+      "method": "judge-failed"
+    },
+    {
+      "id": "k11",
+      "statement": "Sample attrition bias intensifies dramatically at the denoising stage: while dropped samples show only moderate initial yield deficit (median 8,753 vs 18,213 raw reads, U=337, p=0.0008, effect=0.49), the bias becomes extreme at denoising (median 106 vs 5,709 reads, U=22, p=0.0, effect=0.97) and chimera detection (median 0 vs 5,706 reads, U=0, p=0.0, effect=1.0). This indicates the retained dataset overrepresents robust communities not just because they started with more reads, but because the denoising/chimera pipeline disproportionately eliminates low-yield samples.",
+      "value": "raw_median_dropped=8753.0, raw_median_retained=18213.0, raw_U=337.0, raw_p=0.0008, raw_effect=0.4906, denoise_median_dropped=106.0, denoise_median_retained=5709.0, denoise_U=22.0, denoise_p=0.0, denoise_effect=0.9667, chimera_median_dropped=0.0, chimera_median_retained=5706.0, chimera_U=0.0, chimera_p=0.0, chimera_effect=1.0",
+      "assertions": [
+        {
+          "label": "raw_median_dropped",
+          "value": "8753.0",
+          "of": "dropped samples, pipeline_reads_raw"
+        },
+        {
+          "label": "raw_median_retained",
+          "value": "18213.0",
+          "of": "retained samples, pipeline_reads_raw"
+        },
+        {
+          "label": "raw_U",
+          "value": "337.0",
+          "of": "dropped vs retained, pipeline_reads_raw"
+        },
+        {
+          "label": "raw_p",
+          "value": "0.0008",
+          "of": "dropped vs retained, pipeline_reads_raw"
+        },
+        {
+          "label": "raw_effect",
+          "value": "0.4906",
+          "of": "dropped vs retained, pipeline_reads_raw"
+        },
+        {
+          "label": "denoise_median_dropped",
+          "value": "106.0",
+          "of": "dropped samples, pipeline_reads_denoise"
+        },
+        {
+          "label": "denoise_median_retained",
+          "value": "5709.0",
+          "of": "retained samples, pipeline_reads_denoise"
+        },
+        {
+          "label": "denoise_U",
+          "value": "22.0",
+          "of": "dropped vs retained, pipeline_reads_denoise"
+        },
+        {
+          "label": "denoise_p",
+          "value": "0.0",
+          "of": "dropped vs retained, pipeline_reads_denoise"
+        },
+        {
+          "label": "denoise_effect",
+          "value": "0.9667",
+          "of": "dropped vs retained, pipeline_reads_denoise"
+        },
+        {
+          "label": "chimera_median_dropped",
+          "value": "0.0",
+          "of": "dropped samples, pipeline_reads_chimera"
+        },
+        {
+          "label": "chimera_median_retained",
+          "value": "5706.0",
+          "of": "retained samples, pipeline_reads_chimera"
+        },
+        {
+          "label": "chimera_U",
+          "value": "0.0",
+          "of": "dropped vs retained, pipeline_reads_chimera"
+        },
+        {
+          "label": "chimera_p",
+          "value": "0.0",
+          "of": "dropped vs retained, pipeline_reads_chimera"
+        },
+        {
+          "label": "chimera_effect",
+          "value": "1.0",
+          "of": "dropped vs retained, pipeline_reads_chimera"
+        }
+      ],
+      "parameters": {},
+      "antecedents": [
+        "c28"
+      ],
+      "kind": "pattern",
+      "investigation": "a4",
       "by": "qwen/qwen3.6-35b-a3b"
     }
   ],
@@ -3296,6 +3400,296 @@
             "ice": 0.1579,
             "seawater": 0.0
           }
+        }
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c25": {
+      "label": "compare_dropped_vs_retained_pipeline_metrics",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import mannwhitneyu\n\n# Get the full meta with all 84 samples\nmeta_full = meta.copy()\n\n# Separate dropped vs retained samples\ndropped = meta_full[~meta_full['pipeline_in_counts']]\nretained = meta_full[meta_full['pipeline_in_counts']]\n\nprint(f\"Dropped samples: {len(dropped)}\")\nprint(f\"Retained samples: {len(retained)}\")\n\n# Compare pipeline_total_reads\ntotal_reads_dropped = dropped['pipeline_total_reads'].dropna()\ntotal_reads_retained = retained['pipeline_total_reads'].dropna()\n\nprint(f\"\\npipeline_total_reads:\")\nprint(f\"  Dropped: median={total_reads_dropped.median():.1f}, mean={total_reads_dropped.mean():.1f}, min={total_reads_dropped.min():.0f}, max={total_reads_dropped.max():.0f}\")\nprint(f\"  Retained: median={total_reads_retained.median():.1f}, mean={total_reads_retained.mean():.1f}, min={total_reads_retained.min():.0f}, max={total_reads_retained.max():.0f}\")\n\n# Mann-Whitney U test for total_reads\nif len(total_reads_dropped) > 0 and len(total_reads_retained) > 0:\n    U_reads, p_reads = mannwhitneyu(total_reads_dropped, total_reads_retained, alternative='two-sided')\n    # Effect size (rank-biserial correlation)\n    n1 = len(total_reads_dropped)\n    n2 = len(total_reads_retained)\n    effect_reads = 1 - (2 * U_reads) / (n1 * n2)\n    print(f\"  Mann-Whitney U={U_reads:.1f}, p={p_reads:.6f}, effect_size={effect_reads:.3f}\")\n\n# Compare pipeline_n_asvs\nn_asvs_dropped = dropped['pipeline_n_asvs'].dropna()\nn_asvs_retained = retained['pipeline_n_asvs'].dropna()\n\nprint(f\"\\npipeline_n_asvs:\")\nprint(f\"  Dropped: median={n_asvs_dropped.median():.1f}, mean={n_asvs_dropped.mean():.1f}, min={n_asvs_dropped.min():.0f}, max={n_asvs_dropped.max():.0f}\")\nprint(f\"  Retained: median={n_asvs_retained.median():.1f}, mean={n_asvs_retained.mean():.1f}, min={n_asvs_retained.min():.0f}, max={n_asvs_retained.max():.0f}\")\n\n# Mann-Whitney U test for n_asvs\nif len(n_asvs_dropped) > 0 and len(n_asvs_retained) > 0:\n    U_asvs, p_asvs = mannwhitneyu(n_asvs_dropped, n_asvs_retained, alternative='two-sided')\n    n1 = len(n_asvs_dropped)\n    n2 = len(n_asvs_retained)\n    effect_asvs = 1 - (2 * U_asvs) / (n1 * n2)\n    print(f\"  Mann-Whitney U={U_asvs:.1f}, p={p_asvs:.6f}, effect_size={effect_asvs:.3f}\")\n\n# Also check the proportion of zeros in each metric\nprint(f\"\\nProportion of zeros:\")\nprint(f\"  Dropped total_reads: {(total_reads_dropped == 0).mean():.3f}\")\nprint(f\"  Retained total_reads: {(total_reads_retained == 0).mean():.3f}\")\nprint(f\"  Dropped n_asvs: {(n_asvs_dropped == 0).mean():.3f}\")\nprint(f\"  Retained n_asvs: {(n_asvs_retained == 0).mean():.3f}\")\n\nresult = {\n    'n_dropped': len(dropped),\n    'n_retained': len(retained),\n    'dropped_reads_median': total_reads_dropped.median(),\n    'retained_reads_median': total_reads_retained.median(),\n    'dropped_asvs_median': n_asvs_dropped.median(),\n    'retained_asvs_median': n_asvs_retained.median(),\n    'U_reads': U_reads if len(total_reads_dropped) > 0 and len(total_reads_retained) > 0 else None,\n    'p_reads': p_reads if len(total_reads_dropped) > 0 and len(total_reads_retained) > 0 else None,\n    'effect_reads': effect_reads if len(total_reads_dropped) > 0 and len(total_reads_retained) > 0 else None,\n    'U_asvs': U_asvs if len(n_asvs_dropped) > 0 and len(n_asvs_retained) > 0 else None,\n    'p_asvs': p_asvs if len(n_asvs_dropped) > 0 and len(n_asvs_retained) > 0 else None,\n    'effect_asvs': effect_asvs if len(n_asvs_dropped) > 0 and len(n_asvs_retained) > 0 else None,\n}",
+      "result": {
+        "n_dropped": 21,
+        "n_retained": 63,
+        "dropped_reads_median": NaN,
+        "retained_reads_median": 5465.0,
+        "dropped_asvs_median": NaN,
+        "retained_asvs_median": 70.0,
+        "U_reads": null,
+        "p_reads": null,
+        "effect_reads": null,
+        "U_asvs": null,
+        "p_asvs": null,
+        "effect_asvs": null
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c26": {
+      "label": "inspect_dropped_sample_metrics_v4",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import mannwhitneyu\n\nmeta_full = meta.copy()\n\n# Get dropped samples\ndropped = meta_full[~meta_full['pipeline_in_counts']]\nretained = meta_full[meta_full['pipeline_in_counts']]\n\n# The pipeline metrics (pipeline_total_reads, pipeline_n_asvs) are computed from the counts table,\n# so they are NaN for dropped samples. We need to use sra_read_count as a proxy for initial yield.\ndropped_sra = pd.to_numeric(dropped['sra_read_count'], errors='coerce').dropna()\nretained_sra = pd.to_numeric(retained['sra_read_count'], errors='coerce').dropna()\n\n# Mann-Whitney U test\nU_sra, p_sra = mannwhitneyu(dropped_sra, retained_sra, alternative='two-sided')\nn1 = len(dropped_sra)\nn2 = len(retained_sra)\neffect_sra = 1 - (2 * U_sra) / (n1 * n2)\n\n# Also check pipeline_total_reads for retained samples only\nretained_reads = retained['pipeline_total_reads'].dropna()\nretained_asvs = retained['pipeline_n_asvs'].dropna()\n\n# Print summary\nprint(f\"Dropped samples (n={len(dropped)}):\")\nprint(f\"  sra_read_count: median={dropped_sra.median():.1f}, mean={dropped_sra.mean():.1f}, min={dropped_sra.min():.0f}, max={dropped_sra.max():.0f}\")\nprint(f\"Retained samples (n={len(retained)}):\")\nprint(f\"  sra_read_count: median={retained_sra.median():.1f}, mean={retained_sra.mean():.1f}, min={retained_sra.min():.0f}, max={retained_sra.max():.0f}\")\nprint(f\"  pipeline_total_reads: median={retained_reads.median():.1f}, mean={retained_reads.mean():.1f}\")\nprint(f\"  pipeline_n_asvs: median={retained_asvs.median():.1f}, mean={retained_asvs.mean():.1f}\")\nprint(f\"Mann-Whitney U (sra_read_count): U={U_sra:.1f}, p={p_sra:.6f}, effect_size={effect_sra:.3f}\")\n\nresult = {\n    'n_dropped': len(dropped),\n    'n_retained': len(retained),\n    'dropped_sra_median': float(dropped_sra.median()),\n    'dropped_sra_mean': float(dropped_sra.mean()),\n    'dropped_sra_min': float(dropped_sra.min()),\n    'dropped_sra_max': float(dropped_sra.max()),\n    'retained_sra_median': float(retained_sra.median()),\n    'retained_sra_mean': float(retained_sra.mean()),\n    'retained_sra_min': float(retained_sra.min()),\n    'retained_sra_max': float(retained_sra.max()),\n    'retained_reads_median': float(retained_reads.median()),\n    'retained_asvs_median': float(retained_asvs.median()),\n    'U_sra': float(U_sra),\n    'p_sra': float(p_sra),\n    'effect_sra': float(effect_sra),\n}",
+      "result": {
+        "n_dropped": 21,
+        "n_retained": 63,
+        "dropped_sra_median": NaN,
+        "dropped_sra_mean": NaN,
+        "dropped_sra_min": NaN,
+        "dropped_sra_max": NaN,
+        "retained_sra_median": 13496.0,
+        "retained_sra_mean": 14125.0952,
+        "retained_sra_min": 0.0,
+        "retained_sra_max": 39453.0,
+        "retained_reads_median": 5465.0,
+        "retained_asvs_median": 70.0,
+        "U_sra": NaN,
+        "p_sra": NaN,
+        "effect_sra": NaN
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c27": {
+      "label": "check_dropped_meta_columns_v2",
+      "code": "import numpy as np\nimport pandas as pd\n\nmeta_full = meta.copy()\n\n# Get dropped samples\ndropped = meta_full[~meta_full['pipeline_in_counts']]\nretained = meta_full[meta_full['pipeline_in_counts']]\n\n# Check all columns for dropped\ndropped_info = {}\nfor col in dropped.columns:\n    non_null = dropped[col].notna().sum()\n    if non_null > 0:\n        if dropped[col].dtype in ['float64', 'int64', 'float32', 'int32', 'Int64', 'Float64']:\n            vals = dropped[col].dropna()\n            dropped_info[col] = {'n_nonnull': non_null, 'min': float(vals.min()), 'max': float(vals.max()), 'median': float(vals.median())}\n        else:\n            vals = dropped[col].dropna()\n            dropped_info[col] = {'n_nonnull': non_null, 'unique': vals.unique().tolist()[:10]}\n\nresult = {'dropped_info': dropped_info, 'dropped_n': len(dropped), 'retained_n': len(retained)}\n",
+      "result": {
+        "dropped_info": {
+          "sra_sample_accession": {
+            "n_nonnull": 21.0,
+            "unique": [
+              "SAMN60541405",
+              "SAMN60541404",
+              "SAMN60541403",
+              "SAMN60541401",
+              "SAMN60541384",
+              "SAMN60541387",
+              "SAMN60541388",
+              "SAMN60541389",
+              "SAMN60541396",
+              "SAMN60541406"
+            ]
+          },
+          "sra_library_name": {
+            "n_nonnull": 21.0,
+            "unique": [
+              "FF-11",
+              "FF-10",
+              "FF-9",
+              "FF-7",
+              "B2-2",
+              "B2-5",
+              "B2-6",
+              "DI-1",
+              "FF-3",
+              "FF-12"
+            ]
+          },
+          "sra_experiment_title": {
+            "n_nonnull": 21.0,
+            "unique": [
+              "16S amplicon sequencing frost flower",
+              "16S amplicon sequencing brine",
+              "16S amplicon sequencing drained ice",
+              "16S amplicon sequencing sea water"
+            ]
+          },
+          "pipeline_reads_raw": {
+            "n_nonnull": 21.0,
+            "min": 277.0,
+            "max": 27313.0,
+            "median": 8753.0
+          },
+          "pipeline_reads_primer": {
+            "n_nonnull": 21.0,
+            "min": 274.0,
+            "max": 27014.0,
+            "median": 8670.0
+          },
+          "pipeline_reads_filter": {
+            "n_nonnull": 21.0,
+            "min": 0.0,
+            "max": 25056.0,
+            "median": 6476.0
+          },
+          "pipeline_reads_denoise": {
+            "n_nonnull": 21.0,
+            "min": 0.0,
+            "max": 3012.0,
+            "median": 106.0
+          },
+          "pipeline_reads_merge": {
+            "n_nonnull": 21.0,
+            "min": 0.0,
+            "max": 3012.0,
+            "median": 106.0
+          },
+          "pipeline_reads_chimera": {
+            "n_nonnull": 21.0,
+            "min": 0.0,
+            "max": 196.0,
+            "median": 0.0
+          },
+          "pipeline_reads_final": {
+            "n_nonnull": 21.0,
+            "min": 0.0,
+            "max": 0.0,
+            "median": 0.0
+          },
+          "pipeline_in_counts": {
+            "n_nonnull": 21.0,
+            "unique": [
+              false
+            ]
+          },
+          "sra_center_name": {
+            "n_nonnull": 21.0,
+            "unique": [
+              "univ-grenoble-alpes"
+            ]
+          },
+          "sra_submitter_accession": {
+            "n_nonnull": 21.0,
+            "unique": [
+              "SRA2428169"
+            ]
+          },
+          "biosample_collection_date": {
+            "n_nonnull": 21.0,
+            "unique": [
+              "2017-10"
+            ]
+          },
+          "biosample_env_broad_scale": {
+            "n_nonnull": 21.0,
+            "unique": [
+              "Ice chamber"
+            ]
+          },
+          "biosample_env_local_scale": {
+            "n_nonnull": 21.0,
+            "unique": [
+              "frost flowers",
+              "Brine",
+              "ice"
+            ]
+          },
+          "biosample_env_medium": {
+            "n_nonnull": 21.0,
+            "unique": [
+              "SI.FF-2;Frost Flower",
+              "SI.FF-18;Frost Flower",
+              "SI.FF-17;Frost Flower",
+              "SI.FF-15;Frost Flower",
+              "SI.B2-2;Brine",
+              "SI.B2-5;Brine",
+              "SI.B2-6;Brine",
+              "SI.DI-1;Drained Ice",
+              "SI.FF-10;Frost Flower",
+              "SI.FF-3;Frost Flower"
+            ]
+          },
+          "biosample_geo_loc_name": {
+            "n_nonnull": 21.0,
+            "unique": [
+              "United Kingdom:Norwich"
+            ]
+          },
+          "biosample_lat_lon": {
+            "n_nonnull": 21.0,
+            "unique": [
+              "52.55 N 1.25 E"
+            ]
+          },
+          "biosample_title": {
+            "n_nonnull": 21.0,
+            "unique": [
+              "MIMS Environmental/Metagenome sample from ice metagenome",
+              "MIMS Environmental/Metagenome sample from brine metagenome"
+            ]
+          }
+        },
+        "dropped_n": 21,
+        "retained_n": 63
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c28": {
+      "label": "compare_dropped_retained_at_each_stage",
+      "code": "import numpy as np\nimport pandas as pd\nfrom scipy.stats import mannwhitneyu\n\nmeta_full = meta.copy()\n\n# Get dropped and retained samples\ndropped = meta_full[~meta_full['pipeline_in_counts']]\nretained = meta_full[meta_full['pipeline_in_counts']]\n\n# Compare at each pipeline stage where both groups have data\nstages = ['pipeline_reads_raw', 'pipeline_reads_primer', 'pipeline_reads_filter', \n          'pipeline_reads_denoise', 'pipeline_reads_merge', 'pipeline_reads_chimera']\n\nresults = {}\nfor stage in stages:\n    dropped_vals = pd.to_numeric(dropped[stage], errors='coerce').dropna()\n    retained_vals = pd.to_numeric(retained[stage], errors='coerce').dropna()\n    \n    if len(dropped_vals) > 0 and len(retained_vals) > 0:\n        U, p = mannwhitneyu(dropped_vals, retained_vals, alternative='two-sided')\n        n1, n2 = len(dropped_vals), len(retained_vals)\n        effect = 1 - (2 * U) / (n1 * n2)\n        \n        results[stage] = {\n            'dropped_median': float(dropped_vals.median()),\n            'dropped_mean': float(dropped_vals.mean()),\n            'dropped_min': float(dropped_vals.min()),\n            'dropped_max': float(dropped_vals.max()),\n            'retained_median': float(retained_vals.median()),\n            'retained_mean': float(retained_vals.mean()),\n            'retained_min': float(retained_vals.min()),\n            'retained_max': float(retained_vals.max()),\n            'U': float(U),\n            'p': float(p),\n            'effect_size': float(effect),\n        }\n\nresult = results\n",
+      "result": {
+        "pipeline_reads_raw": {
+          "dropped_median": 8753.0,
+          "dropped_mean": 10733.5714,
+          "dropped_min": 277.0,
+          "dropped_max": 27313.0,
+          "retained_median": 18213.0,
+          "retained_mean": 18615.8571,
+          "retained_min": 946.0,
+          "retained_max": 39453.0,
+          "U": 337.0,
+          "p": 0.0008,
+          "effect_size": 0.4906
+        },
+        "pipeline_reads_primer": {
+          "dropped_median": 8670.0,
+          "dropped_mean": 10632.7619,
+          "dropped_min": 274.0,
+          "dropped_max": 27014.0,
+          "retained_median": 18059.0,
+          "retained_mean": 18110.0,
+          "retained_min": 936.0,
+          "retained_max": 38044.0,
+          "U": 343.0,
+          "p": 0.001,
+          "effect_size": 0.4815
+        },
+        "pipeline_reads_filter": {
+          "dropped_median": 6476.0,
+          "dropped_mean": 9103.8095,
+          "dropped_min": 0.0,
+          "dropped_max": 25056.0,
+          "retained_median": 12156.0,
+          "retained_mean": 12044.4762,
+          "retained_min": 781.0,
+          "retained_max": 21641.0,
+          "U": 459.0,
+          "p": 0.0369,
+          "effect_size": 0.3061
+        },
+        "pipeline_reads_denoise": {
+          "dropped_median": 106.0,
+          "dropped_mean": 499.5238,
+          "dropped_min": 0.0,
+          "dropped_max": 3012.0,
+          "retained_median": 5709.0,
+          "retained_mean": 6955.873,
+          "retained_min": 619.0,
+          "retained_max": 20982.0,
+          "U": 22.0,
+          "p": 0.0,
+          "effect_size": 0.9667
+        },
+        "pipeline_reads_merge": {
+          "dropped_median": 106.0,
+          "dropped_mean": 499.5238,
+          "dropped_min": 0.0,
+          "dropped_max": 3012.0,
+          "retained_median": 5709.0,
+          "retained_mean": 6955.873,
+          "retained_min": 619.0,
+          "retained_max": 20982.0,
+          "U": 22.0,
+          "p": 0.0,
+          "effect_size": 0.9667
+        },
+        "pipeline_reads_chimera": {
+          "dropped_median": 0.0,
+          "dropped_mean": 26.3333,
+          "dropped_min": 0.0,
+          "dropped_max": 196.0,
+          "retained_median": 5706.0,
+          "retained_mean": 6954.4286,
+          "retained_min": 619.0,
+          "retained_max": 20982.0,
+          "U": 0.0,
+          "p": 0.0,
+          "effect_size": 1.0
         }
       },
       "by": "qwen/qwen3.6-35b-a3b"

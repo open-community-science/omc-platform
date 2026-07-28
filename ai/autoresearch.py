@@ -1482,8 +1482,27 @@ _ns = dict(np=np, pd=pd, counts=counts, props=props, tax=tax, meta=meta,
            fdr=fdr, clr=clr, rarefy=rarefy, permanova=permanova,
            alpha_diversity=alpha_diversity)
 try:
-    exec(sys.stdin.read(), _ns)
-    print(json.dumps({"__ok__": _j(_ns["result"])} if "result" in _ns
+    import ast as _ast
+    _src = sys.stdin.read()
+    # Notebook semantics: if the code never assigns `result` but ends in a bare
+    # expression, take that as the answer. Forgetting the assignment was the single
+    # most common failure in a run — four times — despite the briefing saying it and
+    # the worked example showing it. Cheaper to accept the obvious intent than to keep
+    # explaining the contract.
+    try:
+        _tree = _ast.parse(_src)
+        _tail = _tree.body[-1] if _tree.body else None
+        if isinstance(_tail, _ast.Expr):
+            exec(compile(_ast.Module(body=_tree.body[:-1], type_ignores=[]),
+                         "<analysis>", "exec"), _ns)
+            _last = eval(compile(_ast.Expression(body=_tail.value), "<analysis>", "eval"),
+                         _ns)
+            _ns.setdefault("result", _last)
+        else:
+            exec(_src, _ns)
+    except SyntaxError:
+        exec(_src, _ns)
+    print(json.dumps({"__ok__": _j(_ns["result"])} if _ns.get("result") is not None
                      else {"__err__": "code did not set a `result` variable"}))
 except Exception as e:
     print(json.dumps({"__err__": f"{type(e).__name__}: {e}"}))

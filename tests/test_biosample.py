@@ -627,6 +627,38 @@ class TestNumericCoercion:
                           for v in r.values())
 
 
+class TestTrailingExpression:
+    """Forgetting `result =` was the most common single failure in a run — four times —
+    despite the briefing saying it and the worked example showing it. Accepting the
+    obvious intent is cheaper than explaining the contract again."""
+
+    def _run(self, code):
+        import asyncio
+        from ai.autoresearch import SubprocessExecutor
+        return asyncio.run(SubprocessExecutor("/data/dev/testdata/1543a4c1").run(code))
+
+    def test_a_trailing_expression_becomes_the_result(self):
+        ok, r = self._run("n = int(counts.shape[0])\n{'n': n}")
+        assert ok and r == {"n": 63}
+
+    def test_an_explicit_result_still_wins(self):
+        ok, r = self._run("result = {'a': 1}\n{'b': 2}")
+        assert ok and r == {"a": 1}
+
+    def test_code_that_produces_nothing_is_still_an_error(self):
+        """Silence must not be dressed up as an answer."""
+        ok, r = self._run("x = 1")
+        assert not ok and "did not set a `result`" in str(r)
+
+    def test_a_real_error_is_unaffected(self):
+        ok, r = self._run("result = 1/0")
+        assert not ok and "ZeroDivisionError" in str(r)
+
+    def test_a_syntax_error_still_reports_as_one(self):
+        ok, r = self._run("result = (1 +")
+        assert not ok and "SyntaxError" in str(r)
+
+
 class TestSourcePrefixes:
     """Three sources reach `meta` and they are not interchangeable. Nothing in a value
     says which one produced it, so the column name has to."""
