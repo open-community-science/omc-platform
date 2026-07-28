@@ -1724,9 +1724,23 @@ class Autoresearcher:
                      "investigation": self._current_investigation(),
                      "by": self.explore_model}  # model that recorded this claim
             self.ledger.append(claim)
+            if not claim["parameters"]:
+                # An analyst correlated diversity against an "environmental harshness"
+                # ranking it invented, recorded the ranking nowhere, and no replicator
+                # could reproduce the number: four plausible orderings give r between
+                # -0.22 and +0.20 against a claimed -0.39. The prompt asks for knobs by
+                # name; saying it again where the claim lands costs nothing.
+                claim["_no_parameters"] = True
             if self._verify_queue is not None:
                 self._verify_queue.put_nowait(claim["id"])   # judged while we carry on
-            return {"recorded": True, "claim_id": claim["id"], "n_claims": len(self.ledger)}
+            out = {"recorded": True, "claim_id": claim["id"], "n_claims": len(self.ledger)}
+            if claim.pop("_no_parameters", False):
+                out["note"] = ("`parameters` is empty. If this analysis used a threshold, "
+                               "a cutoff, a grouping or an ordering that YOU chose rather "
+                               "than read from the data, add it — an independent analyst "
+                               "cannot reproduce what it cannot see. If you had to assume "
+                               "something you could not confirm, record_assumption too.")
+            return out
         if name == "request_package":
             pkg = (args.get("package") or "").strip()
             if not pkg:
@@ -2079,14 +2093,16 @@ class Autoresearcher:
                 used += grew
                 if not self.agenda:
                     return False
+                # Sweep at the END OF EVERY EPOCH, before any exit. Under claim-sized
+                # contexts nothing else ever asks what was assumed: a tip dies the
+                # moment it banks a claim, and no run has yet reached a final sweep.
+                # Zero assumptions were recorded across an entire evening of runs.
+                if used < budget:
+                    used += await self._sweep_assumptions(
+                        max_steps=min(tip_steps, budget - used))
                 if not any(a["status"] == "pending" for a in self.agenda) and \
                         epoch + 1 >= epochs:
                     break
-            if used < budget:
-                # Sized like a tip, not like germination: the sweep records one
-                # assumption per step more often than not, and reads the whole ledger.
-                used += await self._sweep_assumptions(
-                    max_steps=min(tip_steps, budget - used))
         finally:
             self._verify_queue = None
             if judge is not None:

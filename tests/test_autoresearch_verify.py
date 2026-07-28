@@ -1526,6 +1526,67 @@ class TestBankBeforeTheCap:
                     if "no claim recorded" in (m.get("content") or "")]
 
 
+class TestAssumptionsAndParameters:
+    """Zero assumptions were recorded across an entire evening of runs. The linear
+    driver forced a sweep before it could finish; claim-sized contexts die at the claim
+    boundary, so nothing ever asked — a regression the hyphal redesign introduced."""
+
+    def test_every_epoch_ends_with_an_assumptions_sweep(self):
+        second = [("propose_agenda", {"items": [{"question": "Q3"}]})]
+        c = _ScriptedClient(germinate=[_AGENDA2, second],
+                            tip=[[_claim_call("x", "1")], [("mark_done", {})]] * 4,
+                            sweep=[[("record_assumption", {"statement": "counts are raw"})],
+                                   [("record_assumption", {"statement": "groups inferred"})]])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=4, epochs=2))
+        assert sum(1 for phase, _, _ in c.calls if phase == "sweep") >= 2
+        assert len(ar.assumptions) == 2
+
+    def test_a_single_epoch_still_sweeps(self):
+        c = _ScriptedClient(germinate=[_AGENDA2],
+                            tip=[[_claim_call("x", "1")], [("mark_done", {})],
+                                 [("mark_done", {})]],
+                            sweep=[[("record_assumption", {"statement": "raw counts"})]])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=3))
+        assert [a["statement"] for a in ar.assumptions] == ["raw counts"]
+
+    def test_a_run_with_no_claims_has_nothing_to_sweep(self):
+        """Asking what a run assumed when it found nothing is a wasted model call."""
+        c = _ScriptedClient(germinate=[_AGENDA2], tip=[[("mark_done", {})]] * 4,
+                            sweep=[[("record_assumption", {"statement": "unused"})]])
+        ar = _hyphal(c)
+        asyncio.run(ar.explore_hyphal(tip_steps=3))
+        assert ar.assumptions == []
+
+    def test_a_claim_with_no_parameters_is_told_so(self):
+        """An analyst correlated diversity against an 'environmental harshness' ranking
+        it invented and recorded nowhere. Four plausible orderings give r between -0.22
+        and +0.20 against a claimed -0.39, so no replicator could reproduce it."""
+        ar = _hyphal(_ScriptedClient())
+        r = asyncio.run(ar._exec_tool("record_claim", {
+            "statement": "richness falls with harshness", "kind": "pattern",
+            "assertions": [{"label": "rho", "value": "-0.39"}]}))
+        assert r["recorded"] is True
+        assert "`parameters` is empty" in r["note"]
+        assert "record_assumption" in r["note"]
+
+    def test_a_claim_that_declares_its_knobs_is_left_alone(self):
+        ar = _hyphal(_ScriptedClient())
+        r = asyncio.run(ar._exec_tool("record_claim", {
+            "statement": "richness falls with harshness", "kind": "pattern",
+            "parameters": {"harshness_rank": "seawater<ice<frost<brine<air"},
+            "assertions": [{"label": "rho", "value": "-0.39"}]}))
+        assert "note" not in r
+
+    def test_the_note_does_not_leak_into_the_stored_claim(self):
+        ar = _hyphal(_ScriptedClient())
+        asyncio.run(ar._exec_tool("record_claim", {
+            "statement": "s", "kind": "pattern",
+            "assertions": [{"label": "rho", "value": "-0.39"}]}))
+        assert "_no_parameters" not in ar.ledger[0]
+
+
 class TestDuplicateClaims:
     """A successor context re-derived its predecessor's claim and recorded it word for
     word. Claim-sized contexts make this the DEFAULT failure rather than an oddity:
