@@ -406,10 +406,14 @@ class TestSandboxHints:
         d = "/data/dev/testdata/1543a4c1"
         ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
                             LLMClient(None, "x"), SubprocessExecutor(d))
-        ar.grantable_packages = tuple(sorted(ALLOWED))
-        r = asyncio.run(ar._exec_tool("run_analysis",
-                                      {"label": "t", "code": "import skbio\nresult = 1"}))
-        assert "request_package" in r["hint"] and 'package="skbio"' in r["hint"]
+        # NOT a real allowlist entry: the bench installs into this same interpreter,
+        # so a test that assumes skbio is absent passes until a run grants it and then
+        # fails for a reason that has nothing to do with the code under test.
+        ar.grantable_packages = ("definitely_not_installed_pkg",) + tuple(sorted(ALLOWED))
+        r = asyncio.run(ar._exec_tool("run_analysis", {
+            "label": "t", "code": "import definitely_not_installed_pkg\nresult = 1"}))
+        assert "request_package" in r["hint"]
+        assert 'package="definitely_not_installed_pkg"' in r["hint"]
 
     def test_a_missing_ungrantable_module_says_so_and_lists_what_is(self):
         import asyncio
