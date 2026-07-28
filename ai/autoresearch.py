@@ -519,6 +519,9 @@ def format_briefing(b: dict) -> str:
         if blank := b.get("blank_for_dropped"):
             lines.append(f"    These meta columns have no value for any dropped sample, "
                          f"because they come from the analysed table: {', '.join(blank)}.")
+    if g := b.get("grantable"):
+        lines.append("  request_package will install any of these into the sandbox for "
+                     f"you: {', '.join(g)}. Nothing else is available.")
     if av := b.get("available"):
         # Named because it was being discovered by failing into it — a tip lost a step
         # to `import skbio` and had no way to know what was in scope.
@@ -1483,6 +1486,11 @@ class Autoresearcher:
         self._verify_queue: Optional[asyncio.Queue] = None
 
     # -- data briefing ----------------------------------------------------------
+    # Packages the sandbox would install on request, if anything is wired to grant
+    # them. Named in the briefing because the allowlist is otherwise invisible: an
+    # analyst hand-rolled PERMANOVA twice, wrongly, with skbio one tool call away.
+    grantable_packages: tuple[str, ...] = ()
+
     async def data_briefing(self) -> str:
         """Real shapes/orientation of the analysis frames, probed once per run.
 
@@ -1500,6 +1508,8 @@ class Autoresearcher:
                         res = {**res, "provenance": self.data.datasets().get("provenance")}
                     except Exception:
                         pass
+                    if self.grantable_packages:
+                        res = {**res, "grantable": list(self.grantable_packages)}
                     self._briefing = format_briefing(res)
                 else:
                     self._briefing = ""

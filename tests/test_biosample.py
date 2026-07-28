@@ -242,6 +242,19 @@ class TestRawAndRelative:
                                                "n_samples_analysed": 63}})
         assert "no value for any dropped" not in text
 
+    def test_the_grantable_packages_are_named(self):
+        """The allowlist was invisible from inside the sandbox, so hand-rolling looked
+        like the only option — an analyst wrote PERMANOVA by hand twice, wrongly, with
+        skbio one tool call away."""
+        text = format_briefing({"grantable": ["skbio", "statsmodels"]})
+        assert "request_package will install" in text
+        assert "skbio" in text and "Nothing else is available" in text
+
+    def test_nothing_is_promised_when_nothing_can_be_granted(self):
+        """A sandbox with no installer must not advertise one."""
+        assert "request_package will install" not in format_briefing(
+            {"available": ["counts", "np"]})
+
     def test_a_dataset_without_counts_says_nothing_about_props(self):
         assert "props" not in format_briefing({"tax": {"shape": [7, 6], "columns": ["a"]}})
 

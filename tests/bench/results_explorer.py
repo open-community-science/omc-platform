@@ -310,6 +310,7 @@ def _make_researcher(llm: LLMClient) -> Autoresearcher:
                         # would wire something else here, or nothing.
                         package_installer=install_package)
     ar.on_progress = _progress_for(ar)      # needs the researcher it reports on
+    ar.grantable_packages = tuple(sorted(GRANTABLE_PACKAGES))
     return ar
 
 
