@@ -671,6 +671,21 @@ class TestSandboxHints:
             assert "permanova(data, groups" in r.get("hint", ""), err
             assert "'F', 'R2' and 'p'" in r["hint"]
 
+    def test_rarefy_returning_two_things_is_explained_at_the_point_of_error(self):
+        """rarefy returns (frame, dropped_ids) deliberately — dropping the samples too
+        shallow to rarefy in silence is what this subsystem exists to prevent. The
+        analyst passed the whole tuple into permanova."""
+        r = self._run("g = meta.loc[counts.index, 'biosample_env_local_scale']\n"
+                      "result = permanova(rarefy(counts, 1000), g)")
+        assert not r["ok"]
+        assert "returns TWO things" in r["hint"] and "rare, dropped =" in r["hint"]
+
+    def test_the_rarefy_hint_needs_rarefy_in_the_code(self):
+        """The same ValueError arises from unrelated ragged input; the hint must not
+        volunteer rarefy advice then."""
+        r = self._run("import numpy as np\nresult = np.array([[1, 2], [3]], dtype=float)")
+        assert "returns TWO things" not in (r.get("hint") or "")
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")

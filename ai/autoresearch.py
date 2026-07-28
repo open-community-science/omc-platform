@@ -1934,6 +1934,17 @@ class Autoresearcher:
                             "turns it into the square distance matrix.")
                 elif "did not set a `result`" in err:
                     hint = "Assign what you want returned to `result`."
+                elif ("rarefy(" in (args.get("code") or "")
+                      and ("'tuple' object has no attribute" in err
+                           or "setting an array element with a sequence" in err)):
+                    # rarefy returns (df, dropped_ids) on purpose — quietly dropping the
+                    # samples too shallow to rarefy is the kind of silence this whole
+                    # subsystem exists to prevent. But the analyst passed the tuple
+                    # straight into permanova. Keep the honest contract, say what it is.
+                    hint = ("`rarefy` returns TWO things: the rarefied frame and the "
+                            "ids it had to drop for being below the depth. Unpack it — "
+                            "`rare, dropped = rarefy(counts, depth)` — and report what "
+                            "was dropped alongside the result.")
                 elif ("Input must be a DistanceMatrix" in err
                       or "IDs in the distance matrix are not in the data frame" in err
                       or ("KeyError" in err and re.search(r"KeyError: '(F|R2|p)'", err))):
