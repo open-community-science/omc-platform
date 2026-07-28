@@ -686,6 +686,21 @@ class TestSandboxHints:
         r = self._run("import numpy as np\nresult = np.array([[1, 2], [3]], dtype=float)")
         assert "returns TWO things" not in (r.get("hint") or "")
 
+    def test_importing_a_bound_helper_names_that_helper(self):
+        """The hint spelled out fdr, clr and rarefy and went stale the moment permanova,
+        alpha_diversity and by_rank were added: an analyst importing `permanova` was told
+        about the other three."""
+        for name in ("permanova", "alpha_diversity", "by_rank", "fdr"):
+            r = self._run(f"from scipy.stats import {name}\nresult = 1")
+            assert not r["ok"]
+            assert f"`{name}` is already bound" in r["hint"], name
+            assert "permanova" in r["hint"] and "by_rank" in r["hint"]
+
+    def test_importing_something_genuinely_absent_still_lists_what_exists(self):
+        r = self._run("from scipy.stats import wibble\nresult = 1")
+        assert "is already bound here" not in r["hint"]
+        assert "permanova" in r["hint"]
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")

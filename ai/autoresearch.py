@@ -1901,12 +1901,18 @@ class Autoresearcher:
                     # `fdr`/`clr`/`rarefy` are ours and exist nowhere else; but
                     # `braycurtis`, `entropy` and `PCA` are real library functions,
                     # already bound, and simply not in the module being guessed at.
-                    hint = ("Everything the briefing lists is already bound and none of "
-                            "it needs importing — that includes the scipy and sklearn "
-                            "functions (braycurtis, entropy, pdist, squareform, PCA, "
-                            "the tests) as well as `fdr`, `clr` and `rarefy`, which are "
-                            "defined here and exist in no library at all. Use the name "
-                            "directly.")
+                    # The list used to be spelled out here and went stale the moment
+                    # permanova, alpha_diversity and by_rank were added — an analyst
+                    # importing `permanova` was told about fdr, clr and rarefy instead.
+                    want = (re.search(r"cannot import name '([^']+)'", err)
+                            or [None, ""])[1]
+                    lead = (f"`{want}` is already bound here — do not import it. "
+                            if want in _SANDBOX_NAMES else "")
+                    hint = (lead + "Everything the briefing lists is already bound and "
+                            "none of it needs importing: "
+                            + ", ".join(sorted(_SANDBOX_NAMES))
+                            + ". Several of those are defined in this sandbox and exist "
+                              "in no library at all. Use the name directly.")
                 elif "numpy.ndarray' object has no attribute" in err:
                     hint = ("That is a numpy array, not a pandas object — `.values` and "
                             "`.to_numpy()` drop you out of pandas. `counts`, `props`, "
