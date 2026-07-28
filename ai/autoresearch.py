@@ -2776,7 +2776,13 @@ class Autoresearcher:
                          "result lines now — one per assertion, nothing before or after:\n"
                          "ASSERTION <label>: SUPPORTED|CONTRADICTED|NOT_ADDRESSED|AGREES|"
                          "DIFFERS — <evidence value, or why>"}],
-                model=model, max_tokens=min(1200, self.max_tokens), temperature=0.0)
+                # At LEAST as much room as the call that ran out of it. This was capped
+                # at 1200 while the original got the full budget, so a judge that
+                # overran was handed a fifth of what had already proved too little —
+                # and the verify model here writes its reasoning into `content`, so it
+                # spent the whole retry thinking and never reached an ASSERTION line
+                # either. The retry is rare; it does not need to be the cheap one.
+                model=model, max_tokens=self.max_tokens, temperature=0.0)
             retry_text = _strip_think(retry.choices[0].message.content or "")
             if "ASSERTION" in retry_text.upper():
                 text, cut = retry_text, False

@@ -37,6 +37,22 @@ def _step(n: int, n_tools: int = 2, size: int = 4000) -> list[dict]:
                for k in range(n_tools)])
 
 
+class TestJudgeRetryBudget:
+    """The judge retry fires because the first call ran out of room, and was then given
+    a fifth of that room. Measured against the live verify model: 1024 tokens of
+    reasoning does not reach a verdict on the simplest possible question, so the 1200
+    cap could not succeed."""
+
+    def test_the_retry_gets_at_least_the_original_budget(self):
+        import inspect
+        from ai.autoresearch import Autoresearcher
+        src = inspect.getsource(Autoresearcher._judge)
+        assert "min(1200, self.max_tokens)" not in src, \
+            "the retry must not be given less room than the call that overran"
+        # Both the first call and the retry ask for the full budget.
+        assert src.count("max_tokens=self.max_tokens") >= 2
+
+
 class TestSweepSeesTheParameters:
     """Shown only the claim statements, the sweep guessed at the knobs and said so:
     "999 or 9999 permutations", "pseudocount (e.g., +1)". The pseudocount guess was
