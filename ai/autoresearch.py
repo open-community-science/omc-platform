@@ -1831,8 +1831,27 @@ class Autoresearcher:
                             "and `meta` are already bound as pandas DataFrames — use "
                             "them directly instead of opening a file.")
                 elif "is not defined" in err:
-                    hint = ("Only the names listed in the briefing exist in this "
-                            "sandbox; nothing else can be imported or loaded.")
+                    # Telling it to consult the briefing sent it back to a document it
+                    # had already drifted from — it invented `get_dataset`, `sub_counts`,
+                    # `load_data`. The list is short, exact and tested; hand it over at
+                    # the point of error instead of describing where to look for it.
+                    miss = (re.search(r"name '([^']+)' is not defined", err)
+                            or [None, ""])[1]
+                    if miss == "result":
+                        hint = ("`result` is not something you read — it is the name you "
+                                "assign to. End the code with `result = <the value>`, or "
+                                "just leave the value as the last line.")
+                    elif miss in (self.grantable_packages or ()):
+                        # It is a package, not a typo, and it is one we will install.
+                        # "Nothing else can be loaded" would be false for exactly the
+                        # names request_package exists to provide.
+                        hint = (f"`{miss}` is not bound, but it can be installed — call "
+                                f"request_package('{miss}'), then import it.")
+                    else:
+                        hint = (f"`{miss}` does not exist here. Everything available is: "
+                                + ", ".join(sorted(_SANDBOX_NAMES))
+                                + ". Other packages must be requested with "
+                                "request_package before they can be imported.")
                 elif "No module named" in err:
                     # The one failure that should point straight at request_package,
                     # and it fired no hint at all: ModuleNotFoundError contains neither

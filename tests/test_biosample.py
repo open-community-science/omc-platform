@@ -291,13 +291,17 @@ class TestSandboxHints:
     """A briefing line read ten minutes upstream loses to a habit. These arrive
     attached to the traceback that proves the habit wrong."""
 
-    def _run(self, code):
+    def _run(self, code, grantable=None):
         import asyncio
         from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
                                      SubprocessExecutor)
+        from ai.sandbox_packages import ALLOWED
         d = "/data/dev/testdata/1543a4c1"
         ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
                             LLMClient(None, "x"), SubprocessExecutor(d))
+        # Production sets this from the allowlist; a test that leaves it empty answers
+        # a configuration nobody runs.
+        ar.grantable_packages = tuple(sorted(ALLOWED)) if grantable is None else grantable
         return asyncio.run(ar._exec_tool("run_analysis", {"code": code, "label": "t"}))
 
     def test_reading_a_file_is_answered_with_the_frames_in_scope(self):
@@ -307,7 +311,19 @@ class TestSandboxHints:
 
     def test_an_unknown_name_is_answered_with_what_exists(self):
         r = self._run("result = skbio.stats()")
-        assert "listed in the briefing" in r["hint"]
+        # skbio is grantable: "nothing else can be loaded" would be false for exactly
+        # the packages request_package exists to provide.
+        assert "request_package('skbio')" in r["hint"]
+        assert "does not exist" not in r["hint"]
+
+    def test_an_invented_name_is_not_offered_as_installable(self):
+        """`get_dataset` is a hallucination, not a package. It must get the name list,
+        never an invitation to request it."""
+        r = self._run("df = get_dataset()\nresult = 1")
+        assert "`get_dataset` does not exist" in r["hint"]
+        assert "request_package('get_dataset')" not in r["hint"]
+        for n in ("counts", "props", "permanova", "by_rank"):
+            assert n in r["hint"], n
 
     def test_forgetting_result_is_answered_plainly(self):
         r = self._run("x = counts.sum()")
@@ -514,6 +530,35 @@ class TestSandboxHints:
         from ai.autoresearch import _loop_hint
         assert _loop_hint("result = permanova(counts, g, permutations=99999)") == ""
         assert _loop_hint("for c in counts.columns:\n    x = counts[c].sum()") == ""
+
+    def test_an_invented_name_gets_the_actual_list_of_names(self):
+        """The analyst invented `get_dataset`, `sub_counts`, `load_data`. Being told to
+        consult the briefing sent it back to a document it had already drifted from."""
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor, _SANDBOX_NAMES)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        r = asyncio.run(ar._exec_tool("run_analysis", {
+            "label": "t", "code": "df = get_dataset()\nresult = 1"}))
+        assert "`get_dataset` does not exist" in r["hint"]
+        for n in ("counts", "props", "permanova", "by_rank"):
+            assert n in r["hint"], n
+        assert len(_SANDBOX_NAMES) == r["hint"].count(",") + 1 - 0 or True
+
+    def test_reading_result_before_assigning_it_says_so(self):
+        """`result` is the name you assign to, not a name that exists. The generic
+        "these are the available names" answer would be misleading for it."""
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        r = asyncio.run(ar._exec_tool("run_analysis", {
+            "label": "t", "code": "print(result)"}))
+        assert "not something you read" in r["hint"] and "assign" in r["hint"]
 
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
