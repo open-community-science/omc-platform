@@ -1583,28 +1583,43 @@ _ns = dict(np=np, pd=pd, counts=counts, props=props, tax=tax, meta=meta,
            fdr=fdr, clr=clr, rarefy=rarefy, permanova=permanova,
            alpha_diversity=alpha_diversity, by_rank=by_rank)
 try:
-    import ast as _ast
+    import ast as _ast, io as _io, contextlib as _ctx
     _src = sys.stdin.read()
+    # Anything the code printed, in case it never assigns `result`. An inspection step
+    # naturally writes print(...) — and print IS a bare trailing expression whose value
+    # is None, so notebook semantics below could not rescue it either. Eight times in
+    # one run, always on a step labelled inspect_/explore_/debug_/check_, the analyst
+    # printed exactly what it wanted and got told it had returned nothing.
+    _cap = _io.StringIO()
     # Notebook semantics: if the code never assigns `result` but ends in a bare
     # expression, take that as the answer. Forgetting the assignment was the single
     # most common failure in a run — four times — despite the briefing saying it and
     # the worked example showing it. Cheaper to accept the obvious intent than to keep
     # explaining the contract.
-    try:
-        _tree = _ast.parse(_src)
-        _tail = _tree.body[-1] if _tree.body else None
-        if isinstance(_tail, _ast.Expr):
-            exec(compile(_ast.Module(body=_tree.body[:-1], type_ignores=[]),
-                         "<analysis>", "exec"), _ns)
-            _last = eval(compile(_ast.Expression(body=_tail.value), "<analysis>", "eval"),
-                         _ns)
-            _ns.setdefault("result", _last)
-        else:
+    with _ctx.redirect_stdout(_cap):
+        try:
+            _tree = _ast.parse(_src)
+            _tail = _tree.body[-1] if _tree.body else None
+            if isinstance(_tail, _ast.Expr):
+                exec(compile(_ast.Module(body=_tree.body[:-1], type_ignores=[]),
+                             "<analysis>", "exec"), _ns)
+                _last = eval(compile(_ast.Expression(body=_tail.value), "<analysis>", "eval"),
+                             _ns)
+                if _last is not None:
+                    _ns.setdefault("result", _last)
+            else:
+                exec(_src, _ns)
+        except SyntaxError:
             exec(_src, _ns)
-    except SyntaxError:
-        exec(_src, _ns)
-    print(json.dumps({"__ok__": _j(_ns["result"])} if _ns.get("result") is not None
-                     else {"__err__": "code did not set a `result` variable"}))
+    _printed = _cap.getvalue().strip()
+    if _ns.get("result") is not None:
+        print(json.dumps({"__ok__": _j(_ns["result"])}))
+    elif _printed:
+        # It printed what it wanted; that is the answer, not a failure. Capped, because
+        # printing a whole frame should not become the record.
+        print(json.dumps({"__ok__": _j({"printed": _printed[:4000]})}))
+    else:
+        print(json.dumps({"__err__": "code did not set a `result` variable"}))
 except Exception as e:
     print(json.dumps({"__err__": f"{type(e).__name__}: {e}"}))
 '''

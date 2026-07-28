@@ -721,6 +721,31 @@ class TestSandboxHints:
                       "result = permanova(counts, g, permutations=99, seed=0)")
         assert r["ok"] and r["result"]["F"] == 3.447 and r["result"]["R2"] == 0.1921
 
+    def test_printed_output_counts_as_the_result(self):
+        """An inspection step naturally writes print(...) — and print IS a bare trailing
+        expression whose value is None, so notebook semantics could not rescue it. Eight
+        times in one run, on steps labelled inspect_/explore_/debug_/check_, the analyst
+        printed exactly what it wanted and was told it had returned nothing."""
+        r = self._run("print('shape:', counts.shape)")
+        assert r["ok"] and "63" in str(r["result"]["printed"])
+
+    def test_an_explicit_result_beats_whatever_was_printed(self):
+        r = self._run("print('noise')\nresult = 42")
+        assert r["ok"] and r["result"] == 42
+
+    def test_silence_is_still_a_failure(self):
+        """Capturing stdout must not turn a computation that did nothing into a pass."""
+        r = self._run("x = 1")
+        assert not r["ok"] and "did not set a `result`" in r["error"]
+
+    def test_an_exception_after_printing_still_fails(self):
+        r = self._run("print('a')\nraise ValueError('boom')")
+        assert not r["ok"] and "boom" in r["error"]
+
+    def test_a_bare_trailing_expression_still_works(self):
+        r = self._run("counts.shape")
+        assert r["ok"] and r["result"] == [63, 735]
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")
