@@ -1497,6 +1497,23 @@ def permanova(data, groups, permutations=999, seed=0):
     if a < 2 or N <= a:
         raise ValueError(f"need at least 2 groups and more samples than groups; "
                          f"got {a} groups over {N} samples")
+    # Degenerate input must refuse, not answer. Asked for the ASVs shared between two
+    # submissions, an analyst got an empty table — and this returned F=NaN, R2=NaN and
+    # p=0.01, because every NaN comparison is False, so no permutation ever beat the
+    # observed statistic and p collapsed to 1/(permutations+1). A helper that
+    # manufactures a significant p-value out of nothing is worse than no helper.
+    if X.ndim == 2 and X.shape[1] == 0:
+        raise ValueError("the table has no columns — the feature set you selected is "
+                         "empty, so there is nothing to test. Check the size of that "
+                         "selection before testing it")
+    if not np.isfinite(D).all():
+        raise ValueError("the distance matrix contains non-finite values, which happens "
+                         "when a sample has no reads at all across the features you "
+                         "selected — drop those samples, or widen the selection")
+    if np.allclose(D, 0):
+        raise ValueError(f"every pairwise distance is zero over {N} samples: the table "
+                         "has no columns, or no variation between samples. There is "
+                         "nothing here to partition")
 
     def _F(labels):
         sst = d2.sum() / (2 * N)

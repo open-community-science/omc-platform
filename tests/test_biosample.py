@@ -701,6 +701,26 @@ class TestSandboxHints:
         assert "is already bound here" not in r["hint"]
         assert "permanova" in r["hint"]
 
+    def test_permanova_refuses_an_empty_feature_set(self):
+        """Asked for the ASVs shared between two submissions, an analyst got an empty
+        table and permanova answered F=NaN, R2=NaN, p=0.01 — every NaN comparison is
+        False, so no permutation beat the observed statistic and p collapsed to
+        1/(perms+1). A significant p-value manufactured from nothing."""
+        r = self._run("g = meta.loc[counts.index, 'biosample_env_local_scale']\n"
+                      "result = permanova(counts.iloc[:, :0], g, permutations=99)")
+        assert not r["ok"] and "no columns" in r["error"]
+
+    def test_permanova_refuses_a_table_with_no_signal(self):
+        r = self._run("g = meta.loc[counts.index, 'biosample_env_local_scale']\n"
+                      "result = permanova(counts * 0, g, permutations=99)")
+        assert not r["ok"]
+        assert "no reads" in r["error"] or "every pairwise distance is zero" in r["error"]
+
+    def test_permanova_still_answers_a_real_question(self):
+        r = self._run("g = meta.loc[counts.index, 'biosample_env_local_scale']\n"
+                      "result = permanova(counts, g, permutations=99, seed=0)")
+        assert r["ok"] and r["result"]["F"] == 3.447 and r["result"]["R2"] == 0.1921
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")
