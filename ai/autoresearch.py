@@ -642,6 +642,21 @@ def _assertions_from_text(text: str) -> list[dict]:
     return out
 
 
+_LABEL_SYNONYMS = {"fstatistic": "f", "pseudof": "f", "rsquared": "r2", "r2value": "r2",
+                   "pvalue": "p", "pval": "p", "padj": "padj", "padjusted": "padj",
+                   "kwstatistic": "kw", "kwh": "kw", "hstatistic": "kw"}
+
+
+def _label_key(label: str) -> str:
+    """A label reduced to what it MEANS, for comparing two claims.
+
+    `F`/`F_statistic` and `R2`/`R_squared` are the same quantity, and a successor that
+    renamed them slipped both the duplicate and the contradiction guard: no shared
+    label meant nothing to compare, and a different assertion set meant no repeat."""
+    key = re.sub(r"[^a-z0-9]", "", str(label or "").lower())
+    return _LABEL_SYNONYMS.get(key, key)
+
+
 def _match_label(raw_label: str, known: list[str]):
     """Map a judge's label onto one of ours. Judges echo what they are grading —
     "n_core = 14", "bacteria_F (bacteria batch)" — so exact matching loses grades that
@@ -1745,9 +1760,10 @@ class Autoresearcher:
             # was not enough. Claim-sized contexts (#61) make this the default failure
             # rather than an oddity: each one starts fresh, works the same question,
             # and reaches the same answer. Instruction loses; identity is checkable.
-            _sig = sorted((a.get("label", ""), str(a.get("value", ""))) for a in assertions)
+            _sig = sorted((_label_key(a.get("label")), str(a.get("value", "")))
+                          for a in assertions)
             for prior in self.ledger:
-                if _sig and sorted((a.get("label", ""), str(a.get("value", "")))
+                if _sig and sorted((_label_key(a.get("label")), str(a.get("value", "")))
                                    for a in (prior.get("assertions") or [])) == _sig:
                     self.refused_claims += 1
                     return {"recorded": False, "error":
@@ -1761,12 +1777,12 @@ class Autoresearcher:
             # that asserts two values for one quantity is incoherent whatever the
             # verifier later says about each in isolation.
             _here = self._current_investigation()
-            _mine = {a.get("label"): str(a.get("value", "")) for a in assertions}
+            _mine = {_label_key(a.get("label")): str(a.get("value", "")) for a in assertions}
             for prior in self.ledger:
                 if prior.get("investigation") != _here:
                     continue
                 for pa in (prior.get("assertions") or []):
-                    lbl, was = pa.get("label"), str(pa.get("value", ""))
+                    lbl, was = _label_key(pa.get("label")), str(pa.get("value", ""))
                     if lbl not in _mine or _mine[lbl] == was:
                         continue
                     _a, _b = _first_number(was), _first_number(_mine[lbl])

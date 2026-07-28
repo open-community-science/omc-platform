@@ -1,60 +1,837 @@
 {
-  "claims": [],
-  "computations": {},
+  "claims": [
+    {
+      "id": "k1",
+      "statement": "Environmental type (frost flower, brine, ice, seawater, chamber air) significantly explains variation in overall microbial community composition: PERMANOVA on Bray-Curtis distances yields F=3.447, R\u00b2=0.192, p=0.001 (999 permutations), indicating environment accounts for ~19% of community variance.",
+      "value": "F=3.447, R2=0.1921, p=0.001",
+      "assertions": [
+        {
+          "label": "F",
+          "value": "3.447",
+          "of": "PERMANOVA, 5 environmental groups"
+        },
+        {
+          "label": "R2",
+          "value": "0.1921",
+          "of": "PERMANOVA, 5 environmental groups"
+        },
+        {
+          "label": "p",
+          "value": "0.001",
+          "of": "PERMANOVA, 5 environmental groups, 999 permutations"
+        }
+      ],
+      "parameters": {},
+      "antecedents": [
+        "c1"
+      ],
+      "kind": "pattern",
+      "investigation": "a1",
+      "by": "qwen/qwen3.6-35b-a3b",
+      "checked": [
+        "c1:run"
+      ],
+      "judgment": {
+        "per": {},
+        "notes": {},
+        "by": "glm-4.7-flash",
+        "raw": "1.  **Analyze the Request:**\n    *   Role: Strict verification auditor.\n    *   Input:\n        *   CLAIM (broken into ASSERTIONS).\n        *   PARAMETERS (context, do not grade numbers like counts/thresholds unless they are specific values being claimed - here parameters describe how it was done). Wait, looking at instructions again. \"PARAMETERS... Permutation counts...\" -> Do NOT Grade.\n    *   Task: Read the LABELS in evidence and match them to ASSERTIONS based on labels (e.g., `F` matches assertion about F).\n        *   SUPPORTED = Evidence gives this value/derivation allowed by rounding/fr",
+        "truncated": true,
+        "graded_nothing": true,
+        "unmatched": []
+      },
+      "assertion_verdicts": {},
+      "method": "judge-failed"
+    },
+    {
+      "id": "k2",
+      "statement": "PERMDISP reveals significant heterogeneity of dispersions across environment groups (Kruskal-Wallis statistic=34.937, p=0.0), indicating the significant PERMANOVA signal may be confounded by dispersion differences rather than location shifts. Frost flowers show significantly lower dispersion (mean=1269.73) than ice (4382.99, p_adj=0.0), seawater (4415.69, p_adj=0.002), and Brine (2858.96, p_adj=0.002). Among pairwise PERMANOVA tests surviving FDR correction (\u03b1=0.05), frost flowers differ significantly from ice (F=4.8355, R\u00b2=0.1129, p_adj=0.02), seawater (F=4.3245, R\u00b2=0.1426, p_adj=0.02), and Brine (F=7.7712, R\u00b2=0.1662, p_adj=0.01).",
+      "value": "kw_statistic=34.937, kw_p=0.0, F_frost_ice=4.8355, R2_frost_ice=0.1129, p_adj_frost_ice=0.02, F_frost_seawater=4.3245, R2_frost_seawater=0.1426, p_adj_frost_seawater=0.02, F_frost_Brine=7.7712, R2_frost_Brine=0.1662, p_adj_frost_Brine=0.01",
+      "assertions": [
+        {
+          "label": "kw_statistic",
+          "value": "34.937",
+          "of": "PERMDISP, 5 environment groups"
+        },
+        {
+          "label": "kw_p",
+          "value": "0.0",
+          "of": "PERMDISP, 5 environment groups"
+        },
+        {
+          "label": "F_frost_ice",
+          "value": "4.8355",
+          "of": "pairwise PERMANOVA, frost flowers vs ice"
+        },
+        {
+          "label": "R2_frost_ice",
+          "value": "0.1129",
+          "of": "pairwise PERMANOVA, frost flowers vs ice"
+        },
+        {
+          "label": "p_adj_frost_ice",
+          "value": "0.02",
+          "of": "pairwise PERMANOVA, frost flowers vs ice"
+        },
+        {
+          "label": "F_frost_seawater",
+          "value": "4.3245",
+          "of": "pairwise PERMANOVA, frost flowers vs seawater"
+        },
+        {
+          "label": "R2_frost_seawater",
+          "value": "0.1426",
+          "of": "pairwise PERMANOVA, frost flowers vs seawater"
+        },
+        {
+          "label": "p_adj_frost_seawater",
+          "value": "0.02",
+          "of": "pairwise PERMANOVA, frost flowers vs seawater"
+        },
+        {
+          "label": "F_frost_Brine",
+          "value": "7.7712",
+          "of": "pairwise PERMANOVA, frost flowers vs Brine"
+        },
+        {
+          "label": "R2_frost_Brine",
+          "value": "0.1662",
+          "of": "pairwise PERMANOVA, frost flowers vs Brine"
+        },
+        {
+          "label": "p_adj_frost_Brine",
+          "value": "0.01",
+          "of": "pairwise PERMANOVA, frost flowers vs Brine"
+        }
+      ],
+      "parameters": {},
+      "antecedents": [
+        "c4",
+        "c5"
+      ],
+      "kind": "pattern",
+      "investigation": "a1",
+      "by": "qwen/qwen3.6-35b-a3b",
+      "checked": [
+        "c4:run",
+        "c5:run"
+      ],
+      "judgment": {
+        "per": {},
+        "notes": {},
+        "by": "glm-4.7-flash",
+        "raw": "**Analysis of the Request:**\nI need to act as a strict verification auditor.\nInput:\n- A CLAIM broken into ASSERTIONS with labels (e.g., `kw_statistic = ...`).\n- PARAMETERS describing how analysis was done (ignored for grading, but good context). Here it's empty `{}` in this specific prompt block provided by the user? Wait, looking at \"PARAMETERS\", there is nothing listed. I will treat them as non-existent or irrelevant.\n- INDEPENDENT EVIDENCE: Two JSON blocks `[c4]` and `[c5]`. These represent re-executed analysis results with labels intact.\n\nTask:\nGrade *every* assertion based on the evidence",
+        "truncated": true,
+        "graded_nothing": true,
+        "unmatched": []
+      },
+      "assertion_verdicts": {},
+      "method": "judge-failed"
+    },
+    {
+      "id": "k3",
+      "statement": "PERMANOVA on Bray-Curtis distances confirms environmental type significantly explains community composition variation: F=3.447, R\u00b2=0.192, p=0.001 (999 permutations) across 5 environment groups (frost flowers n=24, ice n=16, Brine n=17, seawater n=4, chamber air n=2, total n=63). This matches earlier finding (k1). Note: PERMDISP analysis shows significant dispersion heterogeneity (kw_statistic=15.421, p=0.0039 using PCoA-based method), though earlier analysis (k2) reported kw_statistic=34.937 with different dispersion values, suggesting methodological differences in dispersion computation.",
+      "value": "F_statistic=3.447, R_squared=0.192, p_value=0.001, n_permutations=999, n_samples=63, n_groups=5",
+      "assertions": [
+        {
+          "label": "F_statistic",
+          "value": "3.447",
+          "of": "PERMANOVA on Bray-Curtis distances, 5 environment groups"
+        },
+        {
+          "label": "R_squared",
+          "value": "0.192",
+          "of": "PERMANOVA on Bray-Curtis distances, 5 environment groups"
+        },
+        {
+          "label": "p_value",
+          "value": "0.001",
+          "of": "PERMANOVA on Bray-Curtis distances, 5 environment groups"
+        },
+        {
+          "label": "n_permutations",
+          "value": "999",
+          "of": "PERMANOVA"
+        },
+        {
+          "label": "n_samples",
+          "value": "63",
+          "of": "total samples in analysis"
+        },
+        {
+          "label": "n_groups",
+          "value": "5",
+          "of": "environment groups"
+        }
+      ],
+      "parameters": {},
+      "antecedents": [
+        "c6",
+        "c8"
+      ],
+      "kind": "pattern",
+      "investigation": "a1",
+      "by": "qwen/qwen3.6-35b-a3b"
+    }
+  ],
+  "computations": {
+    "c1": {
+      "label": "PERMANOVA on Bray-Curtis distances by environmental type",
+      "code": "# Filter to samples that made it into the counts table\nsub_meta = meta.loc[meta['pipeline_in_counts']]\nsub_counts = counts.loc[sub_meta.index]\n\n# Get the grouping variable\ngroups = sub_meta['biosample_env_local_scale']\n\n# Calculate Bray-Curtis distance matrix\nfrom scipy.spatial.distance import pdist, squareform\ndist_matrix = pdist(sub_counts, metric='braycurtis')\ndist_square = squareform(dist_matrix)\n\n# Run PERMANOVA with 999 permutations\nresult = permanova(dist_square, groups, permutations=999)\n\n# Also get group sizes for context\ngroup_sizes = groups.value_counts().to_dict()\nresult['group_sizes'] = group_sizes\n\n# Print results for inspection\nprint(\"PERMANOVA results:\")\nprint(f\"F-statistic: {result['F']}\")\nprint(f\"R\u00b2: {result['R2']}\")\nprint(f\"p-value: {result['p']}\")\nprint(f\"Number of samples: {result['n']}\")\nprint(f\"Groups: {result['groups']}\")\nprint(f\"Group sizes: {group_sizes}\")",
+      "result": {
+        "F": 3.447,
+        "R2": 0.1921,
+        "p": 0.001,
+        "n": 63,
+        "groups": 5,
+        "group_sizes": {
+          "frost flowers": 24,
+          "Brine": 17,
+          "ice": 16,
+          "seawater": 4,
+          "chamber air": 2
+        },
+        "permutations": 999
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c2": {
+      "label": "PERMANOVA on Bray-Curtis distances by biosample_env_local_scale",
+      "code": "sub = counts.loc[meta.index[meta['pipeline_in_counts']]]\ngroups = meta.loc[sub.index, 'biosample_env_local_scale']\nresult = permanova(sub, groups, permutations=999)",
+      "result": {
+        "F": 3.447,
+        "R2": 0.1921,
+        "p": 0.001,
+        "n": 63,
+        "groups": 5,
+        "group_sizes": {
+          "Brine": 17,
+          "chamber air": 2,
+          "frost flowers": 24,
+          "ice": 16,
+          "seawater": 4
+        },
+        "permutations": 999
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c3": {
+      "label": "Pairwise PERMANOVA tests between environment pairs",
+      "code": "sub = counts.loc[meta.index[meta['pipeline_in_counts']]]\ngroups = meta.loc[sub.index, 'biosample_env_local_scale']\n\nfrom scipy.spatial.distance import pdist, squareform\ndist_matrix = squareform(pdist(sub, metric='braycurtis'))\n\n# Get unique groups and their members\nenv_groups = groups.unique()\npairwise_results = []\n\nfrom itertools import combinations\nfor g1, g2 in combinations(env_groups, 2):\n    mask = groups.isin([g1, g2])\n    sub_g = sub.loc[mask]\n    grp = groups.loc[mask]\n    res = permanova(sub_g, grp, permutations=999)\n    pairwise_results.append({\n        'group1': g1,\n        'group2': g2,\n        'F': res['F'],\n        'R2': res['R2'],\n        'p': res['p'],\n        'n1': int(grp.value_counts().get(g1, 0)),\n        'n2': int(grp.value_counts().get(g2, 0))\n    })\n\nresult = pairwise_results",
+      "result": [
+        {
+          "group1": "frost flowers",
+          "group2": "chamber air",
+          "F": 2.354,
+          "R2": 0.0893,
+          "p": 0.05,
+          "n1": 24,
+          "n2": 2
+        },
+        {
+          "group1": "frost flowers",
+          "group2": "ice",
+          "F": 4.8355,
+          "R2": 0.1129,
+          "p": 0.006,
+          "n1": 24,
+          "n2": 16
+        },
+        {
+          "group1": "frost flowers",
+          "group2": "seawater",
+          "F": 4.3245,
+          "R2": 0.1426,
+          "p": 0.005,
+          "n1": 24,
+          "n2": 4
+        },
+        {
+          "group1": "frost flowers",
+          "group2": "Brine",
+          "F": 7.7712,
+          "R2": 0.1662,
+          "p": 0.001,
+          "n1": 24,
+          "n2": 17
+        },
+        {
+          "group1": "chamber air",
+          "group2": "ice",
+          "F": 1.4928,
+          "R2": 0.0853,
+          "p": 0.108,
+          "n1": 2,
+          "n2": 16
+        },
+        {
+          "group1": "chamber air",
+          "group2": "seawater",
+          "F": 1.8605,
+          "R2": 0.3175,
+          "p": 0.132,
+          "n1": 2,
+          "n2": 4
+        },
+        {
+          "group1": "chamber air",
+          "group2": "Brine",
+          "F": 1.4132,
+          "R2": 0.0767,
+          "p": 0.095,
+          "n1": 2,
+          "n2": 17
+        },
+        {
+          "group1": "ice",
+          "group2": "seawater",
+          "F": 1.4004,
+          "R2": 0.0722,
+          "p": 0.231,
+          "n1": 16,
+          "n2": 4
+        },
+        {
+          "group1": "ice",
+          "group2": "Brine",
+          "F": 2.5308,
+          "R2": 0.0755,
+          "p": 0.053,
+          "n1": 16,
+          "n2": 17
+        },
+        {
+          "group1": "seawater",
+          "group2": "Brine",
+          "F": 1.3852,
+          "R2": 0.068,
+          "p": 0.228,
+          "n1": 4,
+          "n2": 17
+        }
+      ],
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c4": {
+      "label": "FDR correction for pairwise PERMANOVA p-values",
+      "code": "from itertools import combinations\nsub = counts.loc[meta.index[meta['pipeline_in_counts']]]\ngroups = meta.loc[sub.index, 'biosample_env_local_scale']\nenv_groups = groups.unique()\n\npairwise_results = []\npvals = []\n\nfor g1, g2 in combinations(env_groups, 2):\n    mask = groups.isin([g1, g2])\n    sub_g = sub.loc[mask]\n    grp = groups.loc[mask]\n    res = permanova(sub_g, grp, permutations=999)\n    n1 = int(grp.value_counts().get(g1, 0))\n    n2 = int(grp.value_counts().get(g2, 0))\n    pairwise_results.append({\n        'group1': g1,\n        'group2': g2,\n        'F': res['F'],\n        'R2': res['R2'],\n        'p': res['p'],\n        'n1': n1,\n        'n2': n2\n    })\n    pvals.append(res['p'])\n\nfdr_result = fdr(pvals)\n\nfor i, r in enumerate(pairwise_results):\n    r['p_adj'] = fdr_result['p_adj'][i]\n    r['rejected'] = fdr_result['reject'][i]\n\nresult = pairwise_results",
+      "result": [
+        {
+          "group1": "frost flowers",
+          "group2": "chamber air",
+          "F": 2.354,
+          "R2": 0.0893,
+          "p": 0.05,
+          "n1": 24,
+          "n2": 2,
+          "p_adj": 0.106,
+          "rejected": false
+        },
+        {
+          "group1": "frost flowers",
+          "group2": "ice",
+          "F": 4.8355,
+          "R2": 0.1129,
+          "p": 0.006,
+          "n1": 24,
+          "n2": 16,
+          "p_adj": 0.02,
+          "rejected": true
+        },
+        {
+          "group1": "frost flowers",
+          "group2": "seawater",
+          "F": 4.3245,
+          "R2": 0.1426,
+          "p": 0.005,
+          "n1": 24,
+          "n2": 4,
+          "p_adj": 0.02,
+          "rejected": true
+        },
+        {
+          "group1": "frost flowers",
+          "group2": "Brine",
+          "F": 7.7712,
+          "R2": 0.1662,
+          "p": 0.001,
+          "n1": 24,
+          "n2": 17,
+          "p_adj": 0.01,
+          "rejected": true
+        },
+        {
+          "group1": "chamber air",
+          "group2": "ice",
+          "F": 1.4928,
+          "R2": 0.0853,
+          "p": 0.108,
+          "n1": 2,
+          "n2": 16,
+          "p_adj": 0.1543,
+          "rejected": false
+        },
+        {
+          "group1": "chamber air",
+          "group2": "seawater",
+          "F": 1.8605,
+          "R2": 0.3175,
+          "p": 0.132,
+          "n1": 2,
+          "n2": 4,
+          "p_adj": 0.165,
+          "rejected": false
+        },
+        {
+          "group1": "chamber air",
+          "group2": "Brine",
+          "F": 1.4132,
+          "R2": 0.0767,
+          "p": 0.095,
+          "n1": 2,
+          "n2": 17,
+          "p_adj": 0.1543,
+          "rejected": false
+        },
+        {
+          "group1": "ice",
+          "group2": "seawater",
+          "F": 1.4004,
+          "R2": 0.0722,
+          "p": 0.231,
+          "n1": 16,
+          "n2": 4,
+          "p_adj": 0.231,
+          "rejected": false
+        },
+        {
+          "group1": "ice",
+          "group2": "Brine",
+          "F": 2.5308,
+          "R2": 0.0755,
+          "p": 0.053,
+          "n1": 16,
+          "n2": 17,
+          "p_adj": 0.106,
+          "rejected": false
+        },
+        {
+          "group1": "seawater",
+          "group2": "Brine",
+          "F": 1.3852,
+          "R2": 0.068,
+          "p": 0.228,
+          "n1": 4,
+          "n2": 17,
+          "p_adj": 0.231,
+          "rejected": false
+        }
+      ],
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c5": {
+      "label": "PERMDISP test for dispersion homogeneity across environment groups",
+      "code": "import numpy as np\nfrom scipy.spatial.distance import pdist, squareform\nfrom scipy.stats import kruskal, mannwhitneyu\nfrom itertools import combinations\n\nsub = counts.loc[meta.index[meta['pipeline_in_counts']]]\ngroups = meta.loc[sub.index, 'biosample_env_local_scale']\n\n# Compute Bray-Curtis distance matrix\ndist_matrix = squareform(pdist(sub, metric='braycurtis'))\n\n# Get group labels as boolean masks\nenv_groups = groups.unique()\ngroup_names = list(env_groups)\n\n# Compute distance to group centroid for each sample\ngroup_distances = {}\nfor gi, g in enumerate(group_names):\n    mask = (groups == g).values  # boolean array\n    idx = np.where(mask)[0]\n    sub_data = dist_matrix[np.ix_(idx, idx)]\n    # distance to centroid in PC space (using PCA on raw counts)\n    sub_raw = sub.loc[sub.index[mask]].values\n    centroid = sub_raw.mean(axis=0)\n    dists_to_centroid = np.sqrt(((sub_raw - centroid) ** 2).sum(axis=1))\n    group_distances[g] = dists_to_centroid\n\n# Kruskal-Wallis test on distances to centroid across groups\nkw_result = kruskal(*[group_distances[g] for g in group_names])\n\n# Pairwise Mann-Whitney tests for dispersion\ndisp_pairs = []\nfor g1, g2 in combinations(group_names, 2):\n    mw = mannwhitneyu(group_distances[g1], group_distances[g2], alternative='two-sided')\n    disp_pairs.append({\n        'group1': g1,\n        'group2': g2,\n        'U': float(mw.statistic),\n        'p': float(mw.pvalue),\n        'mean_disp1': float(np.mean(group_distances[g1])),\n        'mean_disp2': float(np.mean(group_distances[g2]))\n    })\n\nfdr_disp = fdr([d['p'] for d in disp_pairs])\nfor i, d in enumerate(disp_pairs):\n    d['p_adj'] = float(fdr_disp['p_adj'][i])\n\nresult = {'kw_statistic': float(kw_result.statistic), 'kw_p': float(kw_result.pvalue), 'pairwise_disp': disp_pairs}",
+      "result": {
+        "kw_statistic": 34.937,
+        "kw_p": 0.0,
+        "pairwise_disp": [
+          {
+            "group1": "frost flowers",
+            "group2": "chamber air",
+            "U": 48.0,
+            "p": 0.0237,
+            "mean_disp1": 1269.7292,
+            "mean_disp2": 503.1056,
+            "p_adj": 0.0419
+          },
+          {
+            "group1": "frost flowers",
+            "group2": "ice",
+            "U": 21.0,
+            "p": 0.0,
+            "mean_disp1": 1269.7292,
+            "mean_disp2": 4382.9907,
+            "p_adj": 0.0
+          },
+          {
+            "group1": "frost flowers",
+            "group2": "seawater",
+            "U": 2.0,
+            "p": 0.0004,
+            "mean_disp1": 1269.7292,
+            "mean_disp2": 4415.6927,
+            "p_adj": 0.002
+          },
+          {
+            "group1": "frost flowers",
+            "group2": "Brine",
+            "U": 74.0,
+            "p": 0.0006,
+            "mean_disp1": 1269.7292,
+            "mean_disp2": 2858.9641,
+            "p_adj": 0.002
+          },
+          {
+            "group1": "chamber air",
+            "group2": "ice",
+            "U": 0.0,
+            "p": 0.0294,
+            "mean_disp1": 503.1056,
+            "mean_disp2": 4382.9907,
+            "p_adj": 0.0419
+          },
+          {
+            "group1": "chamber air",
+            "group2": "seawater",
+            "U": 0.0,
+            "p": 0.1002,
+            "mean_disp1": 503.1056,
+            "mean_disp2": 4415.6927,
+            "p_adj": 0.1113
+          },
+          {
+            "group1": "chamber air",
+            "group2": "Brine",
+            "U": 0.0,
+            "p": 0.0283,
+            "mean_disp1": 503.1056,
+            "mean_disp2": 2858.9641,
+            "p_adj": 0.0419
+          },
+          {
+            "group1": "ice",
+            "group2": "seawater",
+            "U": 26.0,
+            "p": 0.6167,
+            "mean_disp1": 4382.9907,
+            "mean_disp2": 4415.6927,
+            "p_adj": 0.6167
+          },
+          {
+            "group1": "ice",
+            "group2": "Brine",
+            "U": 203.0,
+            "p": 0.0166,
+            "mean_disp1": 4382.9907,
+            "mean_disp2": 2858.9641,
+            "p_adj": 0.0415
+          },
+          {
+            "group1": "seawater",
+            "group2": "Brine",
+            "U": 55.0,
+            "p": 0.0648,
+            "mean_disp1": 4415.6927,
+            "mean_disp2": 2858.9641,
+            "p_adj": 0.081
+          }
+        ]
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c6": {
+      "label": "Verify PERMANOVA on Bray-Curtis by biosample_env_local_scale",
+      "code": "import pandas as pd\nimport numpy as np\nfrom scipy.spatial.distance import pdist, squareform\n\n# Load data - only samples that made it through the pipeline\nsub_counts = counts.loc[meta.index[meta['pipeline_in_counts']]]\nsub_meta = meta.loc[sub_counts.index]\n\n# Grouping factor: biosample_env_local_scale\ngroups = sub_meta['biosample_env_local_scale']\ngroup_levels = groups.unique()\n\n# Compute Bray-Curtis distances from raw counts\nbc_dist = squareform(pdist(sub_counts.values, metric='braycurtis'))\n\n# Run PERMANOVA with 999 permutations\nperm_result = permanova(bc_dist, groups, permutations=999)\n\n# Store result\nresult = {\n    'F_statistic': perm_result['F'],\n    'R_squared': perm_result['R2'],\n    'p_value': perm_result['p'],\n    'n_permutations': 999,\n    'n_groups': len(group_levels),\n    'group_names': list(group_levels),\n    'group_sizes': {g: int((groups == g).sum()) for g in group_levels},\n    'n_samples': len(groups)\n}\n\nprint(f\"PERMANOVA on Bray-Curtis distances by biosample_env_local_scale:\")\nprint(f\"  F-statistic: {perm_result['F']:.4f}\")\nprint(f\"  R\u00b2: {perm_result['R2']:.4f}\")\nprint(f\"  p-value: {perm_result['p']}\")\nprint(f\"  Groups: {list(group_levels)}\")\nprint(f\"  Group sizes: {result['group_sizes']}\")\nprint(f\"  Total samples: {len(groups)}\")",
+      "result": {
+        "F_statistic": 3.447,
+        "R_squared": 0.1921,
+        "p_value": 0.001,
+        "n_permutations": 999,
+        "n_groups": 5,
+        "group_names": [
+          "frost flowers",
+          "chamber air",
+          "ice",
+          "seawater",
+          "Brine"
+        ],
+        "group_sizes": {
+          "frost flowers": 24,
+          "chamber air": 2,
+          "ice": 16,
+          "seawater": 4,
+          "Brine": 17
+        },
+        "n_samples": 63
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c7": {
+      "label": "PERMDISP - dispersion heterogeneity across environment groups",
+      "code": "import pandas as pd\nimport numpy as np\nfrom scipy.spatial.distance import pdist, squareform\nfrom scipy.stats import kruskal, mannwhitneyu\n\n# Load data\nsub_counts = counts.loc[meta.index[meta['pipeline_in_counts']]]\nsub_meta = meta.loc[sub_counts.index]\n\n# Grouping factor\ngroups = sub_meta['biosample_env_local_scale']\ngroup_levels = groups.unique()\n\n# Compute Bray-Curtis distances\nbc_dist = squareform(pdist(sub_counts.values, metric='braycurtis'))\n\n# Compute dispersion: mean distance to group centroid\n# For each sample, compute mean distance to all other samples in its group\ndispersions = {}\nfor g in group_levels:\n    mask = groups == g\n    # Distance to centroid = mean of distances to all samples in group (including self, which is 0)\n    dists_to_centroid = bc_dist[mask][:, mask].mean(axis=1)\n    dispersions[g] = dists_to_centroid\n\n# Kruskal-Wallis test on dispersions\nkw_stat, kw_p = kruskal(*[dispersions[g] for g in group_levels])\n\n# Pairwise Mann-Whitney U tests with FDR correction\npvals = []\npairs = []\ngroup_list = list(group_levels)\nfor i in range(len(group_list)):\n    for j in range(i+1, len(group_list)):\n        g1, g2 = group_list[i], group_list[j]\n        stat, p = mannwhitneyu(dispersions[g1], dispersions[g2], alternative='two-sided')\n        pvals.append(p)\n        pairs.append((g1, g2))\n\nfdr_result = fdr(np.array(pvals))\n\n# Store all results\nresult = {\n    'kw_statistic': kw_stat,\n    'kw_p_value': kw_p,\n    'pairwise_comparisons': [],\n    'mean_dispersion': {g: float(dispersions[g].mean()) for g in group_list},\n    'median_dispersion': {g: float(np.median(dispersions[g])) for g in group_list},\n    'n_samples_per_group': {g: int((groups == g).sum()) for g in group_list}\n}\n\nfor idx, (g1, g2) in enumerate(pairs):\n    result['pairwise_comparisons'].append({\n        'group1': g1,\n        'group2': g2,\n        'p_value': float(pvals[idx]),\n        'p_adj': float(fdr_result['p_adj'][idx]),\n        'significant': bool(fdr_result['reject'][idx])\n    })\n\nprint(f\"Kruskal-Wallis on dispersions: stat={kw_stat:.4f}, p={kw_p:.6f}\")\nprint(f\"\\nMean dispersion per group:\")\nfor g in group_list:\n    print(f\"  {g}: {dispersions[g].mean():.4f} (n={int((groups == g).sum())})\")\n\nprint(f\"\\nPairwise comparisons (FDR-corrected, {fdr_result['n_tests']} tests):\")\nfor comp in result['pairwise_comparisons']:\n    sig = \"***\" if comp['significant'] else \"\"\n    print(f\"  {comp['group1']} vs {comp['group2']}: p={comp['p_value']:.4f}, p_adj={comp['p_adj']:.4f} {sig}\")",
+      "result": {
+        "kw_statistic": 19.6795,
+        "kw_p_value": 0.0006,
+        "pairwise_comparisons": [
+          {
+            "group1": "frost flowers",
+            "group2": "chamber air",
+            "p_value": 0.0237,
+            "p_adj": 0.0587,
+            "significant": false
+          },
+          {
+            "group1": "frost flowers",
+            "group2": "ice",
+            "p_value": 0.0039,
+            "p_adj": 0.0196,
+            "significant": true
+          },
+          {
+            "group1": "frost flowers",
+            "group2": "seawater",
+            "p_value": 0.2505,
+            "p_adj": 0.2783,
+            "significant": false
+          },
+          {
+            "group1": "frost flowers",
+            "group2": "Brine",
+            "p_value": 0.0017,
+            "p_adj": 0.0171,
+            "significant": true
+          },
+          {
+            "group1": "chamber air",
+            "group2": "ice",
+            "p_value": 0.0294,
+            "p_adj": 0.0587,
+            "significant": false
+          },
+          {
+            "group1": "chamber air",
+            "group2": "seawater",
+            "p_value": 0.0902,
+            "p_adj": 0.1288,
+            "significant": false
+          },
+          {
+            "group1": "chamber air",
+            "group2": "Brine",
+            "p_value": 0.0283,
+            "p_adj": 0.0587,
+            "significant": false
+          },
+          {
+            "group1": "ice",
+            "group2": "seawater",
+            "p_value": 0.1427,
+            "p_adj": 0.1784,
+            "significant": false
+          },
+          {
+            "group1": "ice",
+            "group2": "Brine",
+            "p_value": 0.5284,
+            "p_adj": 0.5284,
+            "significant": false
+          },
+          {
+            "group1": "seawater",
+            "group2": "Brine",
+            "p_value": 0.054,
+            "p_adj": 0.09,
+            "significant": false
+          }
+        ],
+        "mean_dispersion": {
+          "frost flowers": 0.6008,
+          "chamber air": 0.1912,
+          "ice": 0.7354,
+          "seawater": 0.6332,
+          "Brine": 0.7425
+        },
+        "median_dispersion": {
+          "frost flowers": 0.5299,
+          "chamber air": 0.1912,
+          "ice": 0.7388,
+          "seawater": 0.6332,
+          "Brine": 0.715
+        },
+        "n_samples_per_group": {
+          "frost flowers": 24,
+          "chamber air": 2,
+          "ice": 16,
+          "seawater": 4,
+          "Brine": 17
+        }
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    },
+    "c8": {
+      "label": "PERMDISP using PCoA-based dispersion (standard method)",
+      "code": "import pandas as pd\nimport numpy as np\nfrom scipy.spatial.distance import pdist, squareform\nfrom scipy.stats import kruskal, mannwhitneyu\n\n# Load data\nsub_counts = counts.loc[meta.index[meta['pipeline_in_counts']]]\nsub_meta = meta.loc[sub_counts.index]\n\n# Grouping factor\ngroups = sub_meta['biosample_env_local_scale']\ngroup_levels = groups.unique()\n\n# Compute Bray-Curtis distances\nbc_dist = squareform(pdist(sub_counts.values, metric='braycurtis'))\n\n# Standard PERMDISP: PCoA -> distance to group centroid in PCoA space\n# Use classical MDS (PCoA)\nn = bc_dist.shape[0]\n\n# Double-center the distance matrix to get principal coordinates\n# H = I - (1/n) * 11^T\nH = np.eye(n) - np.ones((n, n)) / n\n# B = -0.5 * H * D^2 * H\nD_sq = bc_dist ** 2\nB = -0.5 * H @ D_sq @ H\n\n# Eigen decomposition\neigenvalues, eigenvectors = np.linalg.eigh(B)\n\n# Sort by descending eigenvalue\nidx = np.argsort(eigenvalues)[::-1]\neigenvalues = eigenvalues[idx]\neigenvectors = eigenvectors[:, idx]\n\n# Keep only positive eigenvalues\npos_mask = eigenvalues > 0\neigenvalues_pos = eigenvalues[pos_mask]\neigenvectors_pos = eigenvectors[:, pos_mask]\n\n# PCoA coordinates\npcoa_coords = eigenvectors_pos * np.sqrt(eigenvalues_pos)\n\nprint(f\"Number of positive eigenvalues: {pos_mask.sum()}\")\nprint(f\"Proportion of variance explained: {eigenvalues_pos.sum() / max(eigenvalues.sum(), 1e-10):.4f}\")\nprint(f\"Top 5 eigenvalues: {eigenvalues_pos[:5]}\")\n\n# Compute distance of each sample to its group centroid in PCoA space\ndispersions = {}\nfor g in group_levels:\n    mask = groups == g\n    group_coords = pcoa_coords[mask]\n    centroid = group_coords.mean(axis=0)\n    # Euclidean distance from each sample to centroid\n    dists_to_centroid = np.sqrt(((group_coords - centroid) ** 2).sum(axis=1))\n    dispersions[g] = dists_to_centroid\n\n# Kruskal-Wallis test on dispersions\nkw_stat, kw_p = kruskal(*[dispersions[g] for g in group_levels])\n\n# Pairwise Mann-Whitney U tests with FDR correction\npvals = []\npairs = []\ngroup_list = list(group_levels)\nfor i in range(len(group_list)):\n    for j in range(i+1, len(group_list)):\n        g1, g2 = group_list[i], group_list[j]\n        stat, p = mannwhitneyu(dispersions[g1], dispersions[g2], alternative='two-sided')\n        pvals.append(p)\n        pairs.append((g1, g2))\n\nfdr_result = fdr(np.array(pvals))\n\n# Store results\nresult = {\n    'kw_statistic': float(kw_stat),\n    'kw_p_value': float(kw_p),\n    'pairwise_comparisons': [],\n    'mean_dispersion': {g: float(dispersions[g].mean()) for g in group_list},\n    'median_dispersion': {g: float(np.median(dispersions[g])) for g in group_list},\n    'n_samples_per_group': {g: int((groups == g).sum()) for g in group_list},\n    'n_positive_eigenvalues': int(pos_mask.sum()),\n    'variance_explained': float(eigenvalues_pos.sum() / max(eigenvalues.sum(), 1e-10))\n}\n\nfor idx, (g1, g2) in enumerate(pairs):\n    result['pairwise_comparisons'].append({\n        'group1': g1,\n        'group2': g2,\n        'p_value': float(pvals[idx]),\n        'p_adj': float(fdr_result['p_adj'][idx]),\n        'significant': bool(fdr_result['reject'][idx])\n    })\n\nprint(f\"\\nKruskal-Wallis on PCoA-based dispersions: stat={kw_stat:.4f}, p={kw_p:.6f}\")\nprint(f\"\\nMean dispersion per group (PCoA-based):\")\nfor g in group_list:\n    print(f\"  {g}: {dispersions[g].mean():.4f} (n={int((groups == g).sum())})\")\n\nprint(f\"\\nPairwise comparisons (FDR-corrected, {fdr_result['n_tests']} tests):\")\nfor comp in result['pairwise_comparisons']:\n    sig = \"***\" if comp['significant'] else \"\"\n    print(f\"  {comp['group1']} vs {comp['group2']}: p={comp['p_value']:.4f}, p_adj={comp['p_adj']:.4f} {sig}\")",
+      "result": {
+        "kw_statistic": 15.421,
+        "kw_p_value": 0.0039,
+        "pairwise_comparisons": [
+          {
+            "group1": "frost flowers",
+            "group2": "chamber air",
+            "p_value": 0.0237,
+            "p_adj": 0.0587,
+            "significant": false
+          },
+          {
+            "group1": "frost flowers",
+            "group2": "ice",
+            "p_value": 0.0098,
+            "p_adj": 0.0492,
+            "significant": true
+          },
+          {
+            "group1": "frost flowers",
+            "group2": "seawater",
+            "p_value": 0.1262,
+            "p_adj": 0.1803,
+            "significant": false
+          },
+          {
+            "group1": "frost flowers",
+            "group2": "Brine",
+            "p_value": 0.0091,
+            "p_adj": 0.0492,
+            "significant": true
+          },
+          {
+            "group1": "chamber air",
+            "group2": "ice",
+            "p_value": 0.0294,
+            "p_adj": 0.0587,
+            "significant": false
+          },
+          {
+            "group1": "chamber air",
+            "group2": "seawater",
+            "p_value": 0.1002,
+            "p_adj": 0.167,
+            "significant": false
+          },
+          {
+            "group1": "chamber air",
+            "group2": "Brine",
+            "p_value": 0.0283,
+            "p_adj": 0.0587,
+            "significant": false
+          },
+          {
+            "group1": "ice",
+            "group2": "seawater",
+            "p_value": 0.3847,
+            "p_adj": 0.4809,
+            "significant": false
+          },
+          {
+            "group1": "ice",
+            "group2": "Brine",
+            "p_value": 0.8712,
+            "p_adj": 0.968,
+            "significant": false
+          },
+          {
+            "group1": "seawater",
+            "group2": "Brine",
+            "p_value": 1.0,
+            "p_adj": 1.0,
+            "significant": false
+          }
+        ],
+        "mean_dispersion": {
+          "frost flowers": 0.4574,
+          "chamber air": 0.194,
+          "ice": 0.5661,
+          "seawater": 0.54,
+          "Brine": 0.563
+        },
+        "median_dispersion": {
+          "frost flowers": 0.3708,
+          "chamber air": 0.194,
+          "ice": 0.5528,
+          "seawater": 0.5403,
+          "Brine": 0.5413
+        },
+        "n_samples_per_group": {
+          "frost flowers": 24,
+          "chamber air": 2,
+          "ice": 16,
+          "seawater": 4,
+          "Brine": 17
+        },
+        "n_positive_eigenvalues": 49,
+        "variance_explained": 1.0161
+      },
+      "by": "qwen/qwen3.6-35b-a3b"
+    }
+  },
   "agenda": [
     {
       "id": "a1",
-      "question": "Do ice, brine, seawater, and air samples form distinct communities in Bray-Curtis ordination, and which ASVs drive the separation?",
-      "rationale": "The biosample_title column defines four environmental groups (ice n=54, brine n=24, seawater n=4, air n=2) that represent fundamentally different habitats. If community composition tracks environment, this would confirm that the microbial assemblages are ecologically structured rather than stochastic. PERMANOVA on Bray-Curtis distances with post-hoc pairwise tests identifies which environment pairs differ, and indicator species analysis or SIMPER-style decomposition of the ordination axes reveals which ASVs contribute most to each separation \u2014 critical for understanding habitat filtering.",
+      "question": "Does environmental type (frost flower, brine, ice, seawater, chamber air) explain significant variation in overall community composition? Test with PERMANOVA on Bray-Curtis distances using biosample_env_local_scale as grouping factor, with 999 permutations. Report F-statistic, R\u00b2, and p-value.",
+      "rationale": "The core ecological question: are microbial communities structured by their physical environment in this ice chamber system? A significant result would confirm that environment is a primary driver of community assembly, justifying downstream stratified analyses.",
       "status": "in_progress",
       "parent": null
     },
     {
       "id": "a2",
-      "question": "Is the 25% sample attrition (21 of 84 samples dropped) biased toward specific environments, and does this bias distort community comparisons?",
-      "rationale": "21 samples produced zero reads and are absent from counts entirely (not zero rows). If attrition is non-random \u2014 e.g., all air samples dropped, or all seawater samples dropped \u2014 then any environment-level comparison is confounded by differential detection. Testing whether the proportion of dropped samples differs across biosample_title or biosample_env_local_scale groups using a chi-squared test of independence, and comparing pipeline metrics (pipeline_total_reads, pipeline_n_asvs) across environments for the retained samples, reveals whether the observed patterns could be artifacts of uneven sequencing depth or PCR failure.",
+      "question": "Do prokaryotic and eukaryotic communities respond to environmental gradients independently? For each sample with prokaryotic reads, compute prokaryotic-only Bray-Curtis distances; for each sample with eukaryotic reads, compute eukaryotic-only Bray-Curtis distances. Run PERMANOVA on each separately by biosample_env_local_scale. Compare R\u00b2 values and p-values between domains to test whether prokaryotes and eukaryotes are equally or differently structured by environment.",
+      "rationale": "This is a mixed 16S/18S dataset. If prokaryotes and eukaryotes show different environmental signal strengths or patterns, it implies different ecological drivers (e.g., prokaryotes respond to salinity/temperature while eukaryotes respond to organic matter or grazing). This is a fundamental question about multi-kingdom community ecology in polar environments.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a3",
-      "question": "Does the eukaryotic fraction (317 ASVs, 213,606 reads across 19 samples) show environment-driven structure, and are these eukaryotes biologically meaningful or technical artifacts?",
-      "rationale": "The renorm_stats reveals a substantial eukaryotic component (Amorphea, Archaeplastida, SAR phyla) with 213,606 reads \u2014 nearly half the total. This is unexpected for a 16S amplicon study. Testing whether eukaryotic community composition differs across environments (PERMANOVA on eukaryote-only ASV table) determines if this is structured biology or noise. Comparing eukaryotic read proportions to chloroplast read proportions and to sample metadata (e.g., sra_description) helps distinguish true eukaryotic communities from host/plant contamination or cross-amplification artifacts.",
+      "question": "Which ASVs are significantly enriched in specific environments (indicator species analysis)? For each ASV, compute an indicator value (IndVal) across the five biosample_env_local_scale groups, testing whether the ASV is both specific to (high fidelity) and faithful to (high abundance within) a particular environment. Apply FDR correction across all 735 ASVs. Report ASVs with adjusted p < 0.05, their indicator values, and which environment they indicate.",
+      "rationale": "Identifying environment-specific taxa reveals potential functional specialists and helps distinguish true ecological signal from noise. These indicator taxa could serve as biomarkers for environmental conditions and point to taxa worth investigating for cold-adaptation physiology.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a4",
-      "question": "Are alpha diversity metrics (richness, Shannon entropy, evenness) different across environments, and are differences robust to rarefaction depth?",
-      "rationale": "Different environments (ice vs brine vs seawater vs air) impose different selective pressures and should theoretically differ in diversity. Computing observed ASV richness, Shannon entropy, and Pielou evenness per sample on the full ASV table, then comparing across biosample_env_local_scale groups using Kruskal-Wallis (non-parametric due to unequal sample sizes), tests this. Rarefying to multiple depths (e.g., 1000, 5000, 10000 reads) and re-computing diversity metrics tests whether observed differences are driven by sequencing depth artifacts rather than true ecological differences.",
+      "question": "Is sample attrition (21 of 84 samples dropped with zero final reads) non-random with respect to environment or other metadata? Cross-tabulate biosample_env_local_scale and sra_description between retained (pipeline_in_counts=True) and dropped (pipeline_in_counts=False) samples. Test for association using chi-squared or Fisher's exact test. Also compare pipeline_total_reads and pipeline_n_asvs distributions between retained and dropped samples using Mann-Whitney U tests.",
+      "rationale": "25% sample attrition is substantial. If attrition is biased toward certain environments (e.g., air or seawater samples failed more often), then the observed patterns may not represent the full environmental gradient. This is a critical quality assessment before interpreting ecological results.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a5",
-      "question": "Which ASVs are environment-indicative (enriched in one environment but rare/absent in others), and what is their taxonomic identity?",
-      "rationale": "Indicator species analysis identifies taxa whose abundance is disproportionately concentrated in one environment, suggesting they are either adapted to or uniquely present in that habitat. Computing indicator values (IndVal) for each ASV across the four biosample_title groups, then applying FDR correction, identifies statistically significant indicators. Taxonomic annotation of these ASVs (via the tax DataFrame) reveals whether indicators cluster at high taxonomic levels (e.g., a whole genus is ice-specific) or are scattered (suggesting niche partitioning at finer scales). This is ecologically actionable for identifying habitat specialists.",
+      "question": "Does alpha diversity (richness and evenness) vary across the environmental gradient? For each sample, compute observed richness (number of ASVs with count > 0) and Shannon entropy from the counts matrix. Rarefy all samples to the minimum library size to control for sequencing depth. Compare richness and entropy across biosample_env_local_scale groups using Kruskal-Wallis test (non-parametric ANOVA) with FDR correction for multiple comparisons between pairwise group contrasts.",
+      "rationale": "Polar environments span extreme gradients in salinity, temperature, and nutrient availability. If diversity follows predictable patterns (e.g., lower diversity in brine due to osmotic stress, higher in frost flowers due to phototrophic activity), this would reveal fundamental constraints on microbial life in these habitats.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a6",
-      "question": "Is there a correlation between total read depth (pipeline_total_reads) and community composition, and does composition persist after controlling for sequencing depth?",
-      "rationale": "With pipeline_total_reads varying widely across the 63 samples (from the renorm_stats, total reads range from 84 to 207,607 for prokaryote subsets), compositional differences between environments could be driven by depth-dependent detection of rare taxa rather than true abundance differences. Computing the correlation between log10(pipeline_total_reads) and each sample's position in PCoA space (via Mantel test or envfit-style projection), and re-running PERMANOVA on rarefied or CLR-transformed data, tests whether environmental signals persist after depth normalization.",
+      "question": "Are prokaryotic and eukaryotic community compositions correlated across samples, or do they vary independently? For each sample, compute the proportion of reads assigned to prokaryotes vs eukaryotes. Then compute pairwise Pearson correlations between prokaryotic CLR-transformed ASV proportions and eukaryotic CLR-transformed ASV proportions across the shared sample set. Test whether the correlation structure differs from random by comparing to a null distribution generated by permuting sample labels.",
+      "rationale": "In mixed 16S/18S datasets, the relationship between prokaryotic and eukaryotic communities is ecologically informative. Positive correlation might suggest shared environmental filtering; negative correlation might suggest competitive or trophic interactions. This tests whether the two domains co-vary or respond independently to the same environmental conditions.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a7",
-      "question": "Do the two collection dates (2026-06-04 vs 2026-06-21) show compositional turnover, and is this turnover independent of environmental grouping?",
-      "rationale": "The sra_collection_date column defines two sampling events 17 days apart. In a dynamic system like sea ice, even a short time interval could produce measurable community shifts. Testing whether samples cluster by collection date in ordination space (PERMANOVA on date groups), and then testing whether the date effect persists after accounting for environment (using a stratified or partial PERMANOVA framework), determines if temporal dynamics are a confounding factor or an independent signal. This is critical for interpreting whether observed patterns are ecological or temporal artifacts.",
+      "question": "Does the taxonomic resolution of environmental signal vary by rank? For each taxonomic rank (phylum, class, order, family, genus), aggregate ASV counts to that rank, compute CLR-transformed Bray-Curtis distances, and run PERMANOVA by biosample_env_local_scale. Compare R\u00b2 values across ranks to test whether environmental signal is stronger or weaker at coarser vs finer taxonomic resolution.",
+      "rationale": "If environmental signal is strongest at the genus level, it suggests fine-scale niche partitioning. If signal persists or strengthens at the phylum level, it suggests broad physiological strategies dominate. This informs how precisely we can resolve ecological patterns from amplicon data and whether genus-level classification is sufficient.",
       "status": "pending",
       "parent": null
     },
     {
       "id": "a8",
-      "question": "What is the structure of the ASV co-occurrence network, and are there environment-specific modules of co-occurring taxa?",
-      "rationale": "Co-occurrence patterns can reveal putative ecological interactions (syntrophy, competition, shared niche preferences). Building a correlation-based network from CLR-transformed counts (to handle compositionality), identifying modules using community detection (e.g., Louvain), and testing whether module membership is enriched in specific environments tests whether co-occurrence structure is environment-dependent. This goes beyond single-taxon tests to reveal community-level organization that individual indicator species analysis would miss.",
+      "question": "Are communities from the two collection dates (2026-06-04 vs 2026-06-21) distinguishable from environmental variation? Run PERMANOVA on Bray-Curtis distances with sra_collection_date as the grouping factor. Then run a second PERMANOVA with both biosample_env_local_scale and sra_collection_date as factors to partition variance and test whether temporal variation is smaller than environmental variation. Report R\u00b2 for each factor and the interaction term.",
+      "rationale": "Two collection dates provide a natural replication test. If temporal variation is smaller than environmental variation, the patterns are robust to sampling time. If temporal variation is comparable to or larger than environmental variation, it would suggest that short-term dynamics (e.g., diurnal, tidal, or weather-driven) may confound environmental signals.",
+      "status": "pending",
+      "parent": null
+    },
+    {
+      "id": "a9",
+      "question": "Do rare ASVs (<1% mean abundance across all samples) show different environmental association patterns than abundant ASVs (\u22651% mean abundance)? Split ASVs into rare and abundant bins. For each bin, compute indicator values across environments and compare the distribution of indicator values, the number of significant indicators (FDR-corrected), and the environmental specificity of rare vs abundant taxa using Mann-Whitney U tests.",
+      "rationale": "The 'rare biosphere' hypothesis predicts that rare taxa may serve as a reservoir for community resilience and may respond to different environmental filters than abundant taxa. In extreme environments like ice and brine, rare taxa might include specialists that only bloom under specific conditions. Testing this reveals whether the rare biosphere is ecologically coherent or just noise.",
+      "status": "pending",
+      "parent": null
+    },
+    {
+      "id": "a10",
+      "question": "What is the structure of the co-occurrence network, and does it differ by environment? Construct a SparCC or correlation-based co-occurrence network from CLR-transformed counts (using all samples). Identify modules using community detection (e.g., Louvain). Then test whether module membership is associated with environment by comparing the distribution of module assignments across biosample_env_local_scale groups using chi-squared test. Also compute network metrics (connectance, mean degree, clustering coefficient) separately for prokaryotic and eukaryotic subsets.",
+      "rationale": "Co-occurrence patterns can reveal potential ecological interactions (synergistic or competitive) that are not apparent from single-taxon analyses. If network structure differs by environment, it suggests that ecological interactions are environment-dependent \u2014 a key prediction of modern community ecology theory. Comparing prokaryotic and eukaryotic networks tests whether the two domains form integrated or separate interaction webs.",
       "status": "pending",
       "parent": null
     }
@@ -65,9 +842,9 @@
     "completed": false,
     "investigations_done": 0,
     "exploration": "hyphal",
-    "claims_refused": 0,
+    "claims_refused": 3,
     "packages_requested": {},
-    "investigations_total": 8,
+    "investigations_total": 10,
     "replication_attempted": 0,
     "replication_rounds": 0,
     "replication_agreed": 0,
@@ -75,6 +852,9 @@
     "replication_overturned": 0,
     "replication_contested": 0,
     "adjudicated": 0,
-    "models": []
+    "models": [
+      "glm-4.7-flash",
+      "qwen/qwen3.6-35b-a3b"
+    ]
   }
 }

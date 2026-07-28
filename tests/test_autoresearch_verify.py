@@ -1645,6 +1645,30 @@ class TestDuplicateClaims:
                                    {"label": "dof", "value": "4"}])))
         assert r["recorded"] is True
 
+    def test_renaming_a_label_does_not_slip_the_contradiction_guard(self):
+        """A successor recorded F_statistic/R_squared/p_value where an earlier claim
+        had F/R2/p. No shared label meant nothing to compare, so a second answer to the
+        same question could enter the ledger by renaming its columns."""
+        ar = self._ar()
+        ar.agenda = [{"id": "a1", "question": "Q", "status": "in_progress", "parent": None}]
+        asyncio.run(ar._exec_tool("record_claim", {
+            "statement": "permanova", "kind": "pattern",
+            "assertions": [{"label": "F", "value": "3.447"}]}))
+        r = asyncio.run(ar._exec_tool("record_claim", {
+            "statement": "permanova again", "kind": "pattern",
+            "assertions": [{"label": "F_statistic", "value": "92.01"}]}))
+        assert r["recorded"] is False and "already asserts" in r["error"]
+
+    def test_the_synonyms_cover_the_names_actually_seen(self):
+        from ai.autoresearch import _label_key
+        assert _label_key("F") == _label_key("F_statistic") == _label_key("pseudo_F")
+        assert _label_key("R2") == _label_key("R_squared")
+        assert _label_key("p") == _label_key("p_value") == _label_key("p-val")
+        assert _label_key("kw_statistic") == _label_key("KW_H")
+        # distinct quantities must stay distinct
+        assert _label_key("p_adj") != _label_key("p")
+        assert _label_key("F_frost_ice") != _label_key("F")
+
     def test_a_contradiction_on_a_DIFFERENT_investigation_is_fine(self):
         """Two investigations may legitimately measure the same-named quantity."""
         ar = self._ar()
