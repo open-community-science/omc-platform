@@ -339,7 +339,7 @@ def _ledger_dict(ar: Autoresearcher, completed: bool | None) -> dict:
     a finished run can read a running one without knowing the difference."""
     return {"claims": ar.ledger, "computations": ar.computations, "agenda": ar.agenda,
             "assumptions": ar.assumptions, "package_requests": ar.package_requests,
-            "run": ar.run_summary(completed)}
+            "failures": ar.failures, "run": ar.run_summary(completed)}
 
 
 def _write_json(path: Path, payload: dict):

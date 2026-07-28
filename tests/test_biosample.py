@@ -560,6 +560,36 @@ class TestSandboxHints:
             "label": "t", "code": "print(result)"}))
         assert "not something you read" in r["hint"] and "assign" in r["hint"]
 
+    def test_a_failed_analysis_keeps_its_code(self):
+        """Only successes were archived. When a co-occurrence analysis was killed on a
+        resource limit, the code that caused it was gone — and the failures are what the
+        hints are tuned against."""
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        asyncio.run(ar._exec_tool("run_analysis", {
+            "label": "boom", "code": "result = counts.no_such_method()"}))
+        assert len(ar.failures) == 1
+        f = ar.failures[0]
+        assert f["label"] == "boom" and "no_such_method" in f["code"] and f["error"]
+        assert not ar.computations, "a failure must not consume a computation id"
+
+    def test_failures_are_capped(self):
+        """A wedged tip can fail dozens of times; the archive must not grow without
+        bound."""
+        import asyncio
+        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
+                                     SubprocessExecutor)
+        d = "/data/dev/testdata/1543a4c1"
+        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
+                            LLMClient(None, "x"), SubprocessExecutor(d))
+        ar.failures = [{"label": str(i)} for i in range(200)]
+        asyncio.run(ar._exec_tool("run_analysis", {"label": "x", "code": "1/0"}))
+        assert len(ar.failures) == 200
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")

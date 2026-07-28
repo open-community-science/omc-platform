@@ -1680,6 +1680,7 @@ class Autoresearcher:
         self.on_progress = on_progress
         # per-run state (was module globals in the prototype)
         self.computations: dict[str, Any] = {}   # cid -> {label, code, result}
+        self.failures: list[dict] = []            # analyses that errored, with their code
         self.ledger: list[dict] = []              # claim dicts
         self.assumptions: list[dict] = []         # acknowledged, unconfirmable assumptions
         self.agenda: list[dict] = []              # {id, question, rationale, status, parent}
@@ -1928,6 +1929,15 @@ class Autoresearcher:
                         "not working, so change it rather than adjusting it. Inspect "
                         "the shapes you are indexing, or take a simpler route to the "
                         "same answer.")
+                # Keep the code that failed. Only successes were archived, so when a
+                # co-occurrence analysis was killed on a resource limit the code that
+                # caused it was gone — and a failure is where the diagnostic value is:
+                # it is the record of what the analyst tried, which is what the hints
+                # are tuned against. Capped, because a wedged tip can fail many times.
+                if len(self.failures) < 200:
+                    self.failures.append({"label": args.get("label", ""),
+                                          "code": args.get("code", ""), "error": err,
+                                          "hint": hint or "", "by": self.explore_model})
                 return {"ok": False, "error": err, **({"hint": hint} if hint else {})}
             cid = f"c{len(self.computations) + 1}"
             # Store the FULL sandbox result (verification re-derives from it); show
@@ -3284,6 +3294,7 @@ class Autoresearcher:
             "claims": claims,
             "assumptions": self.assumptions,
             "computations": self.computations,
+            "failures": self.failures,
             "agenda": self.agenda,
             "dag": self.build_dag(),
             "results_prose": results_prose,
@@ -3301,6 +3312,7 @@ class Autoresearcher:
         ar.ledger = list(snap.get("claims", []))
         ar.assumptions = list(snap.get("assumptions", []))
         ar.computations = dict(snap.get("computations", {}))
+        ar.failures = list(snap.get("failures", []))
         ar.agenda = list(snap.get("agenda", []))
         ar.exploration = (snap.get("run") or {}).get("exploration", "linear")
         return ar
