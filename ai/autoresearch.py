@@ -476,6 +476,14 @@ def _describe(_k):
     if isinstance(_sh, tuple) and len(_sh) == 2:
         return "%s (DataFrame %dx%d)" % (_k, _sh[0], _sh[1])
     return _k
+# The sandbox runs whatever is installed, which may be far newer than what the analyst
+# learned. pandas 3 removed groupby(axis=1) and multi-dimensional Series indexing, and
+# tightened reductions over string columns — idioms that were correct for years and now
+# raise. Saying the version costs one line and lets the analyst pick current idioms.
+try:
+    _b["versions"] = {"pandas": pd.__version__, "numpy": np.__version__}
+except Exception:
+    pass
 _b["available"] = sorted(
     _describe(k) for k in list(globals())
     if not k.startswith("_") and k not in ("result", "sys", "json", "os"))
@@ -527,6 +535,9 @@ def format_briefing(b: dict) -> str:
                      f"you: {', '.join(g)}. Nothing else is available. Ask only for what "
                      "the names above do not already cover — the helpers listed there "
                      "are ready to call and need no import.")
+    if v := b.get("versions"):
+        lines.append("  running " + ", ".join(f"{k} {ver}" for k, ver in sorted(v.items()))
+                     + " — use current idioms, not ones removed in earlier versions.")
     if av := b.get("available"):
         # Named because it was being discovered by failing into it — a tip lost a step
         # to `import skbio` and had no way to know what was in scope.
