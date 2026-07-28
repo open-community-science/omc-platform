@@ -558,6 +558,8 @@ def format_briefing(b: dict) -> str:
             "{'F', 'R2', 'p', 'n', 'groups', 'group_sizes'}",
             "    alpha_diversity(counts) -> DataFrame[richness, shannon_nats, "
             "shannon_bits, evenness, depth] — the unit is in the column name",
+            "    by_rank(counts, tax, 'Genus') -> samples x taxa at that rank, same "
+            "orientation as counts",
             # Shown, not prohibited. "Do not read files" has now failed in four
             # separate contexts, and a claim-sized context cannot inherit the
             # correction its predecessor was given — each one starts naive, so the
@@ -1374,6 +1376,30 @@ def clr(df, pseudocount=0.5):
     L = np.log(X)
     Z = L - L.mean(axis=1, keepdims=True)
     return pd.DataFrame(Z, index=getattr(df, "index", None), columns=getattr(df, "columns", None))
+def by_rank(counts_df, tax_df, rank):
+    """Collapse a samples x ASV table to samples x TAXON at a taxonomic rank.
+
+    Supplied for the same reason as permanova: three separate investigations needed it,
+    it is a counts-by-tax join with an axis choice in the middle, and getting it wrong
+    produces a frame of the wrong shape rather than an error. One analyst produced a
+    single-row frame three times running.
+
+    Unassigned ASVs are dropped rather than pooled into a phantom taxon. Returns
+    samples as ROWS, taxa as columns, in the same orientation as `counts`."""
+    if rank not in getattr(tax_df, "columns", []):
+        raise ValueError(f"{rank!r} is not a rank in tax; available: "
+                         f"{list(getattr(tax_df, 'columns', []))}")
+    shared = [c for c in counts_df.columns if c in tax_df.index]
+    if not shared:
+        raise ValueError("no ASV ids in common between counts columns and tax index")
+    labels = tax_df.loc[shared, rank]
+    keep = labels.notna() & (labels.astype(str).str.strip() != "")
+    sub = counts_df[list(labels.index[keep])]
+    out = sub.T.groupby(labels[keep].astype(str).values).sum().T
+    out.index = counts_df.index
+    return out
+
+
 def alpha_diversity(df):
     """Per-sample alpha diversity, with the UNIT IN THE COLUMN NAME.
 
@@ -1491,7 +1517,7 @@ _ns = dict(np=np, pd=pd, counts=counts, props=props, tax=tax, meta=meta,
            braycurtis=braycurtis, entropy=entropy, pearsonr=pearsonr, spearmanr=spearmanr,
            kruskal=kruskal, mannwhitneyu=mannwhitneyu, PCA=PCA,
            fdr=fdr, clr=clr, rarefy=rarefy, permanova=permanova,
-           alpha_diversity=alpha_diversity)
+           alpha_diversity=alpha_diversity, by_rank=by_rank)
 try:
     import ast as _ast
     _src = sys.stdin.read()

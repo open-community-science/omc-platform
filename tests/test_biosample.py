@@ -659,6 +659,46 @@ class TestTrailingExpression:
         assert not ok and "SyntaxError" in str(r)
 
 
+class TestByRank:
+    """One analyst produced a single-row frame three times running trying to aggregate
+    counts to a taxonomic rank, and the investigation was abandoned with zero claims.
+    It is a counts-by-tax join with an axis choice in the middle: wrong shape, no error."""
+
+    def _run(self, code):
+        import asyncio
+        from ai.autoresearch import SubprocessExecutor
+        return asyncio.run(SubprocessExecutor("/data/dev/testdata/1543a4c1").run(code))
+
+    def test_samples_stay_as_rows(self):
+        ok, r = self._run("t = by_rank(counts, tax, 'Genus')\n"
+                          "result = {'shape': list(t.shape), "
+                          "'index_matches': bool((t.index == counts.index).all())}")
+        assert ok and r["shape"][0] == 63 and r["index_matches"]
+
+    def test_each_rank_collapses_further(self):
+        ok, r = self._run("result = {k: int(by_rank(counts, tax, k).shape[1]) "
+                          "for k in ['Domain','Phylum','Class','Order','Family','Genus']}")
+        assert ok
+        widths = [r[k] for k in ("Domain", "Phylum", "Class", "Order", "Family", "Genus")]
+        assert widths == sorted(widths) and widths[0] < widths[-1]
+
+    def test_reads_are_conserved_or_dropped_not_invented(self):
+        ok, r = self._run("t = by_rank(counts, tax, 'Domain')\n"
+                          "result = {'agg': float(t.values.sum()), "
+                          "'raw': float(counts.values.sum())}")
+        assert ok and r["agg"] <= r["raw"]
+
+    def test_an_unknown_rank_says_what_is_available(self):
+        ok, r = self._run("result = by_rank(counts, tax, 'Kingdom')")
+        assert not ok and "not a rank" in str(r) and "Genus" in str(r)
+
+    def test_it_feeds_permanova_directly(self):
+        ok, r = self._run("g = meta.loc[counts.index, 'biosample_env_local_scale']\n"
+                          "result = permanova(by_rank(counts, tax, 'Genus'), g, "
+                          "permutations=99)")
+        assert ok and r["n"] == 63 and r["groups"] == 5
+
+
 class TestSourcePrefixes:
     """Three sources reach `meta` and they are not interchangeable. Nothing in a value
     says which one produced it, so the column name has to."""
