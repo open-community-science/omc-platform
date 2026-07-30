@@ -44,3 +44,8 @@ dist/
 build/
 *.egg-info/
 *.pem
+
+# Live bench run state — rewritten continuously while a run is in flight, ~2MB each.
+# Immutable snapshots (run_state.final-*.json, epoch-final.log) are kept beside them on
+# disk and can be committed deliberately when a run is worth preserving.
+tests/bench/writings/real_*/run_state.json
