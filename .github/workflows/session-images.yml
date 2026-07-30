@@ -54,20 +54,33 @@ jobs:
 
       # The image declares what it contains; the briefing tells analysts the same thing.
       # Printing it here is how the two get to disagree loudly rather than silently.
+      # `head -40` here once truncated the inventory alphabetically and hid which package
+      # was missing, so report the count and the ones that matter by name.
       - name: Show inventory
         run: |
-          docker run --rm omc-microbio:latest \
-            sh -c 'R -q -e "cat(nrow(installed.packages()), \"R packages\n\")"; \
-                   head -40 /opt/omc/INVENTORY.txt'
+          docker run --rm omc-microbio:latest R -q -e '
+            ip <- rownames(installed.packages())
+            cat(length(ip), "R packages\n")
+            want <- c("vegan","betapart","pairwiseAdonis","phyloseq","DESeq2","edgeR",
+                      "limma","ALDEx2","ANCOMBC","microbiome","metagenomeSeq","Maaslin2",
+                      "mia","microViz","igraph","picante","ape")
+            for (p in want) cat(sprintf("  %-16s %s\n", p, if (p %in% ip) "yes" else "MISSING"))'
 
+      # stopifnot() reports "is not TRUE" without naming the loop variable, which cost a
+      # 40-minute cycle. Collect every miss and print it.
       - name: Verify the analysis layer imports
         run: |
           docker run --rm omc-microbio:latest Rscript -e '
-            for (p in c("vegan","betapart","phyloseq","DESeq2","ALDEx2","ANCOMBC","microbiome"))
-              stopifnot(requireNamespace(p, quietly=TRUE))
+            need <- c("vegan","betapart","phyloseq","DESeq2","edgeR","limma",
+                      "ALDEx2","ANCOMBC","microbiome","metagenomeSeq","Maaslin2","mia")
+            miss <- need[!sapply(need, requireNamespace, quietly=TRUE)]
+            if (length(miss)) stop("R packages missing: ", paste(miss, collapse=", "))
             cat("R analysis layer OK\n")'
           docker run --rm omc-microbio:latest python -c '
-          import skbio, statsmodels, networkx, Bio, umap, patsy, numpy, pandas, scipy
+          import importlib, sys
+          need = ["skbio","statsmodels","networkx","Bio","umap","patsy","numpy","pandas","scipy"]
+          miss = [m for m in need if not importlib.util.find_spec(m)]
+          sys.exit("python packages missing: " + ", ".join(miss)) if miss else None
           print("python analysis layer OK")'
 
       - name: Build omc-session

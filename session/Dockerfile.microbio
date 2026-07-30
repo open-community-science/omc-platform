@@ -42,12 +42,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # both an analyst and a reviewer in the same session.
 RUN R -q -e 'options(Ncpus=parallel::detectCores()); \
     install.packages(c( \
-      "vegan", "betapart", "pairwiseAdonis", "igraph", "ape", "picante", \
+      "vegan", "betapart", "igraph", "ape", "picante", \
       "ggplot2", "ggpubr", "pheatmap", "RColorBrewer", "patchwork", \
       "dplyr", "tidyr", "readr", "tibble", "data.table", \
       "BiocManager", "remotes", "vctrs", "Matrix", "lme4", "glmmTMB" \
     ), repos="https://cloud.r-project.org", clean=TRUE)' \
- && R -q -e 'stopifnot(requireNamespace("vegan"), requireNamespace("betapart"))'
+ && R -q -e '.need <- c("vegan","betapart","igraph","ape","picante","ggplot2","lme4"); \
+      .miss <- .need[!sapply(.need, requireNamespace, quietly=TRUE)]; \
+      if (length(.miss)) stop("CRAN packages missing: ", paste(.miss, collapse=", ")); \
+      cat("CRAN layer OK\n")'
 
 # --- Bioconductor -------------------------------------------------------------------
 # phyloseq handles the counts/tax/meta/tree quadruple natively, which is most of what
@@ -58,7 +61,11 @@ RUN R -q -e 'options(Ncpus=parallel::detectCores()); \
       "phyloseq", "DESeq2", "edgeR", "limma", "ALDEx2", "ANCOMBC", \
       "microbiome", "metagenomeSeq", "Maaslin2", "mia", "TreeSummarizedExperiment" \
     ), ask=FALSE, update=FALSE)' \
- && R -q -e 'stopifnot(requireNamespace("phyloseq"), requireNamespace("ALDEx2"))'
+ && R -q -e '.need <- c("phyloseq","DESeq2","edgeR","limma","ALDEx2","ANCOMBC", \
+                          "microbiome","metagenomeSeq","Maaslin2","mia"); \
+      .miss <- .need[!sapply(.need, requireNamespace, quietly=TRUE)]; \
+      if (length(.miss)) stop("Bioconductor packages missing: ", paste(.miss, collapse=", ")); \
+      cat("Bioconductor layer OK\n")'
 
 # --- R packages that live on GitHub only --------------------------------------------
 RUN R -q -e 'remotes::install_github(c("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis", \
