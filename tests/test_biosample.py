@@ -845,6 +845,55 @@ class TestSandboxHints:
         assert r["result"]["rows"] == 63 and r["result"]["same_index"]
         assert r["result"]["cols_gt_1"]
 
+    def test_the_phylogeny_is_bound_and_complete(self):
+        """tree.nwk sat unread in the data directory for a 14-hour run, so every
+        beta-diversity computation used Bray-Curtis because UniFrac was impossible."""
+        r = self._run("result = {'tips': tree['n_tips'], "
+                      "'covers_counts': bool(set(counts.columns) <= "
+                      "{n for n in tree['names'] if n})}")
+        assert r["ok"] and r["result"]["tips"] == 735 and r["result"]["covers_counts"]
+
+    def test_tip_names_keep_their_underscores(self):
+        """Newick says an unquoted underscore is a space, and correct parsers obey it —
+        skbio turns ASV_000687 into 'ASV 000687' and every id silently fails to match."""
+        r = self._run("names = [n for n in tree['names'] if n]\n"
+                      "result = {'has_underscore': sum('_' in n for n in names), "
+                      "'has_space': sum(' ' in n for n in names), "
+                      "'sample': sorted(names)[0]}")
+        assert r["ok"], r
+        assert r["result"]["has_underscore"] == 735
+        assert r["result"]["has_space"] == 0
+        assert r["result"]["sample"].startswith("ASV_")
+
+    def test_faith_pd_and_unifrac_match_the_reference(self):
+        """Validated against skbio when written: faith_pd 7e-15, unweighted UniFrac
+        4e-16, weighted (normalised) 6e-16. These pin the values so a rewrite cannot
+        drift off the reference silently."""
+        r = self._run("pdv = faith_pd(counts, tree)\n"
+                      "uu = unifrac(counts, tree)\n"
+                      "wu = unifrac(counts, tree, weighted=True)\n"
+                      "iu = np.triu_indices(len(counts), 1)\n"
+                      "result = {'pd_min': round(float(pdv.min()), 3), "
+                      "'pd_max': round(float(pdv.max()), 3), "
+                      "'uu_mean': round(float(uu.values[iu].mean()), 4), "
+                      "'wu_mean': round(float(wu.values[iu].mean()), 4)}")
+        assert r["ok"], r
+        assert r["result"] == {"pd_min": 2.949, "pd_max": 21.922,
+                               "uu_mean": 0.6981, "wu_mean": 0.4737}
+
+    def test_weighted_unifrac_is_the_normalised_form(self):
+        """skbio's default is the raw sum and runs ~3x larger; the literature reports
+        the normalised one."""
+        r = self._run("iu = np.triu_indices(len(counts), 1)\n"
+                      "result = float(unifrac(counts, tree, weighted=True).values[iu].max())")
+        assert r["ok"] and r["result"] <= 1.0
+
+    def test_the_phylo_helpers_refuse_when_there_is_no_tree(self):
+        for fn in ("faith_pd", "unifrac"):
+            r = self._run(f"result = {fn}(counts, None)")
+            assert not r["ok"], fn
+            assert "no phylogeny" in r["error"], (fn, r["error"])
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")

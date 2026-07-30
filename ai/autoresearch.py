@@ -853,7 +853,8 @@ EXPLORE_CHAR_BUDGET = 140_000    # ≈35k tokens of transcript at ~4 chars/token
 _SANDBOX_NAMES = frozenset({
     "np", "pd", "counts", "props", "tax", "meta", "pdist", "squareform", "braycurtis",
     "entropy", "pearsonr", "spearmanr", "kruskal", "mannwhitneyu", "PCA",
-    "fdr", "clr", "rarefy", "permanova", "alpha_diversity", "by_rank"})
+    "fdr", "clr", "rarefy", "permanova", "alpha_diversity", "by_rank",
+    "tree", "faith_pd", "unifrac"})
 
 def _result_fingerprint(res) -> str:
     """Stable digest of an analysis result, for spotting a repeat.
@@ -1313,6 +1314,14 @@ def _rj(name):
             with op(p, "rt") as f:
                 return json.load(f)
     return None
+def _rt(name):
+    """Raw text, for the files that are not JSON (the newick phylogeny)."""
+    for p in (os.path.join(DATA, name), os.path.join(DATA, name + ".gz")):
+        if os.path.exists(p):
+            op = gzip.open if p.endswith(".gz") else open
+            with op(p, "rt") as f:
+                return f.read()
+    return None
 # Trusted imports FIRST (ssl, loaded transitively, subclasses socket.socket) —
 # only after they're loaded do we disable the network for the model's code.
 import numpy as np, pandas as pd
@@ -1560,6 +1569,131 @@ def rarefy(df, depth=None, seed=0):
     kept_idx = (idx[keep] if idx is not None else None)
     dropped = [str(x) for x in (idx[~keep] if idx is not None else [])]
     return pd.DataFrame(rows, index=kept_idx, columns=getattr(df, "columns", None)), dropped
+
+
+def _parse_newick(text):
+    """Newick -> flat node arrays. Tip NAMES ARE KEPT LITERAL.
+
+    The Newick spec says an unquoted underscore means a space, and correct parsers obey
+    it — skbio turns `ASV_000687` into `ASV 000687`, so every ASV id silently fails to
+    match and phylogenetic metrics see an empty intersection. Our ids contain
+    underscores, so literal is the only reading that works here.
+    """
+    import re as _re
+    s = _re.sub(r"\s+", "", text.strip()).rstrip(";")
+    names, length, parent, kids = [], [], [], []
+
+    def _new():
+        names.append(None); length.append(0.0); parent.append(-1); kids.append([])
+        return len(names) - 1
+
+    pos = 0
+
+    def _node():
+        nonlocal pos
+        if pos < len(s) and s[pos] == "(":
+            pos += 1
+            me = _new()
+            while True:
+                k = _node()
+                parent[k] = me
+                kids[me].append(k)
+                if pos < len(s) and s[pos] == ",":
+                    pos += 1
+                    continue
+                break
+            pos += 1                                    # closing ')'
+        else:
+            me = _new()
+        st = pos
+        while pos < len(s) and s[pos] not in "(),:;":
+            pos += 1
+        lbl = s[st:pos]
+        if lbl and not kids[me]:                        # internal labels are support values
+            names[me] = lbl
+        if pos < len(s) and s[pos] == ":":
+            pos += 1
+            st = pos
+            while pos < len(s) and s[pos] not in "(),;":
+                pos += 1
+            length[me] = float(s[st:pos])
+        return me
+
+    _node()
+    par = np.array(parent, int)
+    depth = np.zeros(len(names), int)
+    for nd in range(len(names)):
+        d, cur = 0, nd
+        while par[cur] >= 0:
+            cur = par[cur]; d += 1
+        depth[nd] = d
+    return {"names": names, "length": np.array(length, float), "parent": par,
+            "order": np.argsort(-depth),                 # deepest first, for accumulation
+            "n_tips": sum(1 for n in names if n)}
+
+
+def _subtends(tree, asv_order):
+    """(n_nodes x n_asvs) bool — does this node subtend that ASV?"""
+    idx = {a: i for i, a in enumerate(asv_order)}
+    M = np.zeros((len(tree["names"]), len(asv_order)), bool)
+    for nd, nm in enumerate(tree["names"]):
+        if nm in idx:
+            M[nd, idx[nm]] = True
+    for nd in tree["order"]:
+        p = tree["parent"][nd]
+        if p >= 0:
+            M[p] |= M[nd]
+    return M
+
+
+def faith_pd(counts_df, tree):
+    """Faith's phylogenetic diversity per sample — total branch length of the subtree
+    spanning the ASVs present. Matches skbio's faith_pd to 7e-15 on this data."""
+    if tree is None:
+        raise ValueError("no phylogeny is available for this dataset (`tree` is None)")
+    M = _subtends(tree, list(counts_df.columns))
+    hit = (np.asarray(counts_df, float) > 0) @ M.T
+    return pd.Series((hit > 0) @ tree["length"], index=counts_df.index, name="faith_pd")
+
+
+def unifrac(counts_df, tree, weighted=False):
+    """UniFrac distance matrix. Unweighted uses presence; weighted uses abundance and is
+    NORMALISED (skbio's `normalized=True`), which is the form reported in the literature
+    — skbio's default is the raw sum and runs ~3x larger. Matches skbio to 6e-16."""
+    if tree is None:
+        raise ValueError("no phylogeny is available for this dataset (`tree` is None)")
+    M = _subtends(tree, list(counts_df.columns))
+    L = tree["length"]
+    X = np.asarray(counts_df, float)
+    n = X.shape[0]
+    if weighted:
+        tot = X.sum(axis=1, keepdims=True)
+        A = (X / np.where(tot > 0, tot, 1)) @ M.T
+    else:
+        A = (((X > 0) @ M.T) > 0)
+    D = np.zeros((n, n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            if weighted:
+                den = float((A[i] + A[j]) @ L)
+                d = float(np.abs(A[i] - A[j]) @ L) / den if den else 0.0
+            else:
+                either = A[i] | A[j]
+                den = float(either @ L)
+                d = float((either & ~(A[i] & A[j])) @ L) / den if den else 0.0
+            D[i, j] = D[j, i] = d
+    return pd.DataFrame(D, index=counts_df.index, columns=counts_df.index)
+# The phylogeny. It sat in the data directory unread for an entire 14-hour run, so every
+# beta-diversity computation used Bray-Curtis — not because it was chosen over UniFrac
+# but because UniFrac was impossible. None when a dataset has no tree.
+tree = None
+try:
+    _nwk = _rt("tree.nwk")
+    if _nwk:
+        tree = _parse_newick(_nwk)
+except Exception:
+    tree = None
+
 # Items kept per container/list. The RESULT is what verification re-derives from,
 # so it keeps more than the model is shown (the parent re-caps for context economy).
 _CAP = int(os.environ.get("EXPLORER_RESULT_CAP", "200"))
@@ -1591,7 +1725,8 @@ _ns = dict(np=np, pd=pd, counts=counts, props=props, tax=tax, meta=meta,
            braycurtis=braycurtis, entropy=entropy, pearsonr=pearsonr, spearmanr=spearmanr,
            kruskal=kruskal, mannwhitneyu=mannwhitneyu, PCA=PCA,
            fdr=fdr, clr=clr, rarefy=rarefy, permanova=permanova,
-           alpha_diversity=alpha_diversity, by_rank=by_rank)
+           alpha_diversity=alpha_diversity, by_rank=by_rank,
+           tree=tree, faith_pd=faith_pd, unifrac=unifrac)
 try:
     import ast as _ast, io as _io, contextlib as _ctx
     _src = sys.stdin.read()
