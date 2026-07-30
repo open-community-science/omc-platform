@@ -72,7 +72,7 @@ jobs:
         run: |
           docker run --rm omc-microbio:latest Rscript -e '
             need <- c("vegan","betapart","phyloseq","DESeq2","edgeR","limma",
-                      "ALDEx2","ANCOMBC","microbiome","metagenomeSeq","Maaslin2","mia")
+                      "ALDEx2","microbiome","metagenomeSeq","Maaslin2")
             miss <- need[!sapply(need, requireNamespace, quietly=TRUE)]
             if (length(miss)) stop("R packages missing: ", paste(miss, collapse=", "))
             cat("R analysis layer OK\n")'

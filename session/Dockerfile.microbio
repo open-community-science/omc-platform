@@ -65,14 +65,35 @@ RUN R -q -e 'options(Ncpus=parallel::detectCores()); \
 # compositional methods were never attempted correctly in any run so far.
 RUN R -q -e 'options(Ncpus=parallel::detectCores()); \
     BiocManager::install(c( \
-      "phyloseq", "DESeq2", "edgeR", "limma", "ALDEx2", "ANCOMBC", \
-      "microbiome", "metagenomeSeq", "Maaslin2", "mia", "TreeSummarizedExperiment" \
+      "phyloseq", "DESeq2", "edgeR", "limma", "ALDEx2", \
+      "microbiome", "metagenomeSeq", "Maaslin2", "TreeSummarizedExperiment" \
     ), ask=FALSE, update=FALSE)' \
- && R -q -e '.need <- c("phyloseq","DESeq2","edgeR","limma","ALDEx2","ANCOMBC", \
-                          "microbiome","metagenomeSeq","Maaslin2","mia"); \
+ && R -q -e '.need <- c("phyloseq","DESeq2","edgeR","limma","ALDEx2", \
+                          "microbiome","metagenomeSeq","Maaslin2"); \
       .miss <- .need[!sapply(.need, requireNamespace, quietly=TRUE)]; \
       if (length(.miss)) stop("Bioconductor packages missing: ", paste(.miss, collapse=", ")); \
       cat("Bioconductor layer OK\n")'
+
+# ANCOMBC and mia are BEST EFFORT, and currently fail on this base.
+#
+#   ANCOMBC 2.12.0: "object 'solve' is not exported by 'namespace:CVXR'"
+#   mia 1.18.0:     lazy loading failed, same shape
+#
+# Neither is a missing system library. A Bioconductor release is pinned against a CRAN
+# snapshot, and installing from live CRAN gets newer dependencies than the release was
+# built against. Fixing it properly means a dated CRAN snapshot (Posit Package Manager)
+# or the bioconductor/bioconductor_docker base, both of which are larger changes than
+# they are worth right now — ALDEx2 covers compositional differential abundance and
+# Maaslin2 the mixed-model route.
+#
+# Left as an attempt rather than removed, so the day the dependency graph settles they
+# reappear on the next rebuild, and the inventory step says which of the two we have.
+RUN R -q -e 'options(Ncpus=parallel::detectCores()); \
+    try(BiocManager::install(c("ANCOMBC", "mia"), ask=FALSE, update=FALSE)); \
+    for (p in c("ANCOMBC","mia")) \
+      cat(sprintf("%-10s %s\n", p, if (requireNamespace(p, quietly=TRUE)) "installed" \
+                                     else "UNAVAILABLE on this base"))' \
+ || echo "ANCOMBC/mia unavailable — non-fatal, see comment above"
 
 # --- R packages that live on GitHub only --------------------------------------------
 RUN R -q -e 'remotes::install_github(c("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis", \
