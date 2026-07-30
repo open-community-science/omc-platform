@@ -894,6 +894,41 @@ class TestSandboxHints:
             assert not r["ok"], fn
             assert "no phylogeny" in r["error"], (fn, r["error"])
 
+    def test_asv_sequences_and_the_pipelines_own_group_call_are_bound(self):
+        """`seqs.group` states the prokaryote/eukaryote/chloroplast split outright. A run
+        without it spent six hours and five refuted claims rediscovering that its two
+        submissions were a 16S and an 18S library sharing no taxa."""
+        r = self._run("result = {'shape': list(seqs.shape), "
+                      "'groups': {str(k): int(v) for k, v in seqs['group'].value_counts().items()}, "
+                      "'seq_lens': [int(seqs['sequence'].str.len().min()), "
+                      "int(seqs['sequence'].str.len().max())]}")
+        assert r["ok"], r
+        assert r["result"]["groups"] == {"prokaryote": 414, "eukaryote": 317,
+                                         "chloroplast": 4}
+        assert r["result"]["seq_lens"] == [251, 428]
+
+    def test_precomputed_rank_tables_are_bound(self):
+        r = self._run("result = {k: list(v.shape) for k, v in ranks.items()}")
+        assert r["ok"], r
+        assert r["result"]["Genus"] == [63, 152]
+        assert set(r["result"]) == {"Domain", "Phylum", "Class", "Order", "Family", "Genus"}
+
+    def test_ranks_and_by_rank_agree_except_for_unclassified(self):
+        """Two ways to answer "how many genera" is exactly the shape of problem that
+        wasted a day. They agree on every shared taxon; `ranks` keeps an `unclassified`
+        column and by_rank drops those reads."""
+        r = self._run("pre, comp = ranks['Genus'], by_rank(counts, tax, 'Genus')\n"
+                      "shared = sorted(set(pre.columns) & set(comp.columns))\n"
+                      "result = {'only_pre': sorted(set(pre.columns) - set(comp.columns)), "
+                      "'only_comp': sorted(set(comp.columns) - set(pre.columns)), "
+                      "'agree': bool(np.allclose(pre[shared].values, comp[shared].values)), "
+                      "'reads_dropped_by_by_rank': int(pre.values.sum() - comp.values.sum())}")
+        assert r["ok"], r
+        assert r["result"]["only_pre"] == ["unclassified"]
+        assert r["result"]["only_comp"] == []
+        assert r["result"]["agree"]
+        assert r["result"]["reads_dropped_by_by_rank"] > 0
+
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
         r = self._run("result = 1 / 0")

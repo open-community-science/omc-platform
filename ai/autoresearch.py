@@ -854,7 +854,7 @@ _SANDBOX_NAMES = frozenset({
     "np", "pd", "counts", "props", "tax", "meta", "pdist", "squareform", "braycurtis",
     "entropy", "pearsonr", "spearmanr", "kruskal", "mannwhitneyu", "PCA",
     "fdr", "clr", "rarefy", "permanova", "alpha_diversity", "by_rank",
-    "tree", "faith_pd", "unifrac"})
+    "tree", "faith_pd", "unifrac", "seqs", "ranks"})
 
 def _result_fingerprint(res) -> str:
     """Stable digest of an analysis result, for spotting a repeat.
@@ -1440,8 +1440,15 @@ def by_rank(counts_df, tax_df, rank):
     produces a frame of the wrong shape rather than an error. One analyst produced a
     single-row frame three times running.
 
-    Unassigned ASVs are dropped rather than pooled into a phantom taxon. Returns
-    samples as ROWS, taxa as columns, in the same orientation as `counts`."""
+    Unassigned ASVs are DROPPED rather than pooled into a phantom taxon, so the result
+    is not a complete partition of the reads — at Genus on one dataset that silently
+    discards 4.4% of them. `ranks[rank]` is the pipeline's own aggregation of the WHOLE
+    table and keeps an `unclassified` column instead; the two agree exactly on every
+    shared taxon. Use `ranks` for the full table, `by_rank` once you have subset it, and
+    say which when the difference could matter — comparing R² across ranks compares
+    tables holding different amounts of data.
+
+    Returns samples as ROWS, taxa as columns, in the same orientation as `counts`."""
     if rank not in getattr(tax_df, "columns", []):
         raise ValueError(f"{rank!r} is not a rank in tax; available: "
                          f"{list(getattr(tax_df, 'columns', []))}")
@@ -1694,6 +1701,33 @@ try:
 except Exception:
     tree = None
 
+# Per-ASV facts, including the SEQUENCE and the pipeline's own prokaryote/eukaryote/
+# chloroplast call. That `group` column states the assay split outright; without it a run
+# spent six hours and five refuted claims rediscovering that its two submissions were a
+# 16S and an 18S library sharing no taxa.
+seqs = None
+try:
+    _a = _rj("asvs")
+    if _a:
+        seqs = pd.DataFrame(_a).set_index("id")
+        seqs = seqs.reindex(counts.columns) if counts is not None else seqs
+except Exception:
+    seqs = None
+
+# Counts already aggregated to each taxonomic rank by the pipeline — the canonical
+# version of what `by_rank` recomputes. Use these for the whole table; use `by_rank` when
+# you have subset the samples or ASVs first.
+ranks = {}
+try:
+    for _rk, _blk in (_rj("aggregated_counts") or {}).items():
+        _tx, _sm = _blk.get("taxa", []), _blk.get("samples", [])
+        _mm = np.zeros((len(_sm), len(_tx)))
+        for _row in _blk.get("data", []):
+            _mm[_row[0], _row[1]] = _row[2]
+        ranks[_rk] = pd.DataFrame(_mm, index=_sm, columns=_tx)
+except Exception:
+    ranks = {}
+
 # Items kept per container/list. The RESULT is what verification re-derives from,
 # so it keeps more than the model is shown (the parent re-caps for context economy).
 _CAP = int(os.environ.get("EXPLORER_RESULT_CAP", "200"))
@@ -1726,7 +1760,8 @@ _ns = dict(np=np, pd=pd, counts=counts, props=props, tax=tax, meta=meta,
            kruskal=kruskal, mannwhitneyu=mannwhitneyu, PCA=PCA,
            fdr=fdr, clr=clr, rarefy=rarefy, permanova=permanova,
            alpha_diversity=alpha_diversity, by_rank=by_rank,
-           tree=tree, faith_pd=faith_pd, unifrac=unifrac)
+           tree=tree, faith_pd=faith_pd, unifrac=unifrac,
+           seqs=seqs, ranks=ranks)
 try:
     import ast as _ast, io as _io, contextlib as _ctx
     _src = sys.stdin.read()
