@@ -33,6 +33,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libglpk-dev libgit2-dev libfontconfig1-dev libfreetype6-dev \
         libpng-dev libtiff5-dev libjpeg-dev libharfbuzz-dev libfribidi-dev \
         libgsl-dev libmpfr-dev cmake \
+        # Found the hard way, each by a compile that BiocManager then swallowed:
+        #   cairo.h  -> Cairo (phyloseq's plotting chain)
+        #   uv.h     -> fs
+        #   Error 127 in clarabel -> it is Rust-backed, reached via ANCOMBC -> CVXR
+        libcairo2-dev libx11-dev libxt-dev \
+        libuv1-dev \
+        cargo rustc \
     && rm -rf /var/lib/apt/lists/*
 
 # --- CRAN packages ------------------------------------------------------------------
