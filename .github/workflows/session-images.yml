@@ -77,10 +77,13 @@ jobs:
             if (length(miss)) stop("R packages missing: ", paste(miss, collapse=", "))
             cat("R analysis layer OK\n")'
           docker run --rm omc-microbio:latest python -c '
-          import importlib, sys
+          import sys
           need = ["skbio","statsmodels","networkx","Bio","umap","patsy","numpy","pandas","scipy"]
-          miss = [m for m in need if not importlib.util.find_spec(m)]
-          sys.exit("python packages missing: " + ", ".join(miss)) if miss else None
+          miss = []
+          for m in need:
+              try: __import__(m)
+              except ImportError: miss.append(m)
+          if miss: sys.exit("python packages missing: " + ", ".join(miss))
           print("python analysis layer OK")'
 
       - name: Build omc-session
