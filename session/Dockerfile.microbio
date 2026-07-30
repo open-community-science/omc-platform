@@ -17,18 +17,15 @@
 FROM python:3.12-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV R_VERSION_CODENAME=bookworm
 
-# --- R itself, from CRAN's own apt repo -------------------------------------------
-# Debian ships R 4.2.x; Bioconductor wants current, so use the CRAN backport.
+# --- R, from Debian itself ----------------------------------------------------------
+# python:3.12-slim is Debian 13 (trixie) now, which ships R 4.5.0 — recent enough for
+# current Bioconductor. An earlier version of this file added CRAN's apt repo to get a
+# newer R than bookworm's 4.2.x; that pinned the wrong codename AND fetched a key URL
+# that 404s, and it bought nothing. Debian's own R removes the whole class of failure:
+# no external key, no repo availability, no codename to drift.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates gnupg dirmngr wget \
-    && wget -qO- https://cloud.r-project.org/bin/linux/debian/marutter_pubkey.asc \
-        | gpg --dearmor -o /usr/share/keyrings/cran.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/cran.gpg] \
-        https://cloud.r-project.org/bin/linux/debian ${R_VERSION_CODENAME}-cran40/" \
-        > /etc/apt/sources.list.d/cran.list \
-    && apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
         r-base r-base-dev \
         # build deps for the compiled R packages below
         gfortran libblas-dev liblapack-dev \
