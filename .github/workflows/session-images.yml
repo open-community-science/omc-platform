@@ -1,0 +1,84 @@
+# Builds the two session images and publishes them to ghcr.
+#
+#   omc-microbio  R + vegan/phyloseq/DESeq2/ALDEx2/... plus the Python analysis stack
+#   omc-session   Chainlit/Marimo/viz, built FROM omc-microbio
+#
+# One job, plain `docker build`, because session/Dockerfile says `FROM omc-microbio:latest`
+# and that tag has to exist in the runner's local daemon when the second build starts.
+# buildx with push-on-build would not leave it there.
+name: session images
+
+on:
+  push:
+    paths:
+      - "session/Dockerfile"
+      - "session/Dockerfile.microbio"
+      - ".github/workflows/session-images.yml"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: open-community-science
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # R + Bioconductor is a large build; the default runner has ~14GB free and the
+      # preinstalled Android/dotnet trees are worth more than they cost to delete.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h / | tail -1
+
+      - name: Log in to ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build omc-microbio
+        run: |
+          docker build -f session/Dockerfile.microbio \
+            -t omc-microbio:latest \
+            -t $REGISTRY/$OWNER/omc-microbio:latest \
+            -t $REGISTRY/$OWNER/omc-microbio:${{ github.sha }} \
+            session/
+
+      # The image declares what it contains; the briefing tells analysts the same thing.
+      # Printing it here is how the two get to disagree loudly rather than silently.
+      - name: Show inventory
+        run: |
+          docker run --rm omc-microbio:latest \
+            sh -c 'R -q -e "cat(nrow(installed.packages()), \"R packages\n\")"; \
+                   head -40 /opt/omc/INVENTORY.txt'
+
+      - name: Verify the analysis layer imports
+        run: |
+          docker run --rm omc-microbio:latest Rscript -e '
+            for (p in c("vegan","betapart","phyloseq","DESeq2","ALDEx2","ANCOMBC","microbiome"))
+              stopifnot(requireNamespace(p, quietly=TRUE))
+            cat("R analysis layer OK\n")'
+          docker run --rm omc-microbio:latest python -c '
+          import skbio, statsmodels, networkx, Bio, umap, patsy, numpy, pandas, scipy
+          print("python analysis layer OK")'
+
+      - name: Build omc-session
+        run: |
+          docker build -f session/Dockerfile \
+            -t $REGISTRY/$OWNER/omc-session:latest \
+            -t $REGISTRY/$OWNER/omc-session:${{ github.sha }} \
+            session/
+
+      - name: Push
+        run: |
+          docker push --all-tags $REGISTRY/$OWNER/omc-microbio
+          docker push --all-tags $REGISTRY/$OWNER/omc-session
+          docker images --format '{{.Repository}}:{{.Tag}}  {{.Size}}' | grep omc-
