@@ -1,0 +1,88 @@
+# omc-microbio — the microbial-ecology analysis layer.
+#
+# Built as a BASE for omc-session (which adds Chainlit/Marimo/viz on top) and usable
+# standalone:  docker run --rm omc-microbio:latest Rscript -e 'library(vegan)'
+#
+# Why a base image rather than a second container: R needs a pile of system libraries
+# (libcurl, libxml2, libssl, gfortran, BLAS) that a `COPY --from` would not bring along.
+# Docker shares layers across containers on a host, so the size is paid once per host,
+# not once per session.
+#
+# The package list is not a guess — it is the analysis-stage subset of the tool ontology
+# in rec3141/mepipelines, which surveys what microbial-ecology papers actually compose.
+# Of its 259 tools, 199 are upstream (reads, assembly, binning) and irrelevant to a
+# sandbox that starts from an ASV table; most of the rest are suites, aligners needing
+# reference databases, the databases themselves, or desktop apps. What remains is below,
+# and it is overwhelmingly R — which is the empirical answer to "should we provide R".
+FROM python:3.12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV R_VERSION_CODENAME=bookworm
+
+# --- R itself, from CRAN's own apt repo -------------------------------------------
+# Debian ships R 4.2.x; Bioconductor wants current, so use the CRAN backport.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates gnupg dirmngr wget \
+    && wget -qO- https://cloud.r-project.org/bin/linux/debian/marutter_pubkey.asc \
+        | gpg --dearmor -o /usr/share/keyrings/cran.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/cran.gpg] \
+        https://cloud.r-project.org/bin/linux/debian ${R_VERSION_CODENAME}-cran40/" \
+        > /etc/apt/sources.list.d/cran.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        r-base r-base-dev \
+        # build deps for the compiled R packages below
+        gfortran libblas-dev liblapack-dev \
+        libcurl4-openssl-dev libssl-dev libxml2-dev \
+        libglpk-dev libgit2-dev libfontconfig1-dev libfreetype6-dev \
+        libpng-dev libtiff5-dev libjpeg-dev libharfbuzz-dev libfribidi-dev \
+        libgsl-dev libmpfr-dev cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- CRAN packages ------------------------------------------------------------------
+# vegan is the one that matters most: adonis2 IS the canonical PERMANOVA, and five
+# hand-rolled attempts in one run spanned four orders of magnitude before a helper was
+# supplied. betapart is the Baselga turnover/nestedness partition, hand-rolled wrong by
+# both an analyst and a reviewer in the same session.
+RUN R -q -e 'options(Ncpus=parallel::detectCores()); \
+    install.packages(c( \
+      "vegan", "betapart", "pairwiseAdonis", "igraph", "ape", "picante", \
+      "ggplot2", "ggpubr", "pheatmap", "RColorBrewer", "patchwork", \
+      "dplyr", "tidyr", "readr", "tibble", "data.table", \
+      "BiocManager", "remotes", "vctrs", "Matrix", "lme4", "glmmTMB" \
+    ), repos="https://cloud.r-project.org", clean=TRUE)' \
+ && R -q -e 'stopifnot(requireNamespace("vegan"), requireNamespace("betapart"))'
+
+# --- Bioconductor -------------------------------------------------------------------
+# phyloseq handles the counts/tax/meta/tree quadruple natively, which is most of what
+# analysts kept mis-aligning by hand. The differential-abundance set is the real gap:
+# compositional methods were never attempted correctly in any run so far.
+RUN R -q -e 'options(Ncpus=parallel::detectCores()); \
+    BiocManager::install(c( \
+      "phyloseq", "DESeq2", "edgeR", "limma", "ALDEx2", "ANCOMBC", \
+      "microbiome", "metagenomeSeq", "Maaslin2", "mia", "TreeSummarizedExperiment" \
+    ), ask=FALSE, update=FALSE)' \
+ && R -q -e 'stopifnot(requireNamespace("phyloseq"), requireNamespace("ALDEx2"))'
+
+# --- R packages that live on GitHub only --------------------------------------------
+RUN R -q -e 'remotes::install_github(c("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis", \
+                                       "david-barnett/microViz"), upgrade="never")' \
+ || echo "github R packages unavailable at build time — non-fatal"
+
+# --- Python analysis layer ----------------------------------------------------------
+# Matches ai/sandbox_packages.ALLOWED plus the plotting/stats the ontology names, so the
+# grantable list becomes "already here" rather than an install request.
+RUN pip install --no-cache-dir \
+        numpy pandas scipy scikit-learn \
+        scikit-bio statsmodels patsy networkx biopython umap-learn \
+        matplotlib plotly
+
+# A declared, checkable inventory. The briefing tells analysts what exists; this is what
+# it is telling them about, and `docker run omc-microbio cat /opt/omc/INVENTORY.txt`
+# keeps the two honest.
+RUN mkdir -p /opt/omc && \
+    { echo "# omc-microbio inventory"; \
+      R -q -e 'cat(paste(sort(rownames(installed.packages())), collapse="\n"))' \
+        2>/dev/null | sed '1d;$d'; \
+      echo "# python"; pip list --format=freeze; } > /opt/omc/INVENTORY.txt
+
+CMD ["R", "--version"]

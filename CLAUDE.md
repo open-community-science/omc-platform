@@ -250,7 +250,9 @@ Key customizations from defaults:
 
 ```bash
 # Build session image
-cd session && docker build -t omc-session:latest .
+cd session
+docker build -f Dockerfile.microbio -t omc-microbio:latest .   # R + vegan/phyloseq/... (base)
+docker build -t omc-session:latest .                           # Chainlit/Marimo on top
 
 # Set up isolated network (once, needs sudo for iptables)
 sudo session/setup-network.sh
@@ -365,7 +367,9 @@ sudo usermod -aG docker $USER   # run docker without sudo (re-login required)
 # Session network (once)
 sudo session/setup-network.sh   # creates omc-sessions bridge + iptables rules
 # Session image
-cd session && docker build -t omc-session:latest .
+cd session
+docker build -f Dockerfile.microbio -t omc-microbio:latest .   # R + vegan/phyloseq/... (base)
+docker build -t omc-session:latest .                           # Chainlit/Marimo on top
 ```
 
 ### Python Packages
@@ -504,7 +508,8 @@ To deploy on a new VM:
 4. `pip install -r portal/requirements.txt`
 5. Enable FUSE `user_allow_other` in `/etc/fuse.conf`
 6. Add deploy user to docker group: `sudo usermod -aG docker $USER`
-7. Build session image: `cd session && docker build -t omc-session:latest .`
+7. Build session images (microbio is the base, session builds on it):
+   `cd session && docker build -f Dockerfile.microbio -t omc-microbio:latest . && docker build -t omc-session:latest .`
 8. Run network setup: `sudo session/setup-network.sh`
 9. Create directories: `mkdir -p /data/sra_downloads /data/results /mnt/omc-sessions`
 10. Set up systemd services — portal must listen on `0.0.0.0:8002` with `--http httptools`
