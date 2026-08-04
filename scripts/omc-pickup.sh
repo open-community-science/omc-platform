@@ -27,6 +27,18 @@ STAGING_API="${OMC_STAGING_URL}/staging"
 # Which cluster is this? Alliance sets CC_CLUSTER (fir/nibi/…); fall back to host.
 OMC_CLUSTER="${OMC_CLUSTER:-${CC_CLUSTER:-$(hostname -s 2>/dev/null || echo unknown)}}"
 
+# Delete each Nextflow work dir once it has been archived to .sqsh. Work dirs are
+# by far the largest consumer of the scratch file quota — a single amplicon run
+# leaves ~70k inodes behind, so a batch of runs exhausts the 1M limit long before
+# it runs out of bytes. The archive is written first and the delete only happens
+# if mksquashfs succeeded, so this trades a re-extract step for the quota.
+#
+# Exported HERE and not in omc-pickup-loop.sh deliberately: the loop exports its
+# environment once at job start and then runs for seven days, so a variable added
+# there does nothing until the current loop job ends. This script is re-executed
+# every 300s, so an edit takes effect on the next cycle.
+export OMC_CLEANUP_WORKDIR="${OMC_CLEANUP_WORKDIR:-true}"
+
 # Push a status update back to arbutus
 push_status() {
     local slug="$1"
