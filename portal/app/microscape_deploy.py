@@ -265,7 +265,7 @@ async def deploy_submission(submission, user, visibility: str = "public") -> str
                 headers={
                     "Authorization": f"Bearer {prov['deploy_key']}",
                     "X-Microscape-Slug": submission.slug,
-                    "X-Microscape-Pipeline": "microscape-nf",
+                    "X-Microscape-Pipeline": "danaseq-illumina-amplicon",
                     "X-Microscape-Name": (submission.title or submission.slug)[:120],
                     "X-Microscape-Visibility": visibility,
                     "Content-Type": "application/gzip",
