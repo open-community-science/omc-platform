@@ -377,6 +377,13 @@ OMC_STAGING_URL="${{OMC_STAGING_URL:-}}"
 OMC_STAGING_KEY="${{OMC_STAGING_KEY:-}}"
 SLUG="{submission.slug}"
 
+# $extra is spliced into the JSON body verbatim, so it must be written with
+# plain double quotes. Backslash-escaping it (',\"job_id\":...') looks right
+# next to the escaping on the line below, but that one is inside double quotes
+# where bash unescapes it, while $extra is single-quoted and reaches curl with
+# the backslashes intact -- invalid JSON, a 500, and a status the portal never
+# receives. `|| true` then hides it, so runs finished silently and only the
+# pickup reconciler ever corrected them.
 push_status() {{
     local phase="$1"
     local extra="${{2:-}}"
@@ -393,7 +400,7 @@ cleanup() {{
     echo "Signal caught — marking job as failed"
     echo "failed" > ${{OUTPUT_DIR}}/.status
     echo 1 > ${{OUTPUT_DIR}}/.completed
-    push_status "failed" ',\\"reason\\":\\"Signal caught\\"'
+    push_status "failed" ',"reason":"Signal caught"'
     exit 1
 }}
 trap cleanup SIGTERM SIGUSR1 SIGUSR2
@@ -412,12 +419,12 @@ if [ "$NUM_FILES" -eq 0 ]; then
     echo "ERROR: No fastq files found in ${{INPUT_DIR}}/fastq/"
     echo "failed" > ${{OUTPUT_DIR}}/.status
     echo 1 > ${{OUTPUT_DIR}}/.completed
-    push_status "failed" ',\\"reason\\":\\"No fastq files\\"'
+    push_status "failed" ',"reason":"No fastq files"'
     exit 1
 fi
 
 echo "running" > ${{OUTPUT_DIR}}/.status
-push_status "running" ',\\"job_id\\":\\"'$SLURM_JOB_ID'\\",\\"slurm_state\\":\\"RUNNING\\"'
+push_status "running" ',"job_id":"'$SLURM_JOB_ID'","slurm_state":"RUNNING"'
 
 echo "=== OMC Pipeline: {submission.pipeline.value} ==="
 echo "Accession: {accession}"
@@ -448,7 +455,7 @@ fi
 echo $PIPELINE_EXIT > ${{OUTPUT_DIR}}/.completed
 if [ $PIPELINE_EXIT -eq 0 ]; then
     echo "completed" > ${{OUTPUT_DIR}}/.status
-    push_status "completed" ',\\"exit_code\\":\\"0\\"'
+    push_status "completed" ',"exit_code":"0"'
 
     # Archive results and work dir to squashfs (reduces inode footprint)
     echo "=== Archiving to squashfs ==="
@@ -487,14 +494,14 @@ if [ $PIPELINE_EXIT -eq 0 ]; then
         if [ $UPLOAD_RC -eq 0 ]; then
             echo "Upload complete"
             touch ${{OUTPUT_DIR}}/.transferred
-            push_status "transferred" ',\\"results_format\\":\\"archived\\"'
+            push_status "transferred" ',"results_format":"archived"'
         else
             echo "WARNING: Upload failed (exit $UPLOAD_RC) — results remain on scratch"
         fi
     fi
 else
     echo "failed" > ${{OUTPUT_DIR}}/.status
-    push_status "failed" ',\\"exit_code\\":\\"'$PIPELINE_EXIT'\\",\\"reason\\":\\"Pipeline exited with code '$PIPELINE_EXIT'\\"'
+    push_status "failed" ',"exit_code":"'$PIPELINE_EXIT'","reason":"Pipeline exited with code '$PIPELINE_EXIT'"'
 fi
 """
 
