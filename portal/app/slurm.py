@@ -158,7 +158,7 @@ def _build_pipeline_cmd(submission: Submission) -> str:
     OMC's user-facing pipelines compose danaSeq building blocks:
       NANOPORE_MAG (Nanopore Metagenome) = nanopore_assembly -> mag_analysis
       ILLUMINA_MAG (Illumina Metagenome) = illumina_assembly -> mag_analysis
-      MICROSCAPE   (Illumina Amplicons)  = microscape-nf (self-contained SIF)
+      MICROSCAPE   (Illumina Amplicons)  = danaSeq/illumina_amplicon (self-contained SIF)
 
     The returned block is executed inside a `set -e` subshell, so any step
     failing aborts the pipeline with its exit code. Uses ${INPUT_DIR},
@@ -173,7 +173,7 @@ def _build_pipeline_cmd(submission: Submission) -> str:
     illu = "${OMC_GENICE}/danaSeq/illumina_assembly"
     mag = "${OMC_GENICE}/danaSeq/mag_analysis"
     db_dir = "${OMC_DB_DIR}"
-    micro_sif = "${OMC_GENICE}/microscape-nf.sif"
+    micro_sif = "${OMC_GENICE}/danaseq-illumina-amplicon.sif"
 
     if pipeline == PipelineType.NANOPORE_MAG:
         # Single co-assembly: results/assembly/assembly.fasta + results/mapping/depths.txt
@@ -231,7 +231,7 @@ done
 [ "$found" -eq 1 ] || {{ echo "ERROR: assembly produced no *.dedupe.fasta"; exit 1; }}"""
 
     if pipeline == PipelineType.MICROSCAPE:
-        # microscape-nf runs entirely from its SIF (pipeline code baked in at /pipeline).
+        # The amplicon stage runs entirely from its SIF (code baked in at /pipeline).
         # The image bakes its Nextflow framework jar and, via the entrypoint, forces the
         # CA bundle to the Ubuntu path, a writable NXF_HOME, and the legacy syntax parser.
         # We still set the CA env here defensively (an older SIF may lack the entrypoint fix).
