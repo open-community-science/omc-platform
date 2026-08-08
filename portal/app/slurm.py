@@ -938,13 +938,17 @@ async def poll_all_running_jobs(db_session) -> list:
                 # failed. Such an archive has no viz/seqtab; mark it FAILED
                 # instead of RESULTS_READY so it doesn't read as done.
                 if sub.pipeline == PipelineType.MICROSCAPE:
-                    from .microscape_deploy import results_have_output
+                    from .microscape_deploy import results_have_output, diagnose_empty_run
                     if not results_have_output(sub.slug):
                         sub.status = SubmissionStatus.FAILED
-                        sub.error_message = (
-                            "Pipeline finished but produced no results "
-                            "(all samples lost their reads — check primers)."
-                        )
+                        # Read the pipeline's own stats rather than guessing at a
+                        # cause: "check primers" sent two investigations at the
+                        # primers when the loss was entirely at the quality filter.
+                        try:
+                            sub.error_message = diagnose_empty_run(sub.slug)
+                        except Exception:
+                            logger.exception("Submission %s: empty-run diagnosis failed", sub.slug)
+                            sub.error_message = "Pipeline finished but produced no results."
                         logger.warning("Submission %s transferred but empty — marked FAILED", sub.slug)
                         completed.append(sub.slug)
                         continue
