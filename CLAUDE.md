@@ -303,7 +303,10 @@ relay channels                     # list active channels
 
 ## Deployment
 
-- **Production:** https://microbial.opencommunity.science — Arbutus VM (`206.12.96.115`)
+- **Production:** https://microbial.opencommunity.science — Arbutus VM (`134.87.12.190`)
+  - Runs on the **new** Arbutus cloud (`arbutus.alliancecan.ca`), project `def-rec3141-dev`.
+    Migrated 2026-08-07 from the legacy cloud (`206.12.96.115`), which is decommissioned in 2026.
+  - SSH: `ssh arbutus` (key `~/.ssh/arbutus-new`). The legacy VM is `arbutus-legacy`.
 - **Quick deploy:** `rsync` changed files to `arbutus:/opt/omc-platform/`, then `sudo systemctl restart omc-portal`. Exclude `.venv`, `.env`, `omc.db`.
 - **Full deploy:** `./deploy.sh` — installs packages, clones repo, sets up systemd + nginx
 - **HPC account:** `def-rec3141_cpu` on `fir.alliancecan.ca` — don't specify partition, let scheduler auto-route

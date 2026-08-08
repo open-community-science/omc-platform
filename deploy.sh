@@ -3,7 +3,7 @@
 # Usage: ./deploy.sh [host] [user]
 set -euo pipefail
 
-HOST="${1:-206.12.96.115}"
+HOST="${1:-134.87.12.190}"
 USER="${2:-ubuntu}"
 REMOTE="${USER}@${HOST}"
 DOMAIN="microbial.opencommunity.science"

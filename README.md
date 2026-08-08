@@ -140,12 +140,12 @@ python -m pytest tests/test_e2e_workflow.py -v --timeout=300
 
 ## Deployment
 
-**Production:** https://microbial.opencommunity.science (Arbutus cloud VM)
+**Production:** https://microbial.opencommunity.science (Arbutus cloud VM, `134.87.12.190`)
 
 ```bash
 ./deploy.sh              # deploy to Arbutus VM
 # After DNS setup:
-ssh omc2 sudo certbot --nginx -d microbial.opencommunity.science
+ssh arbutus sudo certbot --nginx -d microbial.opencommunity.science
 ```
 
 **SLURM:** Uses OpenSSH ControlMaster for Duo MFA bypass on Alliance clusters. Authenticate once:
