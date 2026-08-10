@@ -230,9 +230,85 @@ def _data_source() -> DirDataSource:
     return DirDataSource(DATA_DIR, study=STUDY_GROUNDED or {}, overview=load_fixture())
 
 
-def _executor() -> SubprocessExecutor:
-    """The DEV/offline sandbox: a resource-limited subprocess over the same data dir."""
-    return SubprocessExecutor(DATA_DIR)
+# ── Sandbox ───────────────────────────────────────────────────────────────────
+# The default is a child process, which is a STAND-IN and not a sandbox: it runs on this
+# interpreter, with this environment, on this filesystem. EXPLORER_EXECUTOR=container
+# runs the analyst's code in the image production actually uses (omc-session — R with
+# vegan/phyloseq/DESeq2/ALDEx2 layered over the Python stack) through the SAME
+# ContainerExecutor the portal drives, so a bench run exercises the production sandbox
+# without the portal, its database, or a launched author session.
+EXECUTOR = os.environ.get("EXPLORER_EXECUTOR", "subprocess")
+CONTAINER_IMAGE = os.environ.get("EXPLORER_CONTAINER_IMAGE", "omc-session:latest")
+CONTAINER = f"omc-session-{DATA_DIR.name}"       # the name ContainerExecutor derives
+# Seconds ONE analysis may run. Nothing passes a per-call timeout, so the executor
+# default is the whole budget — and it silently differed by sandbox (30s subprocess,
+# 60s container). A timeout reaches the analyst as a bare failure it cannot tell from
+# bad code, so an analysis that merely needed longer reads as one that was wrong.
+# Production's equivalent is AUTORESEARCH_MAX_ANALYSIS_S.
+ANALYSIS_S = int(os.environ.get("EXPLORER_ANALYSIS_S", "60"))
+
+
+def _ensure_container() -> str:
+    """Start — or reuse — the container ContainerExecutor talks to.
+
+    Mirrors what sessions.py gives a real session (data read-only at /data/viz, 2g/1cpu,
+    no network) minus Chainlit/Marimo, which analysis never touches: the entrypoint is
+    replaced with a sleep so the container is nothing but a place to `docker exec` into.
+    Reused when already up, so a series of bench runs pays the start cost once."""
+    up = subprocess.run(["docker", "ps", "-q", "-f", f"name=^{CONTAINER}$"],
+                        capture_output=True, text=True).stdout.strip()
+    if up:
+        return CONTAINER
+    subprocess.run(["docker", "rm", "-f", CONTAINER], capture_output=True)
+    r = subprocess.run(
+        ["docker", "run", "-d", "--name", CONTAINER,
+         # DATA_DIR holds the viz JSONs directly, which is where /data/viz points.
+         "-v", f"{DATA_DIR}:/data/viz:ro",
+         "--memory", "2g", "--cpus", "1", "--network", "none",
+         "--entrypoint", "sleep", CONTAINER_IMAGE, "infinity"],
+        capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError(f"could not start {CONTAINER}: {(r.stderr or '').strip()[:300]}")
+    return CONTAINER
+
+
+def _container_is_available(import_name: str) -> bool:
+    """Is `import_name` importable INSIDE the sandbox? Only allowlisted names are ever
+    asked, so nothing a model wrote reaches the code that runs in the container."""
+    if import_name not in GRANTABLE_PACKAGES:
+        return False
+    r = subprocess.run(
+        ["docker", "exec", CONTAINER, "python3", "-c",
+         f"import importlib.util, sys; sys.exit(0 if importlib.util.find_spec({import_name!r}) else 1)"],
+        capture_output=True, timeout=60)
+    return r.returncode == 0
+
+
+def _container_install(import_name: str) -> dict:
+    """`sandbox_packages.install`, but into the container instead of this interpreter.
+    Same discipline: the model's string is a lookup key, never a command-line argument,
+    and the PyPI name comes from the allowlist."""
+    name = (import_name or "").strip()
+    if name not in GRANTABLE_PACKAGES:
+        return {"installed": False, "available": False,
+                "reason": "not on the sandbox allowlist"}
+    if _container_is_available(name):
+        return {"installed": False, "available": True, "reason": "already available"}
+    dist = GRANTABLE_PACKAGES[name]              # from the allowlist, not the request
+    r = subprocess.run(["docker", "exec", CONTAINER, "pip", "install", "--quiet",
+                        "--no-input", dist], capture_output=True, text=True, timeout=600)
+    ok = r.returncode == 0 and _container_is_available(name)
+    return {"installed": ok, "available": ok,
+            "reason": "installed" if ok else (r.stderr or r.stdout or "install failed").strip()[:200]}
+
+
+def _executor():
+    """The sandbox the analyst's code runs in — a child process, or the real container."""
+    if EXECUTOR == "container":
+        from portal.app.autoresearch_executor import ContainerExecutor
+        _ensure_container()
+        return ContainerExecutor(DATA_DIR.name, default_timeout=ANALYSIS_S)
+    return SubprocessExecutor(DATA_DIR, default_timeout=ANALYSIS_S)
 
 
 _ANNOUNCED: set = set()      # agenda ids already printed, so epoch 2 lists only its own
@@ -322,17 +398,21 @@ def _make_researcher(llm: LLMClient) -> Autoresearcher:
                         adjudicate_model=ADJUDICATE_MODEL,
                         max_steps=MAX_STEPS, max_followups=MAX_FOLLOWUPS,
                         max_tokens=MAX_TOKENS,
-                        # The bench sandbox is this interpreter, so a grantable request
-                        # can simply be granted. Production's is a container image and
-                        # would wire something else here, or nothing.
-                        package_installer=install_package)
+                        # A grantable request is granted wherever the sandbox actually
+                        # is: this interpreter for the subprocess stand-in, the running
+                        # container otherwise. Installing on the host while the code
+                        # runs in the container would report success the analyst can't use.
+                        package_installer=(_container_install if EXECUTOR == "container"
+                                           else install_package))
     ar.on_progress = _progress_for(ar)      # needs the researcher it reports on
     ar.grantable_packages = tuple(sorted(GRANTABLE_PACKAGES))
-    # The bench sandbox is this interpreter, so anything a previous run installed is
-    # still here. Record what was already present rather than pretending each run
-    # starts clean — several of these are load-bearing elsewhere and must not be removed.
+    # Anything a previous run installed is still there — the interpreter persists between
+    # bench runs, and so does the container while it is up. Record what was already
+    # present rather than pretending each run starts clean; several of these are
+    # load-bearing elsewhere and must not be removed.
+    _available = _container_is_available if EXECUTOR == "container" else is_package_available
     ar.preinstalled_packages = tuple(sorted(
-        p for p in GRANTABLE_PACKAGES if is_package_available(p)))
+        p for p in GRANTABLE_PACKAGES if _available(p)))
     return ar
 
 
@@ -406,7 +486,7 @@ async def _reverify_async(llm):
     done = sum(a["status"] == "done" for a in ar.agenda)
     completed = bool(ar.agenda) and all(a["status"] == "done" for a in ar.agenda)
     _write_ledger(ar, completed)
-    verified_claims = [c for c in ar.ledger if c["verdict"] in ("verified", "replicated")]
+    verified_claims = [c for c in ar.ledger if c.get("verdict") in ("verified", "replicated")]
     verified = len(verified_claims)
     status = "complete" if completed else f"INCOMPLETE ({done}/{len(ar.agenda)} investigations)"
     _write_dag(ar, verified, status)
@@ -422,8 +502,9 @@ async def _reverify_async(llm):
             f"{done}/{len(ar.agenda)} investigations_\n\n{text}\n")
     print(f"re-verified {verified}/{len(ar.ledger)} claims (offline)")
     for c in ar.ledger:
-        if c["verdict"] != "verified":
-            print(f"    [{c['verdict']:12}] {c['id']} {c['statement'][:60]}")
+        if c.get("verdict") != "verified":
+            # None when the judge failed rather than graded — same guard as the fresh run.
+            print(f"    [{str(c.get('verdict') or 'ungraded'):12}] {c['id']} {c['statement'][:60]}")
         elif c.get("method") and c["method"] != "direct":
             print(f"    [verified:{c['method']:14}] {c['id']} {c['statement'][:52]}")
 
@@ -460,6 +541,19 @@ async def _main_async(llm: LLMClient):
         await _run_independent_rounds(ar)
     done = sum(a["status"] == "done" for a in ar.agenda)
     outstanding = [a for a in ar.agenda if a["status"] != "done"]
+    verified = [c for c in ar.ledger if c.get("verdict") in ("verified", "replicated")]
+    status = "complete" if completed else f"INCOMPLETE ({done}/{len(ar.agenda)} investigations)"
+    banner = "" if completed else (
+        f"> ⚠️ PRELIMINARY — exploration stopped with {len(outstanding)} of {len(ar.agenda)} "
+        f"investigations outstanding ({', '.join(a['id'] for a in outstanding)}); "
+        f"these Results are partial.\n\n")
+    # One atomic snapshot: ledger, DAG, and prose written from the SAME run state.
+    # BEFORE the summary below: these lines are the whole product of the run, and
+    # printing it is not worth risking it. A formatting error in a progress line has
+    # twice now destroyed the output of a run that had already finished the work.
+    _write_ledger(ar, completed)
+    _write_dag(ar, len(verified), status)
+
     print(f"\n  agenda ({done}/{len(ar.agenda)} investigations done"
           f"{'' if completed else f' — INCOMPLETE, {len(outstanding)} outstanding'}):")
     for a in ar.agenda:
@@ -467,17 +561,10 @@ async def _main_async(llm: LLMClient):
         print(f"    {tag} [{a['status']}] {a['id']}: {a['question'][:72]}")
     print(f"\n  {len(ar.ledger)} claims, {len(ar.computations)} computations in {time.time()-t0:.0f}s")
     for c in ar.ledger:
-        print(f"    [{c.get('verdict'):12}|{c.get('kind','?')[:7]:7}] {c['statement'][:60]}  (={c['value']})")
-
-    verified = [c for c in ar.ledger if c["verdict"] in ("verified", "replicated")]
-    status = "complete" if completed else f"INCOMPLETE ({done}/{len(ar.agenda)} investigations)"
-    banner = "" if completed else (
-        f"> ⚠️ PRELIMINARY — exploration stopped with {len(outstanding)} of {len(ar.agenda)} "
-        f"investigations outstanding ({', '.join(a['id'] for a in outstanding)}); "
-        f"these Results are partial.\n\n")
-    # One atomic snapshot: ledger, DAG, and prose written from the SAME run state.
-    _write_ledger(ar, completed)
-    _write_dag(ar, len(verified), status)
+        # `or "ungraded"`: a judge that fails leaves the verdict None on purpose, and
+        # `{None:12}` is a TypeError (see the same guard in _run_independent_rounds).
+        print(f"    [{str(c.get('verdict') or 'ungraded'):12}|{c.get('kind','?')[:7]:7}] "
+              f"{c['statement'][:60]}  (={c['value']})")
 
     print(f"\n=== WRITE (verified claims only, by {MODEL}) ===")
     _switch_model(MODEL, "write")   # the writer is the draft model, not the judge
