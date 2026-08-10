@@ -1,8 +1,9 @@
 """Test LLM client with local LM Studio."""
+from pathlib import Path
 import sys
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from ai.llm_client import get_client, chat, multi_turn, _strip_think
 
 pytestmark = pytest.mark.ai

@@ -1,10 +1,15 @@
 """Submission CRUD with real accession data."""
+import os
 import asyncio
 import httpx
 import pytest
 
-BASE = "http://127.0.0.1:8002"
+BASE = os.environ.get("OMC_TEST_BASE_URL", "http://127.0.0.1:8002")
 
+
+# Drives a live portal over HTTP: skipped unless a dev instance is actually
+# there (see tests/conftest.py).
+pytestmark = pytest.mark.live_server
 
 @pytest.fixture
 def auth_client():

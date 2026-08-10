@@ -1,8 +1,9 @@
 """Test AI author interview with real LM Studio inference."""
+from pathlib import Path
 import sys
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from ai.author_interview import start_interview, conduct_interview_turn
 
 pytestmark = pytest.mark.ai

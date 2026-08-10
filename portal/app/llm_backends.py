@@ -13,6 +13,7 @@ import time
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from .config import get_settings
 from .crypto import decrypt_value
@@ -114,10 +115,21 @@ async def free_default_model(api_key: str) -> str | None:
 
 
 async def get_site_config(key: str) -> str | None:
-    """Read a single site_config value."""
-    async with async_session() as db:
-        row = (await db.execute(select(SiteConfig).where(SiteConfig.key == key))).scalar_one_or_none()
-        return row.value if row else None
+    """Read a single site_config value, or None if it isn't set or readable.
+
+    Every site_config entry is an *optional* admin preference, and resolve_llm()
+    is on the path of every AI call. A DB that can't answer — a fresh install
+    whose migrations haven't created `site_config` yet, or a test harness with a
+    bare schema — must therefore read as "unset" and let the normal fallback
+    chain take over, not raise and take down LLM resolution entirely.
+    """
+    try:
+        async with async_session() as db:
+            row = (await db.execute(select(SiteConfig).where(SiteConfig.key == key))).scalar_one_or_none()
+            return row.value if row else None
+    except SQLAlchemyError as e:
+        logger.debug("site_config[%s] unavailable, treating as unset: %s", key, e)
+        return None
 
 
 async def set_site_config(key: str, value: str | None) -> None:
@@ -221,14 +233,32 @@ async def resolve_llm(user: User | None) -> dict:
         }
 
     async def _local() -> dict:
-        # Honour any model the local server actually serves — provider validity is
-        # NOT inferable from a "/" in the id (e.g. 'codeqwen3-14b', 'gpt-oss-20b'
-        # are valid local ids). Fall back only when empty, a hosted ':free' id, or
-        # the saved id is no longer served (issue #32).
-        model = chosen_model
+        # The local server holds ONE model in memory at a time and swapping it
+        # per request does not work, so every author shares whatever is loaded.
+        # An admin's pick is therefore authoritative, not merely a default: if it
+        # only seeded the per-user choice, one user's saved id would ask the
+        # server for a model it cannot switch to, and their work would silently
+        # come from a different model than the settings page shows.
         available = await list_local_models()
-        if not model or model.endswith(":free") or (available and model not in available):
-            model = await recommended_local_model(available)
+        pinned = await get_site_config(SITE_LOCAL_MODEL)
+
+        if pinned and (not available or pinned in available):
+            # Trust the pin when the model list is unreadable too — an admin who
+            # set it knows what is loaded better than an unreachable /models.
+            model = pinned
+        else:
+            if pinned:
+                logger.warning(
+                    "Site local model %r is not being served (%d model(s) "
+                    "available); falling back", pinned, len(available),
+                )
+            # No pin: honour any model the server actually serves. Provider
+            # validity is NOT inferable from a "/" in the id (e.g.
+            # 'codeqwen3-14b', 'gpt-oss-20b' are valid local ids). Fall back only
+            # when empty, a hosted ':free' id, or no longer served (issue #32).
+            model = chosen_model
+            if not model or model.endswith(":free") or (available and model not in available):
+                model = await recommended_local_model(available)
         return {
             "backend": BACKEND_LOCAL, "base_url": settings.llm_base_url,
             "api_key": settings.llm_api_key, "model": model,

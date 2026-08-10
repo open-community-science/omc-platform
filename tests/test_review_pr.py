@@ -1,8 +1,9 @@
 """Test review agents produce PR-ready markdown output."""
+from pathlib import Path
 import sys
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def test_format_review_as_markdown():

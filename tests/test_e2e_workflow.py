@@ -3,14 +3,19 @@
 Tests the complete pipeline without HPC/SLURM (dev mode) and without
 GitHub API (no token configured). Validates all internal data flows.
 """
+from pathlib import Path
 import sys
 import re
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 pytestmark = pytest.mark.ai
 
+
+# Drives a live portal over HTTP: skipped unless a dev instance is actually
+# there (see tests/conftest.py).
+pytestmark = pytest.mark.live_server
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(300)

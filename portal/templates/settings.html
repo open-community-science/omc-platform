@@ -56,7 +56,9 @@
                            {% if llm_backend == 'local' %}checked{% endif %}
                            {% if not local_available %}disabled{% endif %}>
                     <span><strong>Local model</strong> — runs on the platform's own hardware. Free, private, no account needed.
-                    {% if not local_available %}<span class="muted">(offline right now)</span>{% endif %}</span>
+                    {% if not local_available %}<span class="muted">(offline right now)</span>
+                    {% elif local_pinned %}<br><small class="muted">Uses <code>{{ local_pinned }}</code>, set by the platform — the local server holds one model at a time, so this isn't per-user.</small>
+                    {% endif %}</span>
                 </label>
 
                 <label class="llm-opt {% if not admin_key_available %}disabled{% endif %}" data-src="admin">

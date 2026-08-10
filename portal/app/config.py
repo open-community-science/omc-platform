@@ -124,13 +124,16 @@ class Settings(BaseSettings):
     # user-facing pipelines compose them:
     #   Nanopore Metagenome (NANOPORE_MAG) = nanopore_assembly -> mag_analysis
     #   Illumina Metagenome (ILLUMINA_MAG) = illumina_assembly -> mag_analysis
-    #   Illumina Amplicons  (MICROSCAPE)   = microscape-nf (runs from its SIF)
+    #   Illumina Amplicons  (MICROSCAPE)   = illumina_amplicon (runs from its SIF)
     pipeline_base: str = "/home/rec3141/GENICE/danaSeq"
     pipeline_nanopore_assembly: str = "/home/rec3141/GENICE/danaSeq/nanopore_assembly"
     pipeline_illumina_assembly: str = "/home/rec3141/GENICE/danaSeq/illumina_assembly"
     pipeline_mag_analysis: str = "/home/rec3141/GENICE/danaSeq/mag_analysis"
-    # microscape ships as a self-contained SIF (pipeline code baked into the image)
-    microscape_sif: str = "/home/rec3141/GENICE/microscape-nf.sif"
+    # The amplicon stage ships as a self-contained SIF (pipeline code baked into
+    # the image at /pipeline). It was its own repo, microscape-nf, until that
+    # consolidated into danaSeq as the illumina_amplicon stage; the SIF is built
+    # from ghcr.io/rec3141/danaseq-illumina-amplicon.
+    microscape_sif: str = "/home/rec3141/GENICE/danaseq-illumina-amplicon.sif"
     # microscape taxonomy reference DB(s), format "name:path:Level1,Level2,...".
     # REQUIRED for output: the taxonomy → renormalize → BUILD_VIZ branch (which
     # produces the viz/ folder) is gated on --ref_databases. SILVA SSU covers
@@ -147,7 +150,7 @@ class Settings(BaseSettings):
     # the script reads them as ${OMC_SCRATCH}/${OMC_GENICE}/${OMC_DB_DIR} so the
     # pickup on any cluster can override them (fir, nibi, …) without regenerating.
     hpc_scratch: str = "/home/rec3141/scratch"
-    hpc_genice_dir: str = "/home/rec3141/GENICE"   # holds danaSeq + microscape-nf.sif
+    hpc_genice_dir: str = "/home/rec3141/GENICE"   # holds danaSeq + the amplicon SIF
     hpc_db_dir: str = "/home/rec3141/scratch/databases"
     results_path: str = "/home/rec3141/scratch/omc_results"
 

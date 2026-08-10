@@ -1,11 +1,28 @@
-"""Test pipeline output parser with real data from /data/project_cyanomag."""
+"""Test pipeline output parser against a real nanopore-MAG results tree.
+
+These assert on a specific local dataset rather than a checked-in fixture, so
+they only run where that dataset exists. Point OMC_TEST_RESULTS at an equivalent
+results directory to run them elsewhere; otherwise the module skips (previously
+it failed with KeyError on every parser, which read as broken code rather than
+absent data).
+"""
+import os
 import sys
 import pytest
 from pathlib import Path
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-RESULTS = Path("/data/project_cyanomag/results/nanopore_mag_microcystis")
+RESULTS = Path(os.environ.get(
+    "OMC_TEST_RESULTS",
+    "/data/project_cyanomag/results/nanopore_mag_microcystis",
+))
+
+pytestmark = pytest.mark.skipif(
+    not RESULTS.is_dir(),
+    reason=f"pipeline results dataset not present at {RESULTS} "
+           "(set OMC_TEST_RESULTS to a nanopore-MAG results dir to run these)",
+)
 
 
 def test_parse_checkm2():

@@ -1,12 +1,14 @@
 """Test PubMed search and citation resolution end-to-end."""
+from pathlib import Path
 import sys
 import asyncio
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 @pytest.mark.asyncio
+@pytest.mark.network
 @pytest.mark.timeout(30)
 async def test_pubmed_search():
     """Direct PubMed E-utilities search returns structured metadata."""
@@ -48,10 +50,18 @@ async def test_resolve_citations_with_pubmed():
             "pmid": "12345678",
         }]
 
+    # Abstracts are stubbed as absent so the claim-verification gate (#22)
+    # short-circuits to "unverifiable" without an efetch or a verifier call.
+    # This test is about resolution end-to-end; the gate has its own coverage in
+    # tests/test_citation_verification.py.
+    async def mock_fetch_abstracts(pmids, cache=None):
+        return {}
+
     updated, bibliography = await resolve_citations(
         sections,
         pipeline_type="nanopore_mag",
         search_fn=mock_search,
+        fetch_abstracts_fn=mock_fetch_abstracts,
     )
 
     # All [CITE] should be replaced

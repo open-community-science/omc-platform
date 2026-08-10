@@ -5,10 +5,11 @@ mock search callables stand in for PubMed, and the LLM-dependent steps
 (query generation / refinement / selection) are pointed at a fast-fail address
 so they degrade gracefully to their non-LLM fallbacks.
 """
+from pathlib import Path
 import sys
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Fast-fail LLM endpoint: nothing listens here, so LLM calls raise immediately
 # and the resolver falls back to its deterministic paths.

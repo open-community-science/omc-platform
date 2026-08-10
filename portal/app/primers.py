@@ -135,6 +135,50 @@ def _load_vendored_primers() -> list[dict]:
     return out
 
 
+# A bare marker name is ambiguous across research communities: "16S" is the
+# prokaryotic SSU rRNA to a microbial ecologist and the mitochondrial LSU rRNA
+# (rrnL / mt-rnr2) to a zoologist barcoding animals, and "ITS" is fungal here but
+# plant elsewhere. Anything reporting an assay therefore has to say which gene it
+# means, so every entry carries the lineage its primers actually target rather
+# than leaving a reader — or a model writing Methods — to assume.
+_GENE_LINEAGE = {
+    "16S": ("16S rRNA", "Bacteria/Archaea"),
+    "18S": ("18S rRNA", "Eukaryota"),
+    "ITS": ("ITS", "Fungi"),
+}
+
+
+def _split_region(label: str | None) -> tuple[str | None, str | None]:
+    """Split a region label into (marker, sub-region).
+
+    "16S V3-V4" -> ("16S", "V3-V4");  "ITS1" -> ("ITS", "1");  "18S" -> ("18S", None)
+    """
+    text = (label or "").strip()
+    if not text:
+        return None, None
+    upper = text.upper()
+    if "ITS" in upper:
+        # "ITS1", "ITS2", "fungal ITS2" — the digit is the spacer, not a V-region.
+        token = next(t for t in text.split() if "ITS" in t.upper())
+        return "ITS", (token.upper().replace("ITS", "").strip() or None)
+    marker, _, rest = text.partition(" ")
+    return marker, (rest.strip() or None)
+
+
+def _enrich(entry: dict) -> dict:
+    """Add gene / lineage / sub-region alongside the collapsed `region` label."""
+    marker, sub = _split_region(entry.get("region"))
+    gene, lineage = _GENE_LINEAGE.get((marker or "").upper(), (marker, None))
+    out = dict(entry)
+    if gene:
+        out["gene"] = gene
+    if lineage:
+        out["lineage"] = lineage
+    if sub:
+        out["sub_region"] = sub
+    return out
+
+
 def _build_primer_db() -> list[dict]:
     """Core (canonical, verified) primers first, then vendored ones deduped by
     sequence — so a pair we curated keeps its clean name over any FMBN variant."""
@@ -144,11 +188,57 @@ def _build_primer_db() -> list[dict]:
         if key in seen:
             continue
         seen.add(key)
-        db.append(p)
+        db.append(_enrich(p))
     return db
 
 
 PRIMER_DB = _build_primer_db()
+
+
+def describe_pair(fwd_name: str | None, rev_name: str | None = None) -> dict | None:
+    """Interpret an observed primer pair: which gene, whose lineage, what region.
+
+    This is the OMC half of assay provenance (issue #57). The pipeline reports
+    only what it can observe — that adapter `341Fv3` matched these reads — because
+    a primer FASTA carries nothing but the name (and cutadapt truncates headers at
+    whitespace, so it cannot be annotated into the log either). The curated table
+    here is what turns that name into "bacterial/archaeal 16S rRNA, V3-V4".
+
+    Matching prefers the exact pair, then the forward name alone, then the
+    reverse. Returns None when nothing matches, and omits `region` when the pair
+    resolves to conflicting sub-regions — an unknown assay must read as unknown
+    rather than as a confident guess.
+    """
+    fwd = (fwd_name or "").strip()
+    rev = (rev_name or "").strip()
+    if not fwd and not rev:
+        return None
+
+    def _match(pred):
+        return [p for p in PRIMER_DB if pred(p)]
+
+    hits = []
+    if fwd and rev:
+        hits = _match(lambda p: p.get("name") == fwd and p.get("rev_name") == rev)
+    if not hits and fwd:
+        hits = _match(lambda p: p.get("name") == fwd)
+    if not hits and rev:
+        hits = _match(lambda p: p.get("rev_name") == rev)
+    if not hits:
+        return None
+
+    genes = {p["gene"] for p in hits if p.get("gene")}
+    if len(genes) != 1:
+        return None  # the name is ambiguous across genes — say nothing
+
+    out: dict = {"gene": genes.pop()}
+    lineages = {p["lineage"] for p in hits if p.get("lineage")}
+    if len(lineages) == 1:
+        out["lineage"] = lineages.pop()
+    subs = {p["sub_region"] for p in hits if p.get("sub_region")}
+    if len(subs) == 1:
+        out["region"] = subs.pop()
+    return out
 
 _DB_MATCH_MIN = 0.6   # min fraction of reads whose 5' matches a DB forward primer
 _CONSENSUS_STOP_ENTROPY = 1.7  # bits; above this a column is "biological", stop

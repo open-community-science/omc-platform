@@ -3,11 +3,16 @@
 These test the session lifecycle without actually launching Docker containers.
 Tests that require Docker are marked with @pytest.mark.docker.
 """
+import os
 import httpx
 import pytest
 
-BASE = "http://127.0.0.1:8002"
+BASE = os.environ.get("OMC_TEST_BASE_URL", "http://127.0.0.1:8002")
 
+
+# Drives a live portal over HTTP: skipped unless a dev instance is actually
+# there (see tests/conftest.py).
+pytestmark = pytest.mark.live_server
 
 @pytest.mark.asyncio
 async def test_sessions_list_requires_auth():

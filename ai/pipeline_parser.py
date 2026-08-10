@@ -697,7 +697,7 @@ def parse_microscape(results_dir: Path) -> dict:
     Reads the final ASV table, taxonomy assignment, and denoising stats.
     Every sub-parser degrades to {} if its files are absent, so partial runs
     still yield whatever is available. NOTE: field/column assumptions are
-    drawn from the microscape-nf module publishDir specs and should be
+    drawn from the illumina_amplicon module publishDir specs and should be
     validated against a real completed run.
     """
     results_dir = Path(results_dir)
@@ -735,7 +735,7 @@ PARSERS = {
 
 def _read_run_manifest(results_dir: Path) -> dict | None:
     """Read run_manifest.json if the pipeline emitted one — tool versions (container
-    images), resolved parameters, and reference DBs. microscape-nf writes it to
+    images), resolved parameters, and reference DBs. illumina_amplicon writes it to
     ``viz/``, danaSeq to the results root (see microscape-nf #5 / danaSeq #24)."""
     import json
     for cand in (results_dir / "run_manifest.json", results_dir / "viz" / "run_manifest.json"):

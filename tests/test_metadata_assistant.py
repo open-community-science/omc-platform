@@ -1,8 +1,9 @@
 """Test metadata assistant with LM Studio fallback."""
+from pathlib import Path
 import sys
 import pytest
 
-sys.path.insert(0, "/data/omc/omc-platform")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from ai.metadata_assistant import interactive_metadata_help, validate_metadata
 
 pytestmark = pytest.mark.ai

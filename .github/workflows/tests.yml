@@ -1,0 +1,44 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Matches the interpreter the portal runs on in production.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: portal/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r portal/requirements.txt
+          # greenlet is needed for SQLAlchemy's async engine under test
+          pip install pytest pytest-asyncio pytest-timeout greenlet
+
+      - name: Run unit tests
+        # Excluded here and why:
+        #   ai       — needs a live LLM
+        #   network  — calls external services (NCBI), so it can fail for
+        #              reasons that have nothing to do with the change
+        # Tests marked `live_server` are not excluded: they self-skip when no dev
+        # portal is listening, which is the case in CI (see tests/conftest.py).
+        env:
+          # Several tests exercise the no-LLM degradation paths. The default
+          # points at a private address that a runner may hang on rather than
+          # refuse; port 9 (discard) fails immediately, so those paths are fast
+          # and deterministic instead of waiting out a connect timeout.
+          LLM_BASE_URL: http://127.0.0.1:9/v1
+        run: pytest tests/ -m "not ai and not network" -q --timeout=120

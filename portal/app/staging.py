@@ -555,3 +555,18 @@ def get_hpc_status(slug: str) -> dict | None:
         except (json.JSONDecodeError, OSError):
             return None
     return None
+
+
+def get_hpc_status_mtime(slug: str) -> datetime | None:
+    """When the cluster last pushed status for this slug, or None.
+
+    The pushed body carries no timestamp of its own, so the file's mtime is what
+    tells us whether a status is newer than something the portal recorded
+    earlier — used to decide if a failure has been superseded (issue #53).
+    Naive UTC, to match the DateTime columns it gets compared against.
+    """
+    try:
+        ts = (_STATUS_DIR / f"{slug}.json").stat().st_mtime
+    except OSError:
+        return None
+    return datetime.utcfromtimestamp(ts)

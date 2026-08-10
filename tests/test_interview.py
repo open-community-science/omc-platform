@@ -1,9 +1,10 @@
 """Interview question/answer flow."""
+import os
 import asyncio
 import httpx
 import pytest
 
-BASE = "http://127.0.0.1:8002"
+BASE = os.environ.get("OMC_TEST_BASE_URL", "http://127.0.0.1:8002")
 
 pytestmark = pytest.mark.ai
 
@@ -17,6 +18,10 @@ ANSWERS = {
     "additional_context": "ETH Zurich initiative, environmental metadata concurrent, Nextflow reproducible.",
 }
 
+
+# Drives a live portal over HTTP: skipped unless a dev instance is actually
+# there (see tests/conftest.py).
+pytestmark = pytest.mark.live_server
 
 @pytest.mark.asyncio
 async def test_full_interview_flow():

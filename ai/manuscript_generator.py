@@ -199,7 +199,7 @@ def _format_methods_context(pipeline_type: str, interview_data: dict, pipeline_o
     parameters aren't recorded in the current outputs)."""
     parts = []
     if pipeline_type == "microscape":
-        parts.append("PIPELINE WORKFLOW (microscape-nf, Illumina amplicon / DADA2): " + _MICROSCAPE_WORKFLOW)
+        parts.append("PIPELINE WORKFLOW (danaSeq illumina_amplicon, DADA2): " + _MICROSCAPE_WORKFLOW)
         parts.append("NOTE — the 'renormalized' step is a TAXONOMIC read-partition/cleanup "
                      "(chloroplast & mitochondrial reads removed, prokaryote vs eukaryote split), "
                      "NOT a diversity rarefaction. Do not describe rarefaction unless the data show it.")
@@ -475,6 +475,19 @@ def _format_study(study_metadata: dict | None) -> str:
         ("Abstract/Description", study_metadata.get("description")),
     ]
     lines = [f"{k}: {v}" for k, v in fields if v]
+
+    # Assay design, when study_facts supplied it. Named ordering above is kept
+    # because those fields set the scene and should lead; this is appended
+    # rather than whitelisted so a new fact from build_study_facts reaches the
+    # prompt without editing this function again (issue #56).
+    amplicon = study_metadata.get("amplicon")
+    if amplicon and amplicon.get("designs"):
+        rendered = "; ".join(
+            " ".join(str(d[k]) for k in ("forward", "reverse", "region") if d.get(k))
+            for d in amplicon["designs"]
+        )
+        lines.append(f"Amplicon design: {rendered}")
+
     return "\n".join(lines) if lines else (
         "(No study metadata available — do NOT guess the subject matter.)"
     )
@@ -648,6 +661,8 @@ async def resolve_citations(
     model: str | None = None,
     max_query_rounds: int = 2,
     candidates_per_query: int = 5,
+    verify_claims: bool = True,
+    fetch_abstracts_fn=None,
 ) -> tuple[dict, str]:
     """Resolve [CITE] placeholders in manuscript sections.
 
@@ -661,11 +676,43 @@ async def resolve_citations(
     paper is never added twice and only real search results enter the
     bibliography. Returns the updated sections and a BibTeX bibliography string.
 
+    Selected papers then pass a claim-verification gate (issue #22): the chosen
+    article's abstract is fetched and checked against the claim, and a paper whose
+    abstract does not support it is dropped in favour of the placeholder. Papers
+    that cannot be checked at all — PubMed holds no abstract, or no LLM is
+    reachable — are cited but counted, since that is an absence of evidence rather
+    than evidence of a bad fit. Set ``verify_claims=False`` to skip the gate.
+
     search_fn: optional callable(query[, max_results]) -> list[dict] for
                testing/mocking. Each dict should have title, authors, journal,
                year, doi, pmid.
+    fetch_abstracts_fn: optional async callable(pmids, cache=...) -> {pmid: abstract}
+               for testing/mocking; defaults to PubMed efetch.
     """
-    from .citation_resolver import CitationLibrary, refine_query, select_citation, _fallback_query
+    from .citation_resolver import (
+        CitationLibrary, refine_query, select_citation, _fallback_query,
+        verify_claim_in_abstract, UNSUPPORTED, UNVERIFIABLE,
+    )
+
+    async def _check_claim(ctx, article, fetch_fn, cache, **llm_kw):
+        """(verdict, abstract) for one chosen article, tolerating a failed fetch."""
+        pmid = str(article.get("pmid") or "")
+        if not pmid:
+            return UNVERIFIABLE, ""
+        if pmid not in cache:
+            fetch = fetch_fn
+            if fetch is None:
+                from .pubmed_search import fetch_abstracts
+                fetch = fetch_abstracts
+            try:
+                await fetch([pmid], cache=cache)
+            except Exception as e:
+                log.warning(f"Abstract fetch failed for PMID {pmid}: {e}")
+        abstract = cache.get(pmid, "")
+        if not abstract:
+            return UNVERIFIABLE, ""
+        verdict = await verify_claim_in_abstract(ctx, article, abstract, **llm_kw)
+        return verdict, abstract
 
     # Combine all sections into one text for context extraction
     full_text = "\n\n".join(
@@ -688,6 +735,10 @@ async def resolve_citations(
     search = _make_searcher(search_fn, candidates_per_query) if search_fn else None
     library = CitationLibrary()
     edits = []  # (start, end, replacement) into the ORIGINAL full_text
+    abstract_cache: dict[str, str] = {}  # pmid -> abstract, this run only
+    unsupported = 0    # papers dropped because the abstract didn't back the claim
+    unverifiable = 0   # papers cited without a check (no abstract / no verifier)
+    verifier_failures = 0  # consecutive unusable verifier responses (circuit breaker)
 
     for i, ctx in enumerate(contexts):
         # queries only covers the first batch of contexts; fall back for the rest
@@ -718,6 +769,44 @@ async def resolve_citations(
                 ctx, candidates, already_cited=library.titles(),
                 base_url=base_url, api_key=api_key, model=model,
             )
+            if chosen and verify_claims:
+                # Selection judged this paper on title/authors/journal alone.
+                # Read the abstract before its name goes on the sentence (#22).
+                verdict, abstract = await _check_claim(
+                    ctx, chosen, fetch_abstracts_fn, abstract_cache,
+                    base_url=base_url, api_key=api_key, model=model,
+                )
+                if verdict == UNSUPPORTED:
+                    log.info(
+                        "Citation rejected for placeholder %d: abstract of PMID %s "
+                        "does not support the claim", i + 1, chosen.get("pmid") or "?"
+                    )
+                    unsupported += 1
+                    chosen = None
+                elif verdict == UNVERIFIABLE:
+                    # No abstract on record, or no LLM to judge with. That is not
+                    # evidence against the paper, so the citation stands — but it
+                    # is counted so the run can report how much went unchecked.
+                    unverifiable += 1
+                    log.debug(
+                        "Citation unverified for placeholder %d (PMID %s): %s",
+                        i + 1, chosen.get("pmid") or "?",
+                        "no abstract" if not abstract else "verifier unavailable",
+                    )
+                    # An abstract we *had* but still couldn't judge means the
+                    # verifier itself is unhealthy. Each such call costs a full
+                    # LLM timeout, so stop after a couple rather than paying it
+                    # once per placeholder for the rest of the manuscript.
+                    if abstract:
+                        verifier_failures += 1
+                        if verifier_failures >= 2:
+                            verify_claims = False
+                            log.warning(
+                                "Citation claim-verification disabled for the rest "
+                                "of this run after %d unusable verifier responses; "
+                                "remaining citations are unchecked",
+                                verifier_failures,
+                            )
             if chosen:
                 cite_key = library.add(chosen)
                 inline = format_inline_citation(library.article_for(cite_key), cite_key)
@@ -729,6 +818,15 @@ async def resolve_citations(
             log.info(f"No citation resolved for placeholder {i+1}: '{query}'")
 
         edits.append((ctx["span"][0], ctx["span"][1], inline))
+
+    if verify_claims and (unsupported or unverifiable):
+        # Surfaced at run level because it speaks to how much of the bibliography
+        # was actually checked — the thing the ~40% AI-citation error rate is about.
+        log.info(
+            "Citation verification: %d rejected as unsupported by the abstract, "
+            "%d cited without a check (no abstract or no verifier)",
+            unsupported, unverifiable,
+        )
 
     # Apply by span, right-to-left, so identical placeholder strings (bare [CITE])
     # each get THEIR chosen citation. A text-based replace(original, ..., 1) would
