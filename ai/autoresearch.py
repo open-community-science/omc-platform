@@ -1810,8 +1810,12 @@ class SubprocessExecutor:
     process reading from ``data_dir``. This is the stand-in the isolated session
     container replaces in production (``ContainerExecutor``)."""
 
-    def __init__(self, data_dir: Path | str):
+    def __init__(self, data_dir: Path | str, default_timeout: int = 30):
         self.data_dir = Path(data_dir)
+        # Nothing passes a timeout per call — the orchestrator calls `run(code)` — so
+        # this default IS the analysis budget, and a caller with slower analyses (R over
+        # a full count table) needs a way to raise it. Matches ContainerExecutor's knob.
+        self.default_timeout = default_timeout
 
     def _run_sync(self, code: str, timeout: int) -> tuple[bool, Any]:
         try:
@@ -1847,9 +1851,10 @@ class SubprocessExecutor:
                            + (f" stderr: {why[-1][:200]}" if why else ""))
         return (True, r["__ok__"]) if "__ok__" in r else (False, r.get("__err__", "error"))
 
-    async def run(self, code: str, timeout: int = 30) -> tuple[bool, Any]:
+    async def run(self, code: str, timeout: int | None = None) -> tuple[bool, Any]:
         """Async facade over the blocking subprocess call (off the event loop)."""
-        return await asyncio.to_thread(self._run_sync, code, timeout)
+        return await asyncio.to_thread(self._run_sync, code,
+                                       int(timeout or self.default_timeout))
 
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
