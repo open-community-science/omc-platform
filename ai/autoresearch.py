@@ -114,10 +114,11 @@ wrong produces confident numbers that a reviewer will reject, so handle them exp
   evidence, not any single transform. Say which controls you ran, and record a quality_caveat
   when a co-occurrence pattern rests on raw proportions alone.
 - MULTIPLE-TESTED. A per-taxon test across taxa, or a sweep of pairwise correlations, is a
-  FAMILY of tests: run `fdr(pvals)` and report adjusted p-values and how many tests were in
-  the family. An uncorrected "significant" result from a sweep is not a finding.
+  FAMILY of tests: correct them (statsmodels multipletests, or p.adjust in R) and report
+  adjusted p-values and how many tests were in the family. An uncorrected "significant"
+  result from a sweep is not a finding.
 - DEPTH-CONFOUNDED. Richness and detection rise with sequencing depth. Before comparing
-  richness or presence/absence across samples, either `rarefy(...)` to a common depth or
+  richness or presence/absence across samples, either subsample to a common depth (seeded) or
   test the depth-vs-metric relationship and report it as a caveat.
 When you cannot satisfy one of these (too few samples to rarefy, a test with no p-value
 family), say so in the claim or a quality_caveat rather than proceeding silently.
@@ -267,8 +268,8 @@ Data in scope (identical to what the original analyst had):
 - `counts` — samples x ASV read-count DataFrame
 - `tax`    — ASV x rank taxonomy (Domain..Genus); join to counts to work at taxon level
 - `meta`   — per-sample metadata (library_name, collection_date, precomputed ordination x/y)
-Helpers: np, pd, pdist, squareform, braycurtis, entropy, pearsonr, spearmanr, kruskal,
-mannwhitneyu, PCA, fdr(pvals), clr(df), rarefy(df, depth, seed).
+Bound already: np, pd, pdist, squareform, braycurtis, entropy, pearsonr, spearmanr,
+kruskal, mannwhitneyu, PCA. Import anything else you need. Seed anything random.
 
 Reply with ONE fenced python block that assigns `result` — a SMALL dict of just the key
 quantities needed to judge the claim (not a data dump; a big result makes agreement
@@ -340,11 +341,11 @@ TOOLS = [
         "description": ("Run Python to compute anything the summaries lack. In scope: `counts` "
                         "(samples×ASV read-count DataFrame), `tax` (ASV×rank Domain..Genus — join to "
                         "counts to work at taxon level or split Bacteria/Archaea vs Eukaryota), `meta` "
-                        "(per-sample metadata incl. library_name, collection_date, x/y). Helpers: np, "
+                        "(per-sample metadata incl. library_name, collection_date, x/y). Already bound: np, "
                         "pd, pdist, squareform, braycurtis, entropy, pearsonr, spearmanr, kruskal, "
-                        "mannwhitneyu, PCA — plus `fdr(pvals)` (Benjamini-Hochberg, for any family of "
-                        "tests), `clr(df)` (centred log-ratio, for correlating taxa), and "
-                        "`rarefy(df, depth, seed)` (common-depth subsampling, seeded). "
+                        "mannwhitneyu, PCA. Import whatever else the sandbox has — see the "
+                        "orientation block. Seed anything that samples or permutes, because "
+                        "verification re-runs this code and compares the number. "
                         "Code MUST assign to `result`. Compute before you claim."),
         "parameters": {"type": "object", "properties": {
             "label": {"type": "string"}, "code": {"type": "string", "description": "Python that sets `result`"}},
@@ -488,6 +489,37 @@ except Exception:
 _b["available"] = sorted(
     _describe(k) for k in list(globals())
     if not k.startswith("_") and k not in ("result", "sys", "json", "os"))
+# What is INSTALLED, as opposed to what is already bound. Probed from inside the
+# sandbox, so it describes the sandbox actually in use rather than the one assumed:
+# the dev subprocess and the production container do not carry the same stack. An
+# analyst cannot reach for a library it has no way to know is there — and the R
+# layer is invisible in particular, since nothing in the instructions mentions R.
+import importlib.util as _ilu
+_py = []
+for _m in ("skbio", "statsmodels", "sklearn", "scipy", "networkx", "Bio", "umap",
+           "patsy", "matplotlib", "plotly"):
+    try:
+        if _ilu.find_spec(_m) is not None:
+            _py.append(_m)
+    except Exception:
+        pass
+if _py:
+    _b["python_libs"] = _py
+try:
+    import shutil as _sh, subprocess as _sp
+    if _sh.which("Rscript"):
+        # rownames(installed.packages()) reads the index; requireNamespace would LOAD
+        # each one, and phyloseq/DESeq2 take seconds apiece out of the analysis budget.
+        _rp = _sp.run(
+            ["Rscript", "-e",
+             'ip <- rownames(installed.packages()); cat(paste(intersect('
+             'c("vegan","phyloseq","DESeq2","ALDEx2","ANCOMBC","mia","microbiome",'
+             '"ape","picante","indicspecies"), ip), collapse=" "))'],
+            capture_output=True, text=True, timeout=60)
+        if _rp.returncode == 0 and (_rp.stdout or "").split():
+            _b["r_libs"] = _rp.stdout.split()
+except Exception:
+    pass
 result = _b
 """
 
@@ -536,6 +568,23 @@ def format_briefing(b: dict) -> str:
                      f"you: {', '.join(g)}. Nothing else is available. Ask only for what "
                      "the names above do not already cover — the helpers listed there "
                      "are ready to call and need no import.")
+    if py := b.get("python_libs"):
+        lines.append(f"  also installed and importable: {', '.join(py)}. These are NOT "
+                     "already bound — import them — but they are here, so reach for one "
+                     "rather than reimplementing what it does.")
+    if r := b.get("r_libs"):
+        # The R layer is unreachable in practice unless it is named: an analyst told
+        # only that it has Python writes its own PERMANOVA, and vegan::adonis2 is both
+        # correct and tolerant of the degenerate designs skbio rejects outright.
+        lines += [
+            f"  R IS AVAILABLE in this sandbox, with: {', '.join(r)}.",
+            "    Call it from your Python cell and parse what it prints, e.g.:",
+            "      import subprocess",
+            "      out = subprocess.run(['Rscript', '-e', RCODE], capture_output=True, "
+            "text=True).stdout",
+            "    Write the frames you need to /tmp first (they are Python objects here, "
+            "not files R can see).",
+        ]
     if v := b.get("versions"):
         lines.append("  running " + ", ".join(f"{k} {ver}" for k, ver in sorted(v.items()))
                      + " — use current idioms, not ones removed in earlier versions.")
@@ -547,20 +596,19 @@ def format_briefing(b: dict) -> str:
         lines.append("  run_analysis runs with these ALREADY LOADED — do not read files "
                      "and do not import them; assign to `result` when you are done:")
         lines.append(f"    {', '.join(av)}")
-        # These three exist nowhere else, so their signatures cannot be guessed and
-        # were being guessed — fdr() compared against a threshold as though it
-        # returned the adjusted p-values.
         lines += [
-            "    fdr(pvals) -> {'p_adj': [...], 'reject': [...], 'n_sig': int, "
-            "'n_tests': int, 'alpha': float}",
-            "    clr(df, pseudocount=0.5) -> DataFrame, same axes",
-            "    rarefy(df, depth=None, seed=0) -> (DataFrame, [ids dropped below depth])",
-            "    permanova(counts_or_distances, groups, permutations=999) -> "
-            "{'F', 'R2', 'p', 'n', 'groups', 'group_sizes'}",
-            "    alpha_diversity(counts) -> DataFrame[richness, shannon_nats, "
-            "shannon_bits, evenness, depth] — the unit is in the column name",
-            "    by_rank(counts, tax, 'Genus') -> samples x taxa at that rank, same "
-            "orientation as counts",
+            # The sandbox used to bind hand-written fdr/clr/rarefy/permanova/
+            # alpha_diversity/by_rank/faith_pd/unifrac. They are gone: the installed
+            # libraries do the same work, better maintained and better documented, and
+            # a reimplementation nobody reviews is a wrong answer waiting to happen.
+            # What they DID guarantee was re-execution to an identical number, so that
+            # guarantee now has to be stated as a requirement instead.
+            "  YOUR ANALYSIS MUST RE-EXECUTE TO THE SAME NUMBER. Verification re-runs "
+            "your code and compares; an unseeded result is indistinguishable from a "
+            "wrong one. So: pass an explicit seed to anything that samples, permutes, "
+            "subsamples or initialises randomly (skbio permanova, rarefaction, PCoA, "
+            "UMAP, R's set.seed), and never rely on a default seed or on dict/set "
+            "ordering. State the seed in the claim if the number depends on it.",
             # Shown, not prohibited. "Do not read files" has now failed in four
             # separate contexts, and a claim-sized context cannot inherit the
             # correction its predecessor was given — each one starts naive, so the
@@ -853,8 +901,7 @@ EXPLORE_CHAR_BUDGET = 140_000    # ≈35k tokens of transcript at ~4 chars/token
 _SANDBOX_NAMES = frozenset({
     "np", "pd", "counts", "props", "tax", "meta", "pdist", "squareform", "braycurtis",
     "entropy", "pearsonr", "spearmanr", "kruskal", "mannwhitneyu", "PCA",
-    "fdr", "clr", "rarefy", "permanova", "alpha_diversity", "by_rank",
-    "tree", "faith_pd", "unifrac", "seqs", "ranks"})
+    "tree", "seqs", "ranks"})
 
 def _result_fingerprint(res) -> str:
     """Stable digest of an analysis result, for spotting a repeat.
@@ -1408,175 +1455,6 @@ import socket
 def _no_net(*a, **k):
     raise OSError("network disabled in analysis sandbox")
 socket.socket = _no_net; socket.create_connection = _no_net; socket.getaddrinfo = _no_net
-# ── statistical hygiene helpers (#49) ────────────────────────────────────────
-# Amplicon data is COMPOSITIONAL and these analyses are MULTIPLE-TESTED. Without
-# a correction function and a log-ratio transform in scope, an agent cannot do
-# the right thing even when it knows it should. Pure numpy — no new dependency,
-# so this works in the existing session image.
-def fdr(pvals, alpha=0.05):
-    """Benjamini-Hochberg across a family of tests -> adjusted p-values."""
-    p = np.asarray(list(pvals), dtype=float); n = p.size
-    if n == 0: return {"p_adj": [], "reject": [], "n_sig": 0, "n_tests": 0}
-    order = np.argsort(p)
-    q = np.clip(np.minimum.accumulate((p[order] * n / np.arange(1, n + 1))[::-1])[::-1], 0, 1)
-    out = np.empty(n); out[order] = q
-    return {"p_adj": out.tolist(), "reject": (out <= alpha).tolist(),
-            "n_sig": int((out <= alpha).sum()), "n_tests": int(n), "alpha": alpha}
-def clr(df, pseudocount=0.5):
-    """Centred log-ratio (rows = samples) — ONE compositional control, not a cure.
-    It is sensitive to the pseudocount, and with few parts the sum-to-zero constraint
-    induces negative correlation on its own (with 3 taxa it will invent mutual
-    exclusion). Use it to check whether a proportion-based pattern survives, not as
-    the authoritative answer."""
-    X = np.asarray(df, dtype=float) + pseudocount
-    L = np.log(X)
-    Z = L - L.mean(axis=1, keepdims=True)
-    return pd.DataFrame(Z, index=getattr(df, "index", None), columns=getattr(df, "columns", None))
-def by_rank(counts_df, tax_df, rank):
-    """Collapse a samples x ASV table to samples x TAXON at a taxonomic rank.
-
-    Supplied for the same reason as permanova: three separate investigations needed it,
-    it is a counts-by-tax join with an axis choice in the middle, and getting it wrong
-    produces a frame of the wrong shape rather than an error. One analyst produced a
-    single-row frame three times running.
-
-    Unassigned ASVs are DROPPED rather than pooled into a phantom taxon, so the result
-    is not a complete partition of the reads — at Genus on one dataset that silently
-    discards 4.4% of them. `ranks[rank]` is the pipeline's own aggregation of the WHOLE
-    table and keeps an `unclassified` column instead; the two agree exactly on every
-    shared taxon. Use `ranks` for the full table, `by_rank` once you have subset it, and
-    say which when the difference could matter — comparing R² across ranks compares
-    tables holding different amounts of data.
-
-    Returns samples as ROWS, taxa as columns, in the same orientation as `counts`."""
-    if rank not in getattr(tax_df, "columns", []):
-        raise ValueError(f"{rank!r} is not a rank in tax; available: "
-                         f"{list(getattr(tax_df, 'columns', []))}")
-    shared = [c for c in counts_df.columns if c in tax_df.index]
-    if not shared:
-        raise ValueError("no ASV ids in common between counts columns and tax index")
-    labels = tax_df.loc[shared, rank]
-    keep = labels.notna() & (labels.astype(str).str.strip() != "")
-    sub = counts_df[list(labels.index[keep])]
-    out = sub.T.groupby(labels[keep].astype(str).values).sum().T
-    out.index = counts_df.index
-    return out
-
-
-def alpha_diversity(df):
-    """Per-sample alpha diversity, with the UNIT IN THE COLUMN NAME.
-
-    Two claims in one ledger reported frost-flower Shannon as 4.59 and 3.18. Both were
-    right — bits and nats — and neither said which, so a clean-room analyst computing
-    the other one refutes a correct claim over a logarithm base. Naming the column
-    `shannon_nats` removes the ambiguity without anyone having to declare a parameter.
-
-    Returns richness, shannon_nats, shannon_bits, evenness (Pielou, 0-1) and depth,
-    indexed like the rows of `df`."""
-    X = df.values.astype(float)
-    depth = X.sum(axis=1)
-    rich = (X > 0).sum(axis=1)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        P = np.divide(X, depth[:, None], out=np.zeros_like(X), where=depth[:, None] > 0)
-        logP = np.where(P > 0, np.log(P, where=P > 0), 0.0)
-        nats = -(P * logP).sum(axis=1)
-        even = np.divide(nats, np.log(rich), out=np.zeros_like(nats),
-                         where=rich > 1)
-    return pd.DataFrame({"richness": rich, "shannon_nats": nats,
-                         "shannon_bits": nats / np.log(2), "evenness": even,
-                         "depth": depth}, index=getattr(df, "index", None))
-
-
-def permanova(data, groups, permutations=999, seed=0):
-    """PERMANOVA (Anderson 2001) — pseudo-F, R2 and a permutation p-value.
-
-    Supplied because five independent analysts hand-rolled this test and returned
-    F = 0.0048, 0.39, 22.89 and 92.01 for a dataset whose answer is 4.19 — four orders
-    of magnitude, none right, while `fdr`, `clr` and `rarefy` were used correctly every
-    time. The difference was availability, not care.
-
-    `data` is either a square distance matrix or a samples x features table, in which
-    case Bray-Curtis distances are computed from it. `groups` is one label per sample,
-    in the same order as the rows."""
-    X = np.asarray(getattr(data, "values", data), dtype=float)
-    square = X.ndim == 2 and X.shape[0] == X.shape[1] and X.shape[0] > 1
-    if square and np.allclose(np.diag(X), 0) and np.allclose(X, X.T):
-        D = X
-    else:
-        D = squareform(pdist(X, metric="braycurtis"))
-    g = np.asarray(getattr(groups, "values", groups), dtype=object)
-    if len(g) != D.shape[0]:
-        raise ValueError(f"{len(g)} group labels for {D.shape[0]} samples — they must "
-                         "line up row for row (meta.loc[counts.index] aligns them)")
-    levels, d2, N = np.unique(g), D ** 2, D.shape[0]
-    a = len(levels)
-    if a < 2 or N <= a:
-        # Name the single level. Testing turnover by date within one assay, an analyst
-        # hit "1 groups over 18 samples" twice running: true, but it does not say that
-        # the grouping variable is CONSTANT in this subset, which is the fact that
-        # answers the question — there is no variation here to partition.
-        if a < 2:
-            only = repr(levels[0]) if a else "none"
-            raise ValueError(
-                f"the grouping variable is constant over these {N} samples — every one "
-                f"of them is {only}. There is nothing to compare; whatever selected this "
-                "subset already determines the group")
-        raise ValueError(f"need at least 2 groups and more samples than groups; "
-                         f"got {a} groups over {N} samples")
-    # Degenerate input must refuse, not answer. Asked for the ASVs shared between two
-    # submissions, an analyst got an empty table — and this returned F=NaN, R2=NaN and
-    # p=0.01, because every NaN comparison is False, so no permutation ever beat the
-    # observed statistic and p collapsed to 1/(permutations+1). A helper that
-    # manufactures a significant p-value out of nothing is worse than no helper.
-    if X.ndim == 2 and X.shape[1] == 0:
-        raise ValueError("the table has no columns — the feature set you selected is "
-                         "empty, so there is nothing to test. Check the size of that "
-                         "selection before testing it")
-    if not np.isfinite(D).all():
-        raise ValueError("the distance matrix contains non-finite values, which happens "
-                         "when a sample has no reads at all across the features you "
-                         "selected — drop those samples, or widen the selection")
-    if np.allclose(D, 0):
-        raise ValueError(f"every pairwise distance is zero over {N} samples: the table "
-                         "has no columns, or no variation between samples. There is "
-                         "nothing here to partition")
-
-    def _F(labels):
-        sst = d2.sum() / (2 * N)
-        ssw = 0.0
-        for lev in levels:
-            idx = np.where(labels == lev)[0]
-            if len(idx) > 1:
-                ssw += d2[np.ix_(idx, idx)].sum() / (2 * len(idx))
-        ssa = sst - ssw
-        return ((ssa / (a - 1)) / (ssw / (N - a)) if ssw > 0 else float("nan"),
-                ssa / sst if sst > 0 else float("nan"))
-
-    F, R2 = _F(g)
-    rng = np.random.default_rng(seed)
-    ge = sum(1 for _ in range(permutations) if _F(rng.permutation(g))[0] >= F)
-    return {"F": round(float(F), 4), "R2": round(float(R2), 4),
-            "p": round((ge + 1) / (permutations + 1), 4),
-            "n": int(N), "groups": int(a), "group_sizes":
-                {str(l): int((g == l).sum()) for l in levels},
-            "permutations": int(permutations)}
-
-
-def rarefy(df, depth=None, seed=0):
-    """Subsample every sample to a common depth without replacement (seeded, so
-    the result re-executes identically at verification time). Rows below `depth`
-    are dropped — returns (rarefied_df, dropped_sample_ids)."""
-    M = np.asarray(df, dtype=float).round().astype(np.int64)
-    sums = M.sum(axis=1)
-    d = int(depth if depth is not None else sums[sums > 0].min())
-    rng = np.random.default_rng(seed)
-    keep = sums >= d
-    rows = [rng.multivariate_hypergeometric(M[i], d) for i in np.where(keep)[0]]
-    idx = getattr(df, "index", None)
-    kept_idx = (idx[keep] if idx is not None else None)
-    dropped = [str(x) for x in (idx[~keep] if idx is not None else [])]
-    return pd.DataFrame(rows, index=kept_idx, columns=getattr(df, "columns", None)), dropped
-
 
 def _parse_newick(text):
     """Newick -> flat node arrays. Tip NAMES ARE KEPT LITERAL.
@@ -1638,58 +1516,6 @@ def _parse_newick(text):
             "order": np.argsort(-depth),                 # deepest first, for accumulation
             "n_tips": sum(1 for n in names if n)}
 
-
-def _subtends(tree, asv_order):
-    """(n_nodes x n_asvs) bool — does this node subtend that ASV?"""
-    idx = {a: i for i, a in enumerate(asv_order)}
-    M = np.zeros((len(tree["names"]), len(asv_order)), bool)
-    for nd, nm in enumerate(tree["names"]):
-        if nm in idx:
-            M[nd, idx[nm]] = True
-    for nd in tree["order"]:
-        p = tree["parent"][nd]
-        if p >= 0:
-            M[p] |= M[nd]
-    return M
-
-
-def faith_pd(counts_df, tree):
-    """Faith's phylogenetic diversity per sample — total branch length of the subtree
-    spanning the ASVs present. Matches skbio's faith_pd to 7e-15 on this data."""
-    if tree is None:
-        raise ValueError("no phylogeny is available for this dataset (`tree` is None)")
-    M = _subtends(tree, list(counts_df.columns))
-    hit = (np.asarray(counts_df, float) > 0) @ M.T
-    return pd.Series((hit > 0) @ tree["length"], index=counts_df.index, name="faith_pd")
-
-
-def unifrac(counts_df, tree, weighted=False):
-    """UniFrac distance matrix. Unweighted uses presence; weighted uses abundance and is
-    NORMALISED (skbio's `normalized=True`), which is the form reported in the literature
-    — skbio's default is the raw sum and runs ~3x larger. Matches skbio to 6e-16."""
-    if tree is None:
-        raise ValueError("no phylogeny is available for this dataset (`tree` is None)")
-    M = _subtends(tree, list(counts_df.columns))
-    L = tree["length"]
-    X = np.asarray(counts_df, float)
-    n = X.shape[0]
-    if weighted:
-        tot = X.sum(axis=1, keepdims=True)
-        A = (X / np.where(tot > 0, tot, 1)) @ M.T
-    else:
-        A = (((X > 0) @ M.T) > 0)
-    D = np.zeros((n, n))
-    for i in range(n):
-        for j in range(i + 1, n):
-            if weighted:
-                den = float((A[i] + A[j]) @ L)
-                d = float(np.abs(A[i] - A[j]) @ L) / den if den else 0.0
-            else:
-                either = A[i] | A[j]
-                den = float(either @ L)
-                d = float((either & ~(A[i] & A[j])) @ L) / den if den else 0.0
-            D[i, j] = D[j, i] = d
-    return pd.DataFrame(D, index=counts_df.index, columns=counts_df.index)
 # The phylogeny. It sat in the data directory unread for an entire 14-hour run, so every
 # beta-diversity computation used Bray-Curtis — not because it was chosen over UniFrac
 # but because UniFrac was impossible. None when a dataset has no tree.
@@ -1714,9 +1540,8 @@ try:
 except Exception:
     seqs = None
 
-# Counts already aggregated to each taxonomic rank by the pipeline — the canonical
-# version of what `by_rank` recomputes. Use these for the whole table; use `by_rank` when
-# you have subset the samples or ASVs first.
+# Counts already aggregated to each taxonomic rank by the pipeline. Use these for the
+# whole table; aggregate from `counts` yourself once you have subset samples or ASVs.
 ranks = {}
 try:
     for _rk, _blk in (_rj("aggregated_counts") or {}).items():
@@ -1758,10 +1583,7 @@ _ns = dict(np=np, pd=pd, counts=counts, props=props, tax=tax, meta=meta,
            pdist=pdist, squareform=squareform,
            braycurtis=braycurtis, entropy=entropy, pearsonr=pearsonr, spearmanr=spearmanr,
            kruskal=kruskal, mannwhitneyu=mannwhitneyu, PCA=PCA,
-           fdr=fdr, clr=clr, rarefy=rarefy, permanova=permanova,
-           alpha_diversity=alpha_diversity, by_rank=by_rank,
-           tree=tree, faith_pd=faith_pd, unifrac=unifrac,
-           seqs=seqs, ranks=ranks)
+           tree=tree, seqs=seqs, ranks=ranks)
 try:
     import ast as _ast, io as _io, contextlib as _ctx
     _src = sys.stdin.read()
@@ -2176,27 +1998,15 @@ class Autoresearcher:
                             "whichever one this call wants.")
                 elif "groupby() got an unexpected keyword argument 'axis'" in err:
                     # pandas 3 removed groupby(axis=1), and the analyst reaching for it is
-                    # always hand-rolling taxonomic aggregation. `by_rank` was supplied
-                    # for exactly that and went UNUSED across an entire ten-hour run —
-                    # 150+ computations, zero calls — while analysts rebuilt it by hand
-                    # and hit a removal they cannot guess their way around.
+                    # always hand-rolling taxonomic aggregation. Say the idiom that works,
+                    # since the removal is not one it can guess its way around.
                     hint = ("`groupby(axis=1)` was removed in pandas 3. To aggregate the "
-                            "ASV table to a taxonomic rank, `by_rank(counts_df, tax_df, "
-                            "'Genus')` is already bound here and does it — it returns a "
-                            "samples x taxa frame at that rank.")
+                            "ASV table to a taxonomic rank, group the COLUMNS by mapping "
+                            "them through tax: "
+                            "`counts.T.groupby(tax.loc[counts.columns, 'Genus']).sum().T` "
+                            "returns a samples x taxa frame at that rank.")
                 elif "did not set a `result`" in err:
                     hint = "Assign what you want returned to `result`."
-                elif ("rarefy(" in (args.get("code") or "")
-                      and ("'tuple' object has no attribute" in err
-                           or "setting an array element with a sequence" in err)):
-                    # rarefy returns (df, dropped_ids) on purpose — quietly dropping the
-                    # samples too shallow to rarefy is the kind of silence this whole
-                    # subsystem exists to prevent. But the analyst passed the tuple
-                    # straight into permanova. Keep the honest contract, say what it is.
-                    hint = ("`rarefy` returns TWO things: the rarefied frame and the "
-                            "ids it had to drop for being below the depth. Unpack it — "
-                            "`rare, dropped = rarefy(counts, depth)` — and report what "
-                            "was dropped alongside the result.")
                 elif ("Input must be a DistanceMatrix" in err
                       or "IDs in the distance matrix are not in the data frame" in err
                       or ("KeyError" in err and re.search(r"KeyError: '(F|R2|p)'", err))):

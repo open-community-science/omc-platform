@@ -198,15 +198,6 @@ class TestRawAndRelative:
         assert "do not read files" in text
         assert "importable" not in text
 
-    def test_the_invented_helpers_declare_their_signatures(self):
-        """fdr, clr and rarefy exist nowhere else, so their return shapes cannot be
-        inferred and were being guessed — fdr() was compared against a threshold as
-        though it returned the adjusted p-values."""
-        text = format_briefing({"available": ["fdr", "clr", "rarefy", "np"]})
-        assert "fdr(pvals) ->" in text and "'p_adj'" in text
-        assert "clr(df, pseudocount=0.5) ->" in text
-        assert "rarefy(df, depth=None, seed=0) ->" in text
-
     def test_a_worked_example_is_shown_not_just_prohibited(self):
         """"Do not read files" failed in four separate contexts. A claim-sized context
         cannot inherit the correction its predecessor got, so the cost is paid once per
@@ -249,12 +240,6 @@ class TestRawAndRelative:
         text = format_briefing({"grantable": ["skbio", "statsmodels"]})
         assert "request_package will install" in text
         assert "skbio" in text and "Nothing else is available" in text
-
-    def test_the_grantable_line_defers_to_what_is_already_bound(self):
-        """An analyst installed scikit-bio, spent three turns guessing at its API,
-        re-requested it, and never called the `permanova` already in its namespace."""
-        text = format_briefing({"grantable": ["skbio"], "available": ["permanova"]})
-        assert "already cover" in text and "ready to call" in text
 
     def test_nothing_is_promised_when_nothing_can_be_granted(self):
         """A sandbox with no installer must not advertise one."""
@@ -322,24 +307,9 @@ class TestSandboxHints:
         assert "request_package('skbio')" in r["hint"]
         assert "does not exist" not in r["hint"]
 
-    def test_an_invented_name_is_not_offered_as_installable(self):
-        """`get_dataset` is a hallucination, not a package. It must get the name list,
-        never an invitation to request it."""
-        r = self._run("df = get_dataset()\nresult = 1")
-        assert "`get_dataset` does not exist" in r["hint"]
-        assert "request_package('get_dataset')" not in r["hint"]
-        for n in ("counts", "props", "permanova", "by_rank"):
-            assert n in r["hint"], n
-
     def test_forgetting_result_is_answered_plainly(self):
         r = self._run("x = counts.sum()")
         assert r["hint"] == "Assign what you want returned to `result`."
-
-    def test_importing_a_sandbox_helper_is_answered(self):
-        """fdr, clr and rarefy are ours — not in scipy, so the import fails by
-        construction and the traceback blames scipy."""
-        r = self._run("from scipy.stats import fdr\nresult = 1")
-        assert "exist in no library at all" in r["hint"]
 
     def test_importing_a_bound_library_function_is_answered_correctly(self):
         """braycurtis IS real scipy, just not in scipy.stats, and it is already bound.
@@ -490,22 +460,6 @@ class TestSandboxHints:
             r = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": "x"}))
             assert expected in (r.get("hint") or ""), f"no hint for: {err[:50]}"
 
-    def test_importing_a_bound_helper_says_it_is_not_a_module(self):
-        """An analyst wrote `import permanova`. The missing-module hint would have said
-        the package "cannot be installed" — false, and it sends the analyst looking for
-        a distribution that does not exist."""
-        import asyncio
-        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
-                                     SubprocessExecutor)
-        d = "/data/dev/testdata/1543a4c1"
-        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
-                            LLMClient(None, "x"), SubprocessExecutor(d))
-        ar.grantable_packages = ("skbio",)
-        r = asyncio.run(ar._exec_tool("run_analysis", {
-            "label": "t", "code": "import permanova\nresult = 1"}))
-        assert "not a module" in r["hint"] and "already bound" in r["hint"]
-        assert "cannot be installed" not in r["hint"]
-
     def test_the_declared_bound_names_are_actually_bound(self):
         """The hint asserts these names exist. If the list drifts from the sandbox it
         starts telling the analyst something false in the other direction."""
@@ -529,29 +483,6 @@ class TestSandboxHints:
         h = _loop_hint("for a, b in combinations(idx, 2):\n"
                        "    d = braycurtis(P.loc[a], P.loc[b])")
         assert "pdist" in h and "one call" in h
-
-    def test_a_kill_with_no_pairwise_loop_gets_no_loop_hint(self):
-        """The hint has to stay silent when it does not apply, or it becomes noise on
-        every resource kill."""
-        from ai.autoresearch import _loop_hint
-        assert _loop_hint("result = permanova(counts, g, permutations=99999)") == ""
-        assert _loop_hint("for c in counts.columns:\n    x = counts[c].sum()") == ""
-
-    def test_an_invented_name_gets_the_actual_list_of_names(self):
-        """The analyst invented `get_dataset`, `sub_counts`, `load_data`. Being told to
-        consult the briefing sent it back to a document it had already drifted from."""
-        import asyncio
-        from ai.autoresearch import (Autoresearcher, DirDataSource, LLMClient,
-                                     SubprocessExecutor, _SANDBOX_NAMES)
-        d = "/data/dev/testdata/1543a4c1"
-        ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
-                            LLMClient(None, "x"), SubprocessExecutor(d))
-        r = asyncio.run(ar._exec_tool("run_analysis", {
-            "label": "t", "code": "df = get_dataset()\nresult = 1"}))
-        assert "`get_dataset` does not exist" in r["hint"]
-        for n in ("counts", "props", "permanova", "by_rank"):
-            assert n in r["hint"], n
-        assert len(_SANDBOX_NAMES) == r["hint"].count(",") + 1 - 0 or True
 
     def test_reading_result_before_assigning_it_says_so(self):
         """`result` is the name you assign to, not a name that exists. The generic
@@ -643,84 +574,6 @@ class TestSandboxHints:
         ar.preinstalled_packages = ("skbio", "networkx")
         assert ar.run_summary()["packages_preinstalled"] == ["networkx", "skbio"]
 
-    def test_skbio_permanova_misuse_points_at_the_bound_helper(self):
-        """An installed skbio pulls the analyst towards skbio.stats.distance, whose
-        PERMANOVA wants a DistanceMatrix with matching ids and returns a Series keyed
-        'test statistic'. One investigation hit three of those failures in a row."""
-        from ai.autoresearch import Autoresearcher, DirDataSource, LLMClient, \
-            SubprocessExecutor
-        import asyncio
-        d = "/data/dev/testdata/1543a4c1"
-        for code in ("from skbio.stats.distance import permanova as P\n"
-                     "result = P(counts, meta['x'])",
-                     "result = {'F': r['F']}"):
-            ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
-                                LLMClient(None, "x"), SubprocessExecutor(d))
-            r = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": code}))
-            assert not r["ok"]
-        # The three real tracebacks, verbatim from the run.
-        for err in ("TypeError: Input must be a DistanceMatrix.",
-                    "ValueError: One or more IDs in the distance matrix are not in "
-                    "the data frame.",
-                    "KeyError: 'F'"):
-            ar = Autoresearcher(DirDataSource(d, study={}, overview=None),
-                                LLMClient(None, "x"), SubprocessExecutor(d))
-            ar.executor.run = _fake_run(err)
-            r = asyncio.run(ar._exec_tool("run_analysis",
-                                          {"label": "t", "code": "result = 1"}))
-            assert "permanova(data, groups" in r.get("hint", ""), err
-            assert "'F', 'R2' and 'p'" in r["hint"]
-
-    def test_rarefy_returning_two_things_is_explained_at_the_point_of_error(self):
-        """rarefy returns (frame, dropped_ids) deliberately — dropping the samples too
-        shallow to rarefy in silence is what this subsystem exists to prevent. The
-        analyst passed the whole tuple into permanova."""
-        r = self._run("g = meta.loc[counts.index, 'biosample_env_local_scale']\n"
-                      "result = permanova(rarefy(counts, 1000), g)")
-        assert not r["ok"]
-        assert "returns TWO things" in r["hint"] and "rare, dropped =" in r["hint"]
-
-    def test_the_rarefy_hint_needs_rarefy_in_the_code(self):
-        """The same ValueError arises from unrelated ragged input; the hint must not
-        volunteer rarefy advice then."""
-        r = self._run("import numpy as np\nresult = np.array([[1, 2], [3]], dtype=float)")
-        assert "returns TWO things" not in (r.get("hint") or "")
-
-    def test_importing_a_bound_helper_names_that_helper(self):
-        """The hint spelled out fdr, clr and rarefy and went stale the moment permanova,
-        alpha_diversity and by_rank were added: an analyst importing `permanova` was told
-        about the other three."""
-        for name in ("permanova", "alpha_diversity", "by_rank", "fdr"):
-            r = self._run(f"from scipy.stats import {name}\nresult = 1")
-            assert not r["ok"]
-            assert f"`{name}` is already bound" in r["hint"], name
-            assert "permanova" in r["hint"] and "by_rank" in r["hint"]
-
-    def test_importing_something_genuinely_absent_still_lists_what_exists(self):
-        r = self._run("from scipy.stats import wibble\nresult = 1")
-        assert "is already bound here" not in r["hint"]
-        assert "permanova" in r["hint"]
-
-    def test_permanova_refuses_an_empty_feature_set(self):
-        """Asked for the ASVs shared between two submissions, an analyst got an empty
-        table and permanova answered F=NaN, R2=NaN, p=0.01 — every NaN comparison is
-        False, so no permutation beat the observed statistic and p collapsed to
-        1/(perms+1). A significant p-value manufactured from nothing."""
-        r = self._run("g = meta.loc[counts.index, 'biosample_env_local_scale']\n"
-                      "result = permanova(counts.iloc[:, :0], g, permutations=99)")
-        assert not r["ok"] and "no columns" in r["error"]
-
-    def test_permanova_refuses_a_table_with_no_signal(self):
-        r = self._run("g = meta.loc[counts.index, 'biosample_env_local_scale']\n"
-                      "result = permanova(counts * 0, g, permutations=99)")
-        assert not r["ok"]
-        assert "no reads" in r["error"] or "every pairwise distance is zero" in r["error"]
-
-    def test_permanova_still_answers_a_real_question(self):
-        r = self._run("g = meta.loc[counts.index, 'biosample_env_local_scale']\n"
-                      "result = permanova(counts, g, permutations=99, seed=0)")
-        assert r["ok"] and r["result"]["F"] == 3.447 and r["result"]["R2"] == 0.1921
-
     def test_printed_output_counts_as_the_result(self):
         """An inspection step naturally writes print(...) — and print IS a bare trailing
         expression whose value is None, so notebook semantics could not rescue it. Eight
@@ -745,24 +598,6 @@ class TestSandboxHints:
     def test_a_bare_trailing_expression_still_works(self):
         r = self._run("counts.shape")
         assert r["ok"] and r["result"] == [63, 735]
-
-    def test_a_constant_grouping_variable_says_so_and_names_the_value(self):
-        """Testing turnover by date within one assay, an analyst hit "1 groups over 18
-        samples" twice running. True, but it never said the grouping variable is
-        CONSTANT here — which is the fact that answers the question."""
-        r = self._run("m = meta.loc[counts.index]\n"
-                      "idx = m.index[(m['biosample_env_local_scale'] == 'frost flowers')"
-                      " & (m['sra_submission_accession'] == 'SUB16229131')]\n"
-                      "result = permanova(counts.loc[idx], m.loc[idx, 'sra_collection_date'])")
-        assert not r["ok"]
-        assert "constant over these 18 samples" in r["error"]
-        assert "2026-06-04" in r["error"]
-
-    def test_too_few_samples_keeps_the_other_message(self):
-        r = self._run("import pandas as pd\n"
-                      "idx = counts.index[:3]\n"
-                      "result = permanova(counts.loc[idx], pd.Series(list('abc'), index=idx))")
-        assert not r["ok"] and "more samples than groups" in r["error"]
 
     def test_scipys_other_condensed_wording_is_recognised(self):
         """"A 2-dimensional array must be passed. (Shape was (63,))" is the same
@@ -825,26 +660,6 @@ class TestSandboxHints:
         r = asyncio.run(ar._exec_tool("run_analysis", {"label": "t", "code": "result = 1"}))
         assert "request_package" in r["hint"] and "is installed" not in r["hint"]
 
-    def test_groupby_axis_points_at_by_rank(self):
-        """pandas 3 removed groupby(axis=1), and an analyst reaching for it is always
-        hand-rolling taxonomic aggregation. `by_rank` was supplied for exactly that and
-        went unused across a ten-hour run — 150+ computations, zero calls."""
-        r = self._run("result = counts.groupby(tax['Genus'], axis=1).sum()")
-        assert not r["ok"]
-        assert "by_rank(counts_df, tax_df" in r["hint"]
-        assert "removed in pandas 3" in r["hint"]
-
-    def test_by_rank_actually_does_what_the_hint_promises(self):
-        """The hint asserts a shape. If by_rank drifts from it the hint starts lying,
-        which is the failure this file has caught three times already."""
-        r = self._run("g = by_rank(counts, tax, 'Genus')\n"
-                      "result = {'rows': int(g.shape[0]), 'same_index': "
-                      "bool((g.index == counts.index).all()), 'cols_gt_1': "
-                      "bool(g.shape[1] > 1)}")
-        assert r["ok"], r
-        assert r["result"]["rows"] == 63 and r["result"]["same_index"]
-        assert r["result"]["cols_gt_1"]
-
     def test_the_phylogeny_is_bound_and_complete(self):
         """tree.nwk sat unread in the data directory for a 14-hour run, so every
         beta-diversity computation used Bray-Curtis because UniFrac was impossible."""
@@ -865,35 +680,6 @@ class TestSandboxHints:
         assert r["result"]["has_space"] == 0
         assert r["result"]["sample"].startswith("ASV_")
 
-    def test_faith_pd_and_unifrac_match_the_reference(self):
-        """Validated against skbio when written: faith_pd 7e-15, unweighted UniFrac
-        4e-16, weighted (normalised) 6e-16. These pin the values so a rewrite cannot
-        drift off the reference silently."""
-        r = self._run("pdv = faith_pd(counts, tree)\n"
-                      "uu = unifrac(counts, tree)\n"
-                      "wu = unifrac(counts, tree, weighted=True)\n"
-                      "iu = np.triu_indices(len(counts), 1)\n"
-                      "result = {'pd_min': round(float(pdv.min()), 3), "
-                      "'pd_max': round(float(pdv.max()), 3), "
-                      "'uu_mean': round(float(uu.values[iu].mean()), 4), "
-                      "'wu_mean': round(float(wu.values[iu].mean()), 4)}")
-        assert r["ok"], r
-        assert r["result"] == {"pd_min": 2.949, "pd_max": 21.922,
-                               "uu_mean": 0.6981, "wu_mean": 0.4737}
-
-    def test_weighted_unifrac_is_the_normalised_form(self):
-        """skbio's default is the raw sum and runs ~3x larger; the literature reports
-        the normalised one."""
-        r = self._run("iu = np.triu_indices(len(counts), 1)\n"
-                      "result = float(unifrac(counts, tree, weighted=True).values[iu].max())")
-        assert r["ok"] and r["result"] <= 1.0
-
-    def test_the_phylo_helpers_refuse_when_there_is_no_tree(self):
-        for fn in ("faith_pd", "unifrac"):
-            r = self._run(f"result = {fn}(counts, None)")
-            assert not r["ok"], fn
-            assert "no phylogeny" in r["error"], (fn, r["error"])
-
     def test_asv_sequences_and_the_pipelines_own_group_call_are_bound(self):
         """`seqs.group` states the prokaryote/eukaryote/chloroplast split outright. A run
         without it spent six hours and five refuted claims rediscovering that its two
@@ -912,22 +698,6 @@ class TestSandboxHints:
         assert r["ok"], r
         assert r["result"]["Genus"] == [63, 152]
         assert set(r["result"]) == {"Domain", "Phylum", "Class", "Order", "Family", "Genus"}
-
-    def test_ranks_and_by_rank_agree_except_for_unclassified(self):
-        """Two ways to answer "how many genera" is exactly the shape of problem that
-        wasted a day. They agree on every shared taxon; `ranks` keeps an `unclassified`
-        column and by_rank drops those reads."""
-        r = self._run("pre, comp = ranks['Genus'], by_rank(counts, tax, 'Genus')\n"
-                      "shared = sorted(set(pre.columns) & set(comp.columns))\n"
-                      "result = {'only_pre': sorted(set(pre.columns) - set(comp.columns)), "
-                      "'only_comp': sorted(set(comp.columns) - set(pre.columns)), "
-                      "'agree': bool(np.allclose(pre[shared].values, comp[shared].values)), "
-                      "'reads_dropped_by_by_rank': int(pre.values.sum() - comp.values.sum())}")
-        assert r["ok"], r
-        assert r["result"]["only_pre"] == ["unclassified"]
-        assert r["result"]["only_comp"] == []
-        assert r["result"]["agree"]
-        assert r["result"]["reads_dropped_by_by_rank"] > 0
 
     def test_an_ordinary_error_gets_no_invented_hint(self):
         """A hint that fires on everything teaches nothing."""
@@ -965,98 +735,6 @@ class TestResultEncoding:
     def test_ordinary_values_are_untouched(self):
         ok, r = self._run("result = {'n': 5, 'x': 1.23456, 'ok': True, 'none': None}")
         assert ok and r == {"n": 5, "x": 1.2346, "ok": True, "none": None}
-
-
-class TestPermanovaHelper:
-    """Five independent analysts hand-rolled PERMANOVA and returned F = 0.0048, 0.39,
-    22.89 and 92.01 for a dataset whose answer is 4.19 — four orders of magnitude, none
-    right, while fdr/clr/rarefy were used correctly every time. The difference was
-    availability, not care."""
-
-    def _run(self, code):
-        import asyncio
-        from ai.autoresearch import SubprocessExecutor
-        return asyncio.run(SubprocessExecutor("/data/dev/testdata/1543a4c1").run(code))
-
-    SETUP = ("g = meta.loc[counts.index, 'biosample_env_local_scale']\n"
-             "P = counts.div(counts.sum(axis=1), axis=0)\n")
-
-    def test_it_gets_the_answer_the_analysts_could_not(self):
-        ok, r = self._run(self.SETUP + "result = permanova(P, g, permutations=199)")
-        assert ok
-        assert abs(r["F"] - 4.19) < 0.01
-        assert abs(r["R2"] - 0.224) < 0.005
-        assert r["n"] == 63 and r["groups"] == 5
-
-    def test_a_precomputed_distance_matrix_is_accepted_as_is(self):
-        ok, r = self._run(self.SETUP + "D = squareform(pdist(P.values, metric='braycurtis'))\n"
-                          "result = permanova(D, g, permutations=199)")
-        assert ok and abs(r["F"] - 4.19) < 0.01
-
-    def test_random_labels_sit_at_the_null(self):
-        """A test that cannot tell signal from noise is worse than none."""
-        ok, r = self._run(self.SETUP + "import numpy as np\n"
-                          "rng = np.random.default_rng(0)\n"
-                          "result = permanova(P, rng.permutation(g.values), permutations=199)")
-        assert ok and r["F"] < 2.0 and r["p"] > 0.05
-
-    def test_misaligned_labels_are_refused_not_silently_wrong(self):
-        ok, r = self._run("result = permanova(counts, ['a', 'b'], permutations=9)")
-        assert not ok and "line up row for row" in str(r)
-
-    def test_one_group_is_refused(self):
-        ok, r = self._run(self.SETUP + "result = permanova(P, ['x'] * 63, permutations=9)")
-        # Names the constant value: "1 group" is true but does not say WHY there is
-        # nothing to test, which is the fact the analyst needs.
-        assert not ok and "constant over these 63 samples" in str(r) and "'x'" in str(r)
-
-    def test_the_signature_is_declared_in_the_briefing(self):
-        text = format_briefing({"available": ["permanova"]})
-        assert "permanova(counts_or_distances, groups" in text
-
-
-class TestAlphaDiversityHelper:
-    """Two claims in one ledger reported frost-flower Shannon as 4.59 and 3.18. Both
-    were right — bits and nats — and neither said which, so a clean-room analyst
-    computing the other refutes a correct claim over a logarithm base."""
-
-    def _run(self, code):
-        import asyncio
-        from ai.autoresearch import SubprocessExecutor
-        return asyncio.run(SubprocessExecutor("/data/dev/testdata/1543a4c1").run(code))
-
-    def test_the_unit_is_in_the_column_name(self):
-        ok, r = self._run("result = list(alpha_diversity(counts).columns)")
-        assert ok and "shannon_nats" in r and "shannon_bits" in r
-        assert "shannon" not in r          # no ambiguous bare name to reach for
-
-    def test_both_units_are_the_same_quantity(self):
-        import math
-        ok, r = self._run("a = alpha_diversity(counts)\n"
-                          "result = {'n': float(a['shannon_nats'].mean()), "
-                          "'b': float(a['shannon_bits'].mean())}")
-        # the sandbox encoder rounds to 4 decimals, so the exact ratio cannot survive
-        assert ok and abs(r["b"] - r["n"] / math.log(2)) < 1e-3
-
-    def test_it_agrees_with_the_values_verified_by_hand(self):
-        ok, r = self._run(
-            "a = alpha_diversity(counts)\n"
-            "g = meta.loc[counts.index, 'biosample_env_local_scale'].astype(str)\n"
-            "result = {'nats': round(float(a.loc[g=='frost flowers','shannon_nats'].mean()),2),"
-            " 'rich': round(float(a.loc[g=='frost flowers','richness'].mean()),1)}")
-        assert ok and r["nats"] == 3.18 and r["rich"] == 92.0
-
-    def test_evenness_stays_within_its_bounds(self):
-        ok, r = self._run("a = alpha_diversity(counts)\n"
-                          "result = [float(a['evenness'].min()), float(a['evenness'].max())]")
-        assert ok and 0.0 <= r[0] and r[1] <= 1.0
-
-    def test_a_zero_read_sample_does_not_divide_by_zero(self):
-        ok, r = self._run("z = counts.copy(); z.iloc[0] = 0\n"
-                          "a = alpha_diversity(z)\n"
-                          "result = {'shannon': float(a['shannon_nats'].iloc[0]), "
-                          "'rich': int(a['richness'].iloc[0])}")
-        assert ok and r["shannon"] == 0.0 and r["rich"] == 0
 
 
 class TestNumericCoercion:
@@ -1120,46 +798,6 @@ class TestTrailingExpression:
     def test_a_syntax_error_still_reports_as_one(self):
         ok, r = self._run("result = (1 +")
         assert not ok and "SyntaxError" in str(r)
-
-
-class TestByRank:
-    """One analyst produced a single-row frame three times running trying to aggregate
-    counts to a taxonomic rank, and the investigation was abandoned with zero claims.
-    It is a counts-by-tax join with an axis choice in the middle: wrong shape, no error."""
-
-    def _run(self, code):
-        import asyncio
-        from ai.autoresearch import SubprocessExecutor
-        return asyncio.run(SubprocessExecutor("/data/dev/testdata/1543a4c1").run(code))
-
-    def test_samples_stay_as_rows(self):
-        ok, r = self._run("t = by_rank(counts, tax, 'Genus')\n"
-                          "result = {'shape': list(t.shape), "
-                          "'index_matches': bool((t.index == counts.index).all())}")
-        assert ok and r["shape"][0] == 63 and r["index_matches"]
-
-    def test_each_rank_collapses_further(self):
-        ok, r = self._run("result = {k: int(by_rank(counts, tax, k).shape[1]) "
-                          "for k in ['Domain','Phylum','Class','Order','Family','Genus']}")
-        assert ok
-        widths = [r[k] for k in ("Domain", "Phylum", "Class", "Order", "Family", "Genus")]
-        assert widths == sorted(widths) and widths[0] < widths[-1]
-
-    def test_reads_are_conserved_or_dropped_not_invented(self):
-        ok, r = self._run("t = by_rank(counts, tax, 'Domain')\n"
-                          "result = {'agg': float(t.values.sum()), "
-                          "'raw': float(counts.values.sum())}")
-        assert ok and r["agg"] <= r["raw"]
-
-    def test_an_unknown_rank_says_what_is_available(self):
-        ok, r = self._run("result = by_rank(counts, tax, 'Kingdom')")
-        assert not ok and "not a rank" in str(r) and "Genus" in str(r)
-
-    def test_it_feeds_permanova_directly(self):
-        ok, r = self._run("g = meta.loc[counts.index, 'biosample_env_local_scale']\n"
-                          "result = permanova(by_rank(counts, tax, 'Genus'), g, "
-                          "permutations=99)")
-        assert ok and r["n"] == 63 and r["groups"] == 5
 
 
 class TestSourcePrefixes:
