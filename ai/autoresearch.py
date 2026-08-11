@@ -1703,6 +1703,7 @@ class Autoresearcher:
                  clients: dict | None = None,
                  package_installer: Optional[Callable[[str], dict]] = None,
                  max_steps: int = 48, max_followups: int = 12, max_tokens: int = 4000,
+                 replicate_max_tokens: int | None = None,
                  on_progress: Optional[Callable[[str, Any], Awaitable]] = None):
         self.data = data
         self.llm = llm
@@ -1730,6 +1731,13 @@ class Autoresearcher:
         # that thinks before answering can spend the whole budget thinking and return
         # no tool call at all, which costs a step and looks like the model refusing.
         self.max_tokens = max_tokens
+        # Replication is the most demanding generation in the pipeline — read a claim,
+        # plan an approach, and write the analysis from scratch without ever seeing the
+        # original code — and it had the SMALLEST budget: 3000, hardcoded, while every
+        # other call took the configurable one. A reasoning model spends that thinking
+        # and returns no fenced block, which is recorded as `no code block in the
+        # analyst's reply` and skipped, so the pass reports nothing rather than failing.
+        self.replicate_max_tokens = replicate_max_tokens or max(max_tokens, 8000)
         self.on_progress = on_progress
         # per-run state (was module globals in the prototype)
         self.computations: dict[str, Any] = {}   # cid -> {label, code, result}
@@ -3059,7 +3067,8 @@ class Autoresearcher:
         rep: dict[str, Any] = {"round": round_no, "by": model, "attempts": 0}
         for attempt in range(max_attempts):
             r = await self._chat("adjudicate" if round_no >= 3 else "replicate", msgs,
-                                 model=model, temperature=temperature, max_tokens=3000)
+                                 model=model, temperature=temperature,
+                                 max_tokens=self.replicate_max_tokens)
             text = _strip_think(r.choices[0].message.content or "")
             code = _extract_code(text)
             rep["attempts"] = attempt + 1

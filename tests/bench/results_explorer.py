@@ -108,6 +108,10 @@ MAX_CLAIMS_PER_ITEM = int(os.environ.get("EXPLORER_MAX_CLAIMS_PER_ITEM", "6"))
 # ~11 minutes for 16000 tokens on a model too large for its card (~24 tok/s). It costs
 # nothing when unused, so this is a tail-risk setting, not a throughput one.
 MAX_TOKENS = int(os.environ.get("EXPLORER_MAX_TOKENS", "6000"))
+# The clean-room analyst writes a whole analysis from scratch having never seen the
+# original code, so it needs MORE room than a turn of exploration, not less. It had 3000
+# hardcoded, and returned no code block on 9 consecutive attempts (#73).
+REPLICATE_MAX_TOKENS = int(os.environ.get("EXPLORER_REPLICATE_MAX_TOKENS", "12000"))
 
 OUT = HERE / "writings"
 OUT.mkdir(exist_ok=True)
@@ -408,6 +412,7 @@ def _make_researcher(llm: LLMClient) -> Autoresearcher:
                         adjudicate_model=ADJUDICATE_MODEL,
                         max_steps=MAX_STEPS, max_followups=MAX_FOLLOWUPS,
                         max_tokens=MAX_TOKENS,
+                        replicate_max_tokens=REPLICATE_MAX_TOKENS,
                         # A grantable request is granted wherever the sandbox actually
                         # is: this interpreter for the subprocess stand-in, the running
                         # container otherwise. Installing on the host while the code
