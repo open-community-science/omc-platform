@@ -71,13 +71,25 @@ API_KEY = os.environ.get("EXPLORER_API_KEY", "lm-studio")
 REMOTE = not any(h in BASE_URL for h in ("localhost", "127.0.0.1"))
 
 MODEL = os.environ.get("EXPLORER_MODEL", "qwen/qwen3.6-35b-a3b")
+# The clean-room analyst. Its whole job is to WRITE ONE ANALYSIS, so it defaults to a
+# code model rather than to the explorer. Measured on the same prompt and claim:
+# qwen3-coder-30b wrote the derivation in 604 tokens and 16s; the reasoning explorer
+# spent 7765 tokens and 251s inside <think> and emitted no code at all, nine times in a
+# row across a run (#73). "Point it at a different model" was already the documented
+# advice — the default just contradicted it, so the shipped configuration was the
+# broken one.
+REPLICATE_MODEL = os.environ.get("REPLICATE_MODEL", "qwen3-coder-30b-a3b-instruct")
 # The judge. Defaults AWAY from the explorer: a claimant grading its own claims is
-# not verification, and with a model doing the judging that conflict is real.
-VERIFY_MODEL = os.environ.get("VERIFY_MODEL", os.environ.get("REPLICATE_MODEL", MODEL))
-REPLICATE_MODEL = os.environ.get("REPLICATE_MODEL", MODEL)
-# Round 3's casting vote. A third distinct model is ideal — the tiebreak should not
-# share a lineage with either of the first two.
-ADJUDICATE_MODEL = os.environ.get("ADJUDICATE_MODEL", REPLICATE_MODEL)
+# not verification, and with a model doing the judging that conflict is real. It no
+# longer borrows REPLICATE_MODEL, which would now hand the judging to a code model —
+# reading evidence and grading a claim is not the job that default was chosen for.
+VERIFY_MODEL = os.environ.get("VERIFY_MODEL", MODEL)
+# Round 3's casting vote — which also RE-DERIVES rather than opining (it runs the same
+# path as round 2), so it wants a code model too. It no longer defaults to
+# REPLICATE_MODEL: a tiebreak cast by the same model that produced one of the two votes
+# shares that vote's blind spots, which is the whole thing round 3 exists to escape. A
+# different lineage from either of the first two (qwen explorer, qwen coder) by default.
+ADJUDICATE_MODEL = os.environ.get("ADJUDICATE_MODEL", "mistralai/devstral-small-2-2512")
 
 # Which host serves each role (default: everything local).
 ROLE_HOST = {r: os.environ.get(f"{r.upper()}_HOST", "local")
