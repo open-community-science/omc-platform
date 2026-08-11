@@ -463,6 +463,67 @@ LM Studio's forward down with it.
 
 The portal's `.env` on arbutus sets `LLM_BASE_URL=http://localhost:1234/v1` (or `http://localhost:11434/v1` to drive ollama instead — it serves an OpenAI-compatible API. Gemma 4 there needs `think: false` in the request body, or thinking consumes the whole `max_tokens` and `content` comes back empty). Session containers never see the tunnel — they go through the LLM proxy at `172.30.0.1:8002/api/llm`.
 
+### The second GPU box: `grid`
+
+`grid` (`10.151.13.81`, Quadro GV100 32 GB, Ubuntu 20.04) is the bench's other host.
+Models live on `/samaya/models` (954 GB disk, `~/.lmstudio/models` symlinks to it) and
+**that is the full catalog** — concentration keeps only the working set. If the LM Studio
+daemon dies instantly with ``ENOENT: mkdir '/home/grid/.lmstudio/models'``, `/samaya` is
+unmounted: `sudo mount /samaya` (it is in fstab with `nofail`, so a missing disk boots
+silently).
+
+Start the headless daemon — **never the GUI**, which cannot run here:
+```bash
+setsid nohup ~/.lmstudio/llmster/0.0.6-1/llmster --docker-compatible-platforms cuda \
+  > /tmp/llmster.log 2>&1 < /dev/null &
+lms server start --port 1234 --bind 0.0.0.0 --cors
+```
+
+**`llmster` is frozen at 0.0.6-1 and cannot be upgraded.** The daemon binary needs only
+GLIBC 2.28, but every later build bundles natives requiring 2.34 (`watcher.node`,
+`better_sqlite3.node`) against a 20.04 box that has 2.31 — the same wall that stops the
+Electron GUI (2.33). `llmster upgrade` installs 0.0.20-1 into its own versioned directory
+and it dies on launch; the old version survives and is what runs. The consequence that
+matters: that March-era jinja **cannot render a tool-calling template**, so the explorer
+role can never run on `llmster`. It is fine for judging, which is plain completions.
+
+### llama.cpp in a container on grid
+
+A current llama.cpp in a container sidesteps the glibc wall, and gives grid both tool
+calling and architectures released this week.
+
+```bash
+docker run -d --name llamacpp --restart unless-stopped --gpus all \
+  -p 127.0.0.1:1236:8080 -v /samaya/models:/models:ro \
+  ghcr.io/ggml-org/llama.cpp:server-cuda \
+  -m /models/<publisher>/<repo>/<file>.gguf \
+  -c 16384 -ngl 999 --host 0.0.0.0 --port 8080 --alias <name>
+```
+
+- Requires `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart
+  docker` **once**. Installing `nvidia-container-toolkit` alone leaves Docker on
+  `Runtimes: runc` and `--gpus all` fails with "could not select device driver".
+- Loopback-bound, reached by `ssh -L`, for the same reason as the tunnel above: no auth.
+- Unlike `llmster` it survives a reboot (`--restart unless-stopped`).
+- **One model per process, and 32 GB holds one 20+ GB model at a time** — starting a
+  second fails with "unable to allocate CUDA0 buffer" rather than queueing.
+- The bench reaches it as the `grid-cc` host (`GRID_LLAMACPP_URL`), which treats model
+  switching as a no-op since the server serves whatever it was started with.
+
+### Model names are per-host
+
+The same weights carry different catalog ids on each machine: local LM Studio says
+`qwen/qwen3-coder-30b` where grid says `lmstudio-community/qwen3-coder-30b-a3b-instruct`
+for the byte-identical file. Local also collapses quants into `(1 variant)` and will not
+index a GGUF it did not download itself (`lms import` is interactive and ignores `-y`);
+grid's older daemon lists each publisher separately.
+
+`check_role_models()` asks each host what it serves and refuses to start on a mismatch.
+Without it a wrong name does not error — `_switch_model` fails, the return value is
+ignored, and the API JIT-loads by fuzzy match **on top of** the resident model. Observed:
+36 GB of models on a 20 GB card at 4% GPU, and a `SIGABRT` from the engine. Any script
+that drives the researcher directly must call `_switch_model(model, role)` first.
+
 ### Environment File (`/opt/omc-platform/portal/.env`)
 
 ```
