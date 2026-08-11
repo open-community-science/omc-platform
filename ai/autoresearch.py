@@ -3069,10 +3069,24 @@ class Autoresearcher:
             r = await self._chat("adjudicate" if round_no >= 3 else "replicate", msgs,
                                  model=model, temperature=temperature,
                                  max_tokens=self.replicate_max_tokens)
+            finish = getattr(r.choices[0], "finish_reason", None)
             text = _strip_think(r.choices[0].message.content or "")
             code = _extract_code(text)
             rep["attempts"] = attempt + 1
             if not code:
+                rep["finish_reason"] = finish
+                if finish == "length":
+                    # It never stopped thinking. `text` is EMPTY here — the reasoning was
+                    # all there was and _strip_think took it — so a retry would append an
+                    # empty assistant turn plus a nudge and run at the same ceiling with a
+                    # LONGER prompt: strictly worse, three times over. Measured: 7765
+                    # tokens and 251s per attempt, no code, on a reasoning model given
+                    # 12000 (#73). Say which failure this was; "no code block" reads like
+                    # the analyst answered in prose, and the fix is a different model, not
+                    # another try.
+                    rep["error"] = ("the analyst never stopped reasoning — it hit the "
+                                    "token/context ceiling before writing any code")
+                    break
                 rep["error"] = "no code block in the analyst's reply"
                 msgs += [{"role": "assistant", "content": text},
                          {"role": "user", "content": "Reply with ONE fenced python block "
