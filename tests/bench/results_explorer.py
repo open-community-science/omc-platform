@@ -86,7 +86,7 @@ MODEL = os.environ.get("EXPLORER_MODEL", "qwen/qwen3.6-35b-a3b")
 # row across a run (#73). "Point it at a different model" was already the documented
 # advice — the default just contradicted it, so the shipped configuration was the
 # broken one.
-REPLICATE_MODEL = os.environ.get("REPLICATE_MODEL", "qwen/qwen3-coder-30b")
+REPLICATE_MODEL = os.environ.get("REPLICATE_MODEL", "unsloth/qwen3-coder-30b-a3b-instruct")
 # The judge. Defaults AWAY from the explorer: a claimant grading its own claims is
 # not verification, and with a model doing the judging that conflict is real. It no
 # longer borrows REPLICATE_MODEL, which would now hand the judging to a code model —
@@ -99,8 +99,12 @@ VERIFY_MODEL = os.environ.get("VERIFY_MODEL", MODEL)
 # different lineage from either of the first two (qwen explorer, qwen coder) by default.
 ADJUDICATE_MODEL = os.environ.get("ADJUDICATE_MODEL", "mistralai/devstral-small-2-2512")
 
-# Which host serves each role (default: everything local).
-ROLE_HOST = {r: os.environ.get(f"{r.upper()}_HOST", "local")
+# Which host serves each role. Replication defaults to `grid` because that is where
+# its model lives: the Q4 coder is indexed there and the big card holds it alongside
+# whatever the small card is running, so the judge and the clean-room analyst stop
+# taking turns on one GPU. A model name is only valid on its own host, which
+# check_role_models() enforces before a run starts.
+ROLE_HOST = {r: os.environ.get(f"{r.upper()}_HOST", "grid" if r == "replicate" else "local")
              for r in ("explore", "verify", "replicate", "adjudicate", "write")}
 ROLE_MODEL = {"explore": MODEL, "verify": VERIFY_MODEL, "replicate": REPLICATE_MODEL,
               "adjudicate": ADJUDICATE_MODEL, "write": MODEL}
