@@ -1113,9 +1113,21 @@ class LLMClient:
 
     client: Any
     model: str
+    # Non-standard body fields for THIS endpoint, sent on every call. Belongs to the
+    # client rather than the call site because what a server accepts is a property of
+    # the server: `chat_template_kwargs` is understood by llama.cpp and vLLM and would
+    # be rejected outright by a hosted frontier API. Configure it where the endpoint is
+    # chosen; leave it None and nothing non-standard is sent.
+    #
+    # The use that motivated it: `{"chat_template_kwargs": {"enable_thinking": False}}`
+    # on the replication role. A reasoning model asked to re-derive one claim spent its
+    # whole budget thinking and returned no code — nine times in a row — while the same
+    # model with thinking off wrote the analysis and stopped (#73).
+    extra_body: dict | None = None
 
     async def chat(self, messages, *, model: str | None = None, tools=None,
-                   tool_choice=None, temperature: float = 0.25, max_tokens: int = 2500):
+                   tool_choice=None, temperature: float = 0.25, max_tokens: int = 2500,
+                   extra_body: dict | None = None):
         """Return the raw completion (caller reads ``choices[0].message`` /
         ``tool_calls``). Only non-None optional args are forwarded so a plain
         completion and a tool-calling turn share one path."""
@@ -1129,6 +1141,8 @@ class LLMClient:
             kwargs["tools"] = tools
         if tool_choice is not None:
             kwargs["tool_choice"] = tool_choice
+        if body := {**(self.extra_body or {}), **(extra_body or {})}:
+            kwargs["extra_body"] = body
         return await self.client.chat.completions.create(**kwargs)
 
 

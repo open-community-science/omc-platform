@@ -129,11 +129,30 @@ OUT = HERE / "writings"
 OUT.mkdir(exist_ok=True)
 
 
+# Roles whose job is to WRITE ONE ANALYSIS, not to deliberate. A reasoning model given
+# `replicate` spent its whole budget inside <think> and emitted no code nine times in a
+# row; the same model with thinking off wrote the analysis and stopped (#73). Measured on
+# one claim, same prompt, same server:
+#
+#   nemotron-3.5-lightning  thinking on  -> 12000 tok, 107s, no code
+#                           thinking off ->   717 tok,   6s, code
+#   qwen3.6-35b-a3b         thinking on  ->  7765 tok, 251s, no code
+#                           thinking off ->  6506 tok, 223s, code
+#
+# `chat_template_kwargs` is a llama.cpp/vLLM extension — a hosted frontier API would
+# reject it — so this is per-endpoint and switchable off wholesale with
+# EXPLORER_NO_THINK_ROLES="" for a backend that does not speak it.
+NO_THINK_ROLES = {r for r in os.environ.get("EXPLORER_NO_THINK_ROLES",
+                                            "replicate,adjudicate").split(",") if r}
+
+
 def _client_for(role: str) -> LLMClient:
     """An OpenAI-compatible client pointed at whichever host serves `role`."""
     host = HOSTS[ROLE_HOST[role]]
+    extra = ({"chat_template_kwargs": {"enable_thinking": False}}
+             if role in NO_THINK_ROLES else None)
     return LLMClient(AsyncOpenAI(base_url=host["base_url"], api_key=API_KEY, timeout=1800),
-                     ROLE_MODEL[role])
+                     ROLE_MODEL[role], extra_body=extra)
 
 
 def _clients() -> dict:
