@@ -86,7 +86,7 @@ MODEL = os.environ.get("EXPLORER_MODEL", "qwen/qwen3.6-35b-a3b")
 # row across a run (#73). "Point it at a different model" was already the documented
 # advice — the default just contradicted it, so the shipped configuration was the
 # broken one.
-REPLICATE_MODEL = os.environ.get("REPLICATE_MODEL", "qwen3-coder-30b-a3b-instruct")
+REPLICATE_MODEL = os.environ.get("REPLICATE_MODEL", "qwen/qwen3-coder-30b")
 # The judge. Defaults AWAY from the explorer: a claimant grading its own claims is
 # not verification, and with a model doing the judging that conflict is real. It no
 # longer borrows REPLICATE_MODEL, which would now hand the judging to a code model —
@@ -170,6 +170,54 @@ def _clients() -> dict:
 _LOADED = {}     # host -> currently resident model
 
 
+def _host_models(hostname: str) -> set:
+    """Model names THIS host will answer to. Asked of the host itself rather than
+    assumed, because the same weights carry different names on different machines:
+    one LM Studio calls the file `qwen/qwen3-coder-30b`, another calls the identical
+    file (same repo, same quant, same bytes) `qwen3-coder-30b-a3b-instruct`."""
+    host = HOSTS[hostname]
+    if not host.get("lms"):                     # a container: ask its API
+        try:
+            import urllib.request
+            with urllib.request.urlopen(host["base_url"].rstrip("/") + "/models",
+                                        timeout=20) as r:
+                return {m["id"] for m in json.load(r).get("data", [])}
+        except Exception:
+            return set()
+    cmd = host["lms"][:]
+    cmd = cmd[:2] + [f"{cmd[2]} ls"] if cmd[0] == "ssh" else cmd + ["ls"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=60).stdout
+    except Exception:
+        return set()
+    return {ln.split()[0] for ln in out.splitlines()
+            if ln.strip() and not ln.startswith(" ") and ln.split()[0] not in ("LLM", "EMBEDDING", "You")}
+
+
+def check_role_models() -> bool:
+    """Every role's model must exist ON THE HOST THAT SERVES IT.
+
+    A model string is only meaningful on its own host, and `_switch_model` shells out
+    to `lms load <model>`: give it a name from the wrong host and the load fails, the
+    return value is ignored, and the API then JIT-loads by fuzzy match ON TOP of what
+    is already resident. That is not a crash — it is 36 GB of models on a 20 GB card,
+    4% GPU utilisation, and a pass that takes 45x longer with no error anywhere. Cheap
+    to check up front; nearly invisible afterwards."""
+    ok = True
+    for role, hostname in ROLE_HOST.items():
+        want = ROLE_MODEL[role]
+        have = _host_models(hostname)
+        if not have:
+            print(f"  ! {role}: could not list models on {hostname}; not checking", flush=True)
+            continue
+        if want not in have:
+            near = [m for m in sorted(have) if want.split("/")[-1][:12].lower() in m.lower()]
+            print(f"  ! {role} wants '{want}' but {hostname} does not serve it."
+                  + (f" Did you mean: {', '.join(near[:3])}?" if near else ""), flush=True)
+            ok = False
+    return ok
+
+
 def _switch_model(model: str, role: str = "explore") -> bool:
     """Make `model` the resident model on the host serving `role`.
 
@@ -190,6 +238,8 @@ def _switch_model(model: str, role: str = "explore") -> bool:
     _run_lms(host, "unload --all", timeout=120)
     ok = _run_lms(host, f"load {model} -c 65536 --parallel 1 -y", timeout=600)
     _LOADED[hostname] = model if ok else None
+    if not ok:
+        print(f"  ! could not load {model} on {hostname} at 65536; trying smaller", flush=True)
     if not ok:      # fall back down the context ladder on a tight card
         for ctx in (49152, 32768, 16384):
             if _run_lms(host, f"load {model} -c {ctx} --parallel 1 -y", timeout=600):
@@ -643,6 +693,12 @@ async def _main_async(llm: LLMClient):
 
 
 def main():
+    # Before anything is loaded or any hours are spent. A role pointed at a model its
+    # host does not serve does not fail — it degrades, silently, into loading on top of
+    # whatever is resident.
+    if not check_role_models() and "--force-models" not in sys.argv:
+        print("  refusing to start; fix the role/host pairing or pass --force-models")
+        return
     if "--reverify" in sys.argv:
         client = None
         if "--reconcile" in sys.argv:   # verification needs a model to judge
