@@ -65,6 +65,14 @@ HOSTS = {
               "lms": ["lms"]},
     "grid":  {"base_url": os.environ.get("GRID_BASE_URL", "http://localhost:1235/v1"),
               "lms": ["ssh", "grid", "export PATH=$PATH:~/.lmstudio/bin; lms"]},
+    # grid's llama.cpp CONTAINER. A server process serves ONE model and has no load
+    # verb, so `lms` is None and model switching is a no-op — the host simply holds
+    # whatever it was started with. Worth having as its own host because that container
+    # runs a CURRENT llama.cpp: grid's llmster is pinned at the last version its glibc
+    # can load (0.0.6-1, March), whose jinja cannot render a tool-calling template at
+    # all, so the explorer could never run there. Through the container it can.
+    "grid-cc": {"base_url": os.environ.get("GRID_LLAMACPP_URL", "http://localhost:1237/v1"),
+                "lms": None},
 }
 BASE_URL = os.environ.get("EXPLORER_BASE_URL", HOSTS["local"]["base_url"])
 API_KEY = os.environ.get("EXPLORER_API_KEY", "lm-studio")
@@ -170,6 +178,13 @@ def _switch_model(model: str, role: str = "explore") -> bool:
     one of ITS roles changes model."""
     hostname = ROLE_HOST[role]
     host = HOSTS[hostname]
+    if not host.get("lms"):
+        # A host that serves one fixed model. Say so once, because "switching" to a
+        # model that is not the one loaded would otherwise look like it succeeded.
+        if _LOADED.get(hostname) is None:
+            _LOADED[hostname] = model
+            print(f"  {hostname} serves a fixed model; not switching for {role}", flush=True)
+        return True
     if _LOADED.get(hostname) == model:
         return True
     _run_lms(host, "unload --all", timeout=120)
