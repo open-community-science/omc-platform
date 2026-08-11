@@ -2531,11 +2531,27 @@ class Autoresearcher:
         self._verify_queue = q
         judge = asyncio.create_task(self._verify_stream(q)) if q is not None else None
         used = 0
+        n_epochs = max(1, epochs)
+        # `epochs` is a PROMISE that a later round gets to re-germinate against what the
+        # earlier ones found — the only mechanism by which a premise missed at the start
+        # is ever recovered. The budget used to be a single pool, so a first round that
+        # spent it left every later round with nothing and was skipped in silence: a run
+        # announcing "2 epoch(s)" delivered one, and said so nowhere (#74). Each epoch now
+        # gets its share reserved, and underspend flows forward to the rounds still to come.
+        if n_epochs > 1 and budget // n_epochs < tip_steps:
+            await self._emit("epoch_budget_thin",
+                             {"epochs": n_epochs, "budget": budget,
+                              "per_epoch": budget // n_epochs, "tip_steps": tip_steps})
         try:
-            for epoch in range(max(1, epochs)):
+            for epoch in range(n_epochs):
                 if used >= budget:
                     break
-                grew = await self._grow_epoch(epoch, budget, used, tip_steps,
+                left = n_epochs - epoch
+                ceiling = used + (budget - used) // left if left > 1 else budget
+                await self._emit("epoch_budget",
+                                 {"epoch": epoch, "steps": ceiling - used,
+                                  "of": budget, "spent": used})
+                grew = await self._grow_epoch(epoch, ceiling, used, tip_steps,
                                               one_claim, max_claims_per_item)
                 used += grew
                 if not self.agenda:

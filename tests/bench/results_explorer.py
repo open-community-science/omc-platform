@@ -317,7 +317,17 @@ _ANNOUNCED: set = set()      # agenda ids already printed, so epoch 2 lists only
 async def _print_progress(event: str, detail: dict):
     """Exploration used to print NOTHING until it finished, which on a multi-hour run
     is indistinguishable from a hang. Keep it to the structural events."""
-    if event == "germinate":
+    if event == "epoch_budget":
+        # What this round may actually spend, said before it spends it. The banner
+        # announces the epoch count up front and is never corrected, so this is the
+        # only place a reader learns whether the round was funded (#74).
+        print(f"  round {detail['epoch'] + 1}: {detail['steps']} steps "
+              f"({detail['spent']}/{detail['of']} of the budget already spent)", flush=True)
+    elif event == "epoch_budget_thin":
+        print(f"  ⚠ {detail['epochs']} epochs share {detail['budget']} steps — "
+              f"{detail['per_epoch']} each, less than one tip ({detail['tip_steps']}). "
+              f"Raise EXPLORER_MAX_STEPS or ask for fewer epochs.", flush=True)
+    elif event == "germinate":
         print("  germinating agenda…", flush=True)
     elif event == "agenda":
         print(f"  agenda for round {detail.get('epoch', 0) + 1} — "
