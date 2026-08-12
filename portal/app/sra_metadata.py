@@ -161,8 +161,13 @@ async def _fetch_sra(accession: str) -> dict:
 async def _fetch_bioproject(accession: str) -> dict:
     """Fetch metadata from BioProject database."""
     try:
-        # Get BioProject summary
-        search_handle = Entrez.esearch(db="bioproject", term=accession)
+        # Ask by ACCESSION FIELD, not free text. A bare accession is a full-text
+        # query, so it also matches projects that merely cite it in their
+        # description — searching PRJNA895866 returns two hits, and the unrelated
+        # project sorts first. Taking IdList[0] then labels the submission with a
+        # stranger's title and abstract, which is what the manuscript generator
+        # and autoresearch are handed as the study context.
+        search_handle = Entrez.esearch(db="bioproject", term=f"{accession}[Project Accession]")
         search_results = Entrez.read(search_handle)
         search_handle.close()
 
@@ -176,6 +181,11 @@ async def _fetch_bioproject(accession: str) -> dict:
         summary_handle.close()
 
         project_data = summary.get("DocumentSummarySet", {}).get("DocumentSummary", [{}])[0]
+
+        # Belt and braces: never describe a project with another one's text.
+        returned_acc = str(project_data.get("Project_Acc", "") or "")
+        if returned_acc and returned_acc.upper() != accession.upper():
+            project_data = {}
 
         # Find all linked SRA runs via esearch
         # First get the count, then fetch all IDs

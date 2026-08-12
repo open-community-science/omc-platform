@@ -199,7 +199,7 @@ def _format_methods_context(pipeline_type: str, interview_data: dict, pipeline_o
     parameters aren't recorded in the current outputs)."""
     parts = []
     if pipeline_type == "microscape":
-        parts.append("PIPELINE WORKFLOW (microscape-nf, Illumina amplicon / DADA2): " + _MICROSCAPE_WORKFLOW)
+        parts.append("PIPELINE WORKFLOW (danaSeq illumina_amplicon, DADA2): " + _MICROSCAPE_WORKFLOW)
         parts.append("NOTE — the 'renormalized' step is a TAXONOMIC read-partition/cleanup "
                      "(chloroplast & mitochondrial reads removed, prokaryote vs eukaryote split), "
                      "NOT a diversity rarefaction. Do not describe rarefaction unless the data show it.")

@@ -158,7 +158,7 @@ def _build_pipeline_cmd(submission: Submission) -> str:
     OMC's user-facing pipelines compose danaSeq building blocks:
       NANOPORE_MAG (Nanopore Metagenome) = nanopore_assembly -> mag_analysis
       ILLUMINA_MAG (Illumina Metagenome) = illumina_assembly -> mag_analysis
-      MICROSCAPE   (Illumina Amplicons)  = microscape-nf (self-contained SIF)
+      MICROSCAPE   (Illumina Amplicons)  = danaSeq/illumina_amplicon (self-contained SIF)
 
     The returned block is executed inside a `set -e` subshell, so any step
     failing aborts the pipeline with its exit code. Uses ${INPUT_DIR},
@@ -173,7 +173,7 @@ def _build_pipeline_cmd(submission: Submission) -> str:
     illu = "${OMC_GENICE}/danaSeq/illumina_assembly"
     mag = "${OMC_GENICE}/danaSeq/mag_analysis"
     db_dir = "${OMC_DB_DIR}"
-    micro_sif = "${OMC_GENICE}/microscape-nf.sif"
+    micro_sif = "${OMC_GENICE}/danaseq-illumina-amplicon.sif"
 
     if pipeline == PipelineType.NANOPORE_MAG:
         # Single co-assembly: results/assembly/assembly.fasta + results/mapping/depths.txt
@@ -231,7 +231,7 @@ done
 [ "$found" -eq 1 ] || {{ echo "ERROR: assembly produced no *.dedupe.fasta"; exit 1; }}"""
 
     if pipeline == PipelineType.MICROSCAPE:
-        # microscape-nf runs entirely from its SIF (pipeline code baked in at /pipeline).
+        # The amplicon stage runs entirely from its SIF (code baked in at /pipeline).
         # The image bakes its Nextflow framework jar and, via the entrypoint, forces the
         # CA bundle to the Ubuntu path, a writable NXF_HOME, and the legacy syntax parser.
         # We still set the CA env here defensively (an older SIF may lack the entrypoint fix).
@@ -377,6 +377,13 @@ OMC_STAGING_URL="${{OMC_STAGING_URL:-}}"
 OMC_STAGING_KEY="${{OMC_STAGING_KEY:-}}"
 SLUG="{submission.slug}"
 
+# $extra is spliced into the JSON body verbatim, so it must be written with
+# plain double quotes. Backslash-escaping it (',\"job_id\":...') looks right
+# next to the escaping on the line below, but that one is inside double quotes
+# where bash unescapes it, while $extra is single-quoted and reaches curl with
+# the backslashes intact -- invalid JSON, a 500, and a status the portal never
+# receives. `|| true` then hides it, so runs finished silently and only the
+# pickup reconciler ever corrected them.
 push_status() {{
     local phase="$1"
     local extra="${{2:-}}"
@@ -393,7 +400,7 @@ cleanup() {{
     echo "Signal caught — marking job as failed"
     echo "failed" > ${{OUTPUT_DIR}}/.status
     echo 1 > ${{OUTPUT_DIR}}/.completed
-    push_status "failed" ',\\"reason\\":\\"Signal caught\\"'
+    push_status "failed" ',"reason":"Signal caught"'
     exit 1
 }}
 trap cleanup SIGTERM SIGUSR1 SIGUSR2
@@ -412,12 +419,12 @@ if [ "$NUM_FILES" -eq 0 ]; then
     echo "ERROR: No fastq files found in ${{INPUT_DIR}}/fastq/"
     echo "failed" > ${{OUTPUT_DIR}}/.status
     echo 1 > ${{OUTPUT_DIR}}/.completed
-    push_status "failed" ',\\"reason\\":\\"No fastq files\\"'
+    push_status "failed" ',"reason":"No fastq files"'
     exit 1
 fi
 
 echo "running" > ${{OUTPUT_DIR}}/.status
-push_status "running" ',\\"job_id\\":\\"'$SLURM_JOB_ID'\\",\\"slurm_state\\":\\"RUNNING\\"'
+push_status "running" ',"job_id":"'$SLURM_JOB_ID'","slurm_state":"RUNNING"'
 
 echo "=== OMC Pipeline: {submission.pipeline.value} ==="
 echo "Accession: {accession}"
@@ -448,7 +455,7 @@ fi
 echo $PIPELINE_EXIT > ${{OUTPUT_DIR}}/.completed
 if [ $PIPELINE_EXIT -eq 0 ]; then
     echo "completed" > ${{OUTPUT_DIR}}/.status
-    push_status "completed" ',\\"exit_code\\":\\"0\\"'
+    push_status "completed" ',"exit_code":"0"'
 
     # Archive results and work dir to squashfs (reduces inode footprint)
     echo "=== Archiving to squashfs ==="
@@ -487,14 +494,14 @@ if [ $PIPELINE_EXIT -eq 0 ]; then
         if [ $UPLOAD_RC -eq 0 ]; then
             echo "Upload complete"
             touch ${{OUTPUT_DIR}}/.transferred
-            push_status "transferred" ',\\"results_format\\":\\"archived\\"'
+            push_status "transferred" ',"results_format":"archived"'
         else
             echo "WARNING: Upload failed (exit $UPLOAD_RC) — results remain on scratch"
         fi
     fi
 else
     echo "failed" > ${{OUTPUT_DIR}}/.status
-    push_status "failed" ',\\"exit_code\\":\\"'$PIPELINE_EXIT'\\",\\"reason\\":\\"Pipeline exited with code '$PIPELINE_EXIT'\\"'
+    push_status "failed" ',"exit_code":"'$PIPELINE_EXIT'","reason":"Pipeline exited with code '$PIPELINE_EXIT'"'
 fi
 """
 
@@ -938,13 +945,17 @@ async def poll_all_running_jobs(db_session) -> list:
                 # failed. Such an archive has no viz/seqtab; mark it FAILED
                 # instead of RESULTS_READY so it doesn't read as done.
                 if sub.pipeline == PipelineType.MICROSCAPE:
-                    from .microscape_deploy import results_have_output
+                    from .microscape_deploy import results_have_output, diagnose_empty_run
                     if not results_have_output(sub.slug):
                         sub.status = SubmissionStatus.FAILED
-                        sub.error_message = (
-                            "Pipeline finished but produced no results "
-                            "(all samples lost their reads — check primers)."
-                        )
+                        # Read the pipeline's own stats rather than guessing at a
+                        # cause: "check primers" sent two investigations at the
+                        # primers when the loss was entirely at the quality filter.
+                        try:
+                            sub.error_message = diagnose_empty_run(sub.slug)
+                        except Exception:
+                            logger.exception("Submission %s: empty-run diagnosis failed", sub.slug)
+                            sub.error_message = "Pipeline finished but produced no results."
                         logger.warning("Submission %s transferred but empty — marked FAILED", sub.slug)
                         completed.append(sub.slug)
                         continue
