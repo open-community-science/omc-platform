@@ -106,7 +106,7 @@ class Settings(BaseSettings):
     # user-facing pipelines compose them:
     #   Nanopore Metagenome (NANOPORE_MAG) = nanopore_assembly -> mag_analysis
     #   Illumina Metagenome (ILLUMINA_MAG) = illumina_assembly -> mag_analysis
-    #   Illumina Amplicons  (MICROSCAPE)   = illumina_amplicon (runs from its SIF)
+    #   Illumina Amplicons  (ILLUMINA_AMPLICON) = illumina_amplicon (runs from its SIF)
     pipeline_base: str = "/home/rec3141/GENICE/danaSeq"
     pipeline_nanopore_assembly: str = "/home/rec3141/GENICE/danaSeq/nanopore_assembly"
     pipeline_illumina_assembly: str = "/home/rec3141/GENICE/danaSeq/illumina_assembly"
@@ -115,13 +115,13 @@ class Settings(BaseSettings):
     # the image at /pipeline). It was its own repo, microscape-nf, until that
     # consolidated into danaSeq as the illumina_amplicon stage; the SIF is built
     # from ghcr.io/rec3141/danaseq-illumina-amplicon.
-    microscape_sif: str = "/home/rec3141/GENICE/danaseq-illumina-amplicon.sif"
-    # microscape taxonomy reference DB(s), format "name:path:Level1,Level2,...".
+    amplicon_sif: str = "/home/rec3141/GENICE/danaseq-illumina-amplicon.sif"
+    # amplicon taxonomy reference DB(s), format "name:path:Level1,Level2,...".
     # REQUIRED for output: the taxonomy → renormalize → BUILD_VIZ branch (which
     # produces the viz/ folder) is gated on --ref_databases. SILVA SSU covers
     # 16S + 18S; ITS would need UNITE. `{db}` is substituted with the executing
     # cluster's ${OMC_DB_DIR} at run time so this is portable across clusters.
-    microscape_ref_databases: str = (
+    amplicon_ref_databases: str = (
         "silva:{db}/silva_db/SILVA_138.2_SSURef_NR99.fasta"
         ":Domain,Phylum,Class,Order,Family,Genus"
     )

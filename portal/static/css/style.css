@@ -1516,7 +1516,7 @@ body {
 .pill-ok { background: #dcfce7; color: #166534; }
 .pill-bad { background: #fee2e2; color: #991b1b; }
 
-/* ── Amplicon primer box (microscape) ── */
+/* ── Amplicon primer box ── */
 .primer-form { margin-top: 0.75rem; }
 .primer-fields {
     display: flex;

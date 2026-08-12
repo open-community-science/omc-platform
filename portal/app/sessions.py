@@ -652,7 +652,7 @@ async def session_chat(
     session = _sessions[slug]
     is_ena = slug.startswith("ena-")
 
-    # Amplicon (microscape) runs have their interactive viz deployed to
+    # Amplicon runs have their interactive viz deployed to
     # microscape.app. The container bundles the danaSeq MAG explorer, which
     # can't render amplicon results (it 404s on data/overview.json), so point
     # the Data Explorer tab at the deployed site instead of the local one.
@@ -661,7 +661,7 @@ async def session_chat(
         sub = (await db.execute(
             select(Submission).where(Submission.slug == slug)
         )).scalar_one_or_none()
-        if sub and sub.pipeline == PipelineType.MICROSCAPE:
+        if sub and sub.pipeline == PipelineType.ILLUMINA_AMPLICON:
             external_viz_url = (sub.sample_metadata or {}).get("microscape_viz_url")
 
     return templates.TemplateResponse(

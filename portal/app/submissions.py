@@ -44,7 +44,7 @@ def _auto_pipeline(breakdown: list) -> PipelineType:
     has_short = any("ILLUMINA" in p or "BGISEQ" in p for p in platforms)
 
     if any("AMPLICON" in s for s in strategies):
-        return PipelineType.MICROSCAPE
+        return PipelineType.ILLUMINA_AMPLICON
     if any("RNA" in s for s in strategies):
         return PipelineType.RNASEQ
     if any("METAGENOMIC" in s or "METATRANSCRIPTOMIC" in s for s in sources):
@@ -148,14 +148,14 @@ def _run_accession(run) -> Optional[str]:
 
 
 async def _resolve_primers(submission: Submission):
-    """Resolve amplicon primers for a microscape submission.
+    """Resolve amplicon primers for an amplicon submission.
 
     Order is manual > empirical read detection > metadata. Read detection wins
     over metadata deliberately: SRA metadata is unreliable (PRJNA1473294 labels
     every run "16S" though 40 are 18S), and a single wrong metadata pair would
     then be forced on every sample. The read-based detector is multi-set, so it
     catches genuinely mixed BioProjects; OMC passes all detected sets to the
-    pipeline (see slurm._microscape_primer_prelude). Best-effort — never blocks.
+    pipeline (see slurm._amplicon_primer_prelude). Best-effort — never blocks.
     """
     import asyncio
     from . import primers as pm
@@ -208,7 +208,7 @@ async def _launch_download(slug: str):
             return  # deleted before download started
         try:
             # Resolve amplicon primers before the pipeline script is built.
-            if submission.pipeline == PipelineType.MICROSCAPE:
+            if submission.pipeline == PipelineType.ILLUMINA_AMPLICON:
                 await _resolve_primers(submission)
                 await db.commit()
             job_id = await submit_local_download_job(submission)
@@ -373,7 +373,7 @@ async def set_primers(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
-    """Set (or clear) manual amplicon primers on a microscape submission.
+    """Set (or clear) manual amplicon primers on an amplicon submission.
 
     Blank fields clear manual primers, re-enabling metadata/inferred resolution
     at submit time. Sequences are validated as IUPAC nucleotide strings.

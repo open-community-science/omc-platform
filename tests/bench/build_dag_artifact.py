@@ -51,7 +51,7 @@ stats = {
     "investigations": len(agenda),
 }
 slug = W.name.replace("real_", "")
-study = f"microscape amplicon submission {slug} · agenda-driven autoresearch"
+study = f"illumina_amplicon submission {slug} · agenda-driven autoresearch"
 run = ledger.get("run", {})
 DATA = json.dumps({"claims": view, "stats": stats, "study": study, "run": run})
 

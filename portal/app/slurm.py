@@ -19,8 +19,8 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
-def _microscape_primer_prelude(submission: Submission) -> tuple[str, str]:
-    """Return (shell_prelude, primer_args) passing OMC-resolved primers to microscape.
+def _amplicon_primer_prelude(submission: Submission) -> tuple[str, str]:
+    """Return (shell_prelude, primer_args) passing OMC-resolved primers to the amplicon pipeline.
 
     OMC always supplies the primers so the pipeline never falls back to its
     DETECT_PRIMERS process, which is both wasteful (full cutadapt pass over all
@@ -89,7 +89,7 @@ printf '{rev_fa}' > "${{OUTPUT_DIR}}/primers/rev.fa"
     return prelude, args
 
 
-def _microscape_metadata_prelude(submission: Submission) -> tuple[str, str]:
+def _amplicon_metadata_prelude(submission: Submission) -> tuple[str, str]:
     """Return (shell_prelude, metadata_args) staging a sample metadata TSV.
 
     OMC already holds the SRA record for every run, but never handed it to the
@@ -158,7 +158,7 @@ def _build_pipeline_cmd(submission: Submission) -> str:
     OMC's user-facing pipelines compose danaSeq building blocks:
       NANOPORE_MAG (Nanopore Metagenome) = nanopore_assembly -> mag_analysis
       ILLUMINA_MAG (Illumina Metagenome) = illumina_assembly -> mag_analysis
-      MICROSCAPE   (Illumina Amplicons)  = danaSeq/illumina_amplicon (self-contained SIF)
+      ILLUMINA_AMPLICON (Illumina Amplicons) = danaSeq/illumina_amplicon (self-contained SIF)
 
     The returned block is executed inside a `set -e` subshell, so any step
     failing aborts the pipeline with its exit code. Uses ${INPUT_DIR},
@@ -230,18 +230,18 @@ for asm in "$ASM"/assembly/*/*.dedupe.fasta; do
 done
 [ "$found" -eq 1 ] || {{ echo "ERROR: assembly produced no *.dedupe.fasta"; exit 1; }}"""
 
-    if pipeline == PipelineType.MICROSCAPE:
+    if pipeline == PipelineType.ILLUMINA_AMPLICON:
         # The amplicon stage runs entirely from its SIF (code baked in at /pipeline).
         # The image bakes its Nextflow framework jar and, via the entrypoint, forces the
         # CA bundle to the Ubuntu path, a writable NXF_HOME, and the legacy syntax parser.
         # We still set the CA env here defensively (an older SIF may lack the entrypoint fix).
         # Primers come from OMC's resolver (metadata / manual / inferred from reads) and are
-        # passed explicitly; without them microscape's own auto-detection runs (and is flaky),
+        # passed explicitly; without them the pipeline's own auto-detection runs (and is flaky),
         # so a resolved primer pair is strongly preferred.
-        primer_prelude, primer_args = _microscape_primer_prelude(submission)
-        meta_prelude, meta_args = _microscape_metadata_prelude(submission)
+        primer_prelude, primer_args = _amplicon_primer_prelude(submission)
+        meta_prelude, meta_args = _amplicon_metadata_prelude(submission)
         # Taxonomy DB gates the taxonomy → BUILD_VIZ branch that produces viz/.
-        ref_dbs = settings.microscape_ref_databases.replace("{db}", "${OMC_DB_DIR}")
+        ref_dbs = settings.amplicon_ref_databases.replace("{db}", "${OMC_DB_DIR}")
         ref_arg = f' \\\n    --ref_databases "{ref_dbs}"' if ref_dbs else ""
         # Bind the reference DB dir(s) into the container so paths resolve.
         ref_binds = ""
@@ -252,7 +252,7 @@ done
                 d = _os.path.dirname(parts[1].strip())
                 if d:
                     ref_binds += f',"{d}:{d}:ro"'
-        return f"""echo ">>> Illumina amplicon analysis (microscape)"
+        return f"""echo ">>> Illumina amplicon analysis"
 mkdir -p "${{WORK_DIR}}"
 # Match the pipeline's resources to what SLURM actually granted. Its defaults
 # (8 threads / 16GB denoise) left most of the requested CPUs and memory idle.
@@ -305,10 +305,10 @@ def _estimate_mem_gb(submission: Submission, attempt: int = 0) -> int:
 
     Metagenome assembly (metaSPAdes/Tadpole) dominates memory, so scale from the
     dataset's total bases off a floor, snap to a node tier, and double the target
-    per retry attempt. Amplicon (microscape) is light and fixed.
+    per retry attempt. Amplicon is light and fixed.
     """
     pipe = submission.pipeline
-    if pipe == PipelineType.MICROSCAPE:
+    if pipe == PipelineType.ILLUMINA_AMPLICON:
         base = 128
     elif pipe in (PipelineType.ILLUMINA_MAG, PipelineType.NANOPORE_MAG):
         m = submission.sample_metadata or {}
@@ -339,7 +339,7 @@ def _build_pipeline_script(submission: Submission, attempt: int = 0) -> str:
     accession = submission.bioproject_accession
     mem_gb = _estimate_mem_gb(submission, attempt)
 
-    # Pipeline-specific run command (assembly->mag chain, or microscape SIF)
+    # Pipeline-specific run command (assembly->mag chain, or amplicon SIF)
     pipeline_cmd = _build_pipeline_cmd(submission)
 
     return f"""#!/bin/bash
@@ -944,7 +944,7 @@ async def poll_all_running_jobs(db_session) -> list:
                 # ignored) but produced nothing — e.g. every REMOVE_PRIMERS
                 # failed. Such an archive has no viz/seqtab; mark it FAILED
                 # instead of RESULTS_READY so it doesn't read as done.
-                if sub.pipeline == PipelineType.MICROSCAPE:
+                if sub.pipeline == PipelineType.ILLUMINA_AMPLICON:
                     from .microscape_deploy import results_have_output, diagnose_empty_run
                     if not results_have_output(sub.slug):
                         sub.status = SubmissionStatus.FAILED
@@ -960,7 +960,7 @@ async def poll_all_running_jobs(db_session) -> list:
                         completed.append(sub.slug)
                         continue
                 # Deploy the amplicon viz site to microscape.app (once).
-                if sub.pipeline == PipelineType.MICROSCAPE:
+                if sub.pipeline == PipelineType.ILLUMINA_AMPLICON:
                     meta = dict(sub.sample_metadata or {})
                     if not meta.get("microscape_viz_url"):
                         try:

@@ -298,7 +298,7 @@ def _load_viz_json(name: str):
 def _synthesize_overview() -> dict:
     """Build an overview from whatever viz files exist.
 
-    The MAG viz emits an `overview.json`; the amplicon (microscape) viz does not
+    The MAG viz emits an `overview.json`; the amplicon viz does not
     — it emits renorm_stats/taxonomy/samples/provenance/network. Rather than
     return an error for the model's very first call, synthesise a compact
     overview from the files that are present so both pipeline types work.
@@ -351,7 +351,7 @@ def _synthesize_overview() -> dict:
     description=(
         "Get preprocessed pipeline result summaries (structured JSON from the danaSeq "
         "viz preprocessor). The available datasets depend on the pipeline type:\n"
-        "- Amplicon (microscape/16S/18S): overview, taxonomy, samples, heatmap, "
+        "- Amplicon (16S/18S): overview, taxonomy, samples, heatmap, "
         "aggregated_counts, asvs, counts, network, renorm_stats, provenance\n"
         "- Metagenome (MAG): overview, mags, contig_lengths, taxonomy_sunburst, "
         "kegg_heatmap, coverage, mge_summary, eukaryotic, biosynthetic, phylotree\n"

@@ -65,7 +65,7 @@ tests/                  # pytest test suite
 
 1. **Enter any NCBI accession** (PRJNA, SRR, SAMN, etc.) → resolves to parent BioProject
 2. **Select data types** from breakdown table (platform/strategy/source/layout combos)
-3. **Pipeline auto-selected** from library tags (AMPLICON → microscape, WGS → illumina_mag, etc.)
+3. **Pipeline auto-selected** from library tags (AMPLICON → illumina_amplicon, WGS → illumina_mag, etc.)
 4. **Author interview** → AI gathers research context via conversation
 5. **Submit to HPC** → Nextflow pipeline via SLURM on Alliance Canada
 6. **AI manuscript draft** → generated from pipeline outputs + interview data
@@ -89,7 +89,7 @@ tests/                  # pytest test suite
 
 | Pipeline | Strategy | Parser |
 |----------|----------|--------|
-| `microscape` | Illumina amplicon (16S/ITS) | Planned |
+| `illumina_amplicon` | Illumina amplicon (16S/ITS) | Planned |
 | `nanopore_mag` | Long-read MAG assembly | Implemented |
 | `illumina_mag` | Short-read MAG assembly | Implemented |
 | `rnaseq` | RNA-Seq differential expression | Implemented |

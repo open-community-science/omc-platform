@@ -38,11 +38,10 @@ def status_label(v) -> str:
 
 templates.env.filters["status_label"] = status_label
 
-# User-facing pipeline names. "microscape" is the current implementation detail
-# (danaSeq/illumina_amplicon); users should only ever see the
-# illumina_amplicon naming, matching the other danaSeq building blocks.
+# User-facing pipeline names, matching the danaSeq building blocks rather
+# than the internal keys. illumina_amplicon needs no entry now that the
+# pipeline is named for what it is; it was "microscape" until then.
 PIPELINE_LABELS = {
-    "microscape": "illumina_amplicon",
     "nanopore_mag": "nanopore_metagenome",
     "illumina_mag": "illumina_metagenome",
     "rnaseq": "illumina_rna",

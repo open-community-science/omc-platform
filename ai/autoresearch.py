@@ -432,7 +432,7 @@ class DirDataSource:
     ``study`` is the stated study/methods context; the prototype's
     ``_build_datasets`` derived the ``study`` dataset from a ``STUDY_GROUNDED``
     global plus the overview fixture — here both are passed in explicitly.
-    ``overview`` (the parse_microscape-shaped summary) is optional; when omitted a
+    ``overview`` (the parse_amplicon-shaped summary) is optional; when omitted a
     minimal one is computed from the same viz JSON so the agent's ``get_dataset``
     still returns a usable ``overview``/``taxonomy_summary``."""
 
@@ -457,7 +457,7 @@ class DirDataSource:
     _rj = read_json
 
     def _build_overview(self) -> dict:
-        """Compute a parse_microscape-shaped summary from the viz JSON when the
+        """Compute a parse_amplicon-shaped summary from the viz JSON when the
         caller didn't supply one (mirrors the bench ``fixtures.build_pipeline_outputs``
         shape closely enough for the agent's ``overview``/``taxonomy_summary``)."""
         renorm = self.read_json("renorm_stats") or {}

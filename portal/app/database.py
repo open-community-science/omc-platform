@@ -30,7 +30,7 @@ class SubmissionStatus(str, enum.Enum):
 class PipelineType(str, enum.Enum):
     NANOPORE_MAG = "nanopore_mag"
     ILLUMINA_MAG = "illumina_mag"
-    MICROSCAPE = "microscape"
+    ILLUMINA_AMPLICON = "illumina_amplicon"
     RNASEQ = "rnaseq"
     ISOLATE_GENOME = "isolate_genome"
 
@@ -119,7 +119,7 @@ class Submission(Base):
     title = Column(String(500))
     sample_metadata = Column(JSON)
 
-    # Amplicon primers (microscape): {fwd, rev, fwd_name, rev_name, region,
+    # Amplicon primers: {fwd, rev, fwd_name, rev_name, region,
     # source: metadata|manual|inferred-db|inferred-denovo, confidence}
     primers = Column(JSON)
 
