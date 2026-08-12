@@ -115,7 +115,10 @@ class Settings(BaseSettings):
     # the image at /pipeline). It was its own repo, microscape-nf, until that
     # consolidated into danaSeq as the illumina_amplicon stage; the SIF is built
     # from ghcr.io/rec3141/danaseq-illumina-amplicon.
-    amplicon_sif: str = "/home/rec3141/GENICE/danaseq-illumina-amplicon.sif"
+    #
+    # Its path is not a setting: slurm.py resolves it under ${OMC_GENICE} like
+    # every other component, so one script works on any cluster. A setting here
+    # was never read, and disagreed with the path actually used.
     # amplicon taxonomy reference DB(s), format "name:path:Level1,Level2,...".
     # REQUIRED for output: the taxonomy → renormalize → BUILD_VIZ branch (which
     # produces the viz/ folder) is gated on --ref_databases. SILVA SSU covers

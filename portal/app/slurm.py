@@ -173,7 +173,11 @@ def _build_pipeline_cmd(submission: Submission) -> str:
     illu = "${OMC_GENICE}/danaSeq/illumina_assembly"
     mag = "${OMC_GENICE}/danaSeq/mag_analysis"
     db_dir = "${OMC_DB_DIR}"
-    micro_sif = "${OMC_GENICE}/danaseq-illumina-amplicon.sif"
+    # Beside its wrapper in the checkout, like every other component's .sif, so
+    # danaSeq/tools/rebuild-sifs.sh keeps it current. It used to sit loose at the
+    # GENICE root, which nothing rebuilds -- runs were pinned to whatever image
+    # had been pulled there by hand.
+    amplicon_sif = "${OMC_GENICE}/danaSeq/illumina_amplicon/.danaseq-illumina-amplicon.sif"
 
     if pipeline == PipelineType.NANOPORE_MAG:
         # Single co-assembly: results/assembly/assembly.fasta + results/mapping/depths.txt
@@ -264,7 +268,7 @@ OMC_DENOISE_MEM=$(( ${{OMC_MEM_GB:-16}} * 3 / 4 ))
     --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \\
     --env REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
     --bind "${{OUTPUT_DIR}}:${{OUTPUT_DIR}}","${{WORK_DIR}}:${{WORK_DIR}}","${{INPUT_DIR}}/fastq:${{INPUT_DIR}}/fastq:ro"{ref_binds} \\
-    "{micro_sif}" \\
+    "{amplicon_sif}" \\
     run /pipeline/main.nf \\
     --input "${{INPUT_DIR}}/fastq"{primer_args}{ref_arg} \\
     --build_viz_site \\
@@ -282,7 +286,7 @@ OMC_DENOISE_MEM=$(( ${{OMC_MEM_GB:-16}} * 3 / 4 ))
 # the pipeline over its published outputs — best effort, never fails the job.
 apptainer exec \\
     --bind "${{OUTPUT_DIR}}:${{OUTPUT_DIR}}" \\
-    "{micro_sif}" \\
+    "{amplicon_sif}" \\
     python3 /pipeline/bin/read_tracking.py \\
         "${{OUTPUT_DIR}}/seqtab_final/read_tracking.tsv" \\
         "${{OUTPUT_DIR}}"/trimmed/*_cutadapt.log \\
