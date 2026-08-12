@@ -1,6 +1,6 @@
-"""Primer resolution for amplicon (microscape) submissions.
+"""Primer resolution for amplicon submissions.
 
-Amplicon reads still carry their PCR primers at the 5' end; microscape needs to
+Amplicon reads still carry their PCR primers at the 5' end; the pipeline needs to
 know them to trim before denoising. We resolve them in three tiers:
 
   1. metadata  — parse primer names/sequences from SRA/ENA/BioSample fields
@@ -14,7 +14,7 @@ know them to trim before denoising. We resolve them in three tiers:
 
 The resolved primers are stored on ``Submission.primers`` as
 ``{fwd, rev, fwd_name, rev_name, region, source, confidence}`` and wired into
-microscape as ``--primers_fwd``/``--primers_rev``.
+the pipeline as ``--primers_fwd``/``--primers_rev``.
 """
 from __future__ import annotations
 

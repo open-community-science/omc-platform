@@ -5,7 +5,7 @@ Supports multiple pipeline types:
   (mag_analysis output under <results>/mag; assembly under <results>/assembly)
 - illumina_mag: Illumina Metagenome = illumina_assembly -> mag_analysis
   (per-sample; mag_analysis output under <results>/mag/<sample>)
-- microscape: Illumina Amplicons (DADA2 ASVs + taxonomy + diversity)
+- illumina_amplicon: Illumina Amplicons (DADA2 ASVs + taxonomy + diversity)
 - rnaseq: Transcript quantification + differential expression (on hold)
 - isolate_genome: Single-genome assembly + annotation (submitted as metagenome)
 """
@@ -600,7 +600,7 @@ def _calc_n50(lengths: list[int]) -> int:
     return sorted_lengths[-1]
 
 
-def parse_microscape_asv_table(results_dir: Path) -> dict:
+def parse_amplicon_asv_table(results_dir: Path) -> dict:
     """ASV and sample counts from the final merged table (seqtab_final/)."""
     wide = _read_tsv(results_dir / "seqtab_final/seqtab_final_wide.tsv")
     if not wide:
@@ -616,7 +616,7 @@ def parse_microscape_asv_table(results_dir: Path) -> dict:
     return out
 
 
-def parse_microscape_taxonomy(results_dir: Path) -> dict:
+def parse_amplicon_taxonomy(results_dir: Path) -> dict:
     """Summarise the primary taxonomy assignment (taxonomy/<db>_taxonomy.tsv)."""
     tax_dir = results_dir / "taxonomy"
     if not tax_dir.exists():
@@ -660,7 +660,7 @@ def parse_microscape_taxonomy(results_dir: Path) -> dict:
     }
 
 
-def parse_microscape_filtering(results_dir: Path) -> dict:
+def parse_amplicon_filtering(results_dir: Path) -> dict:
     """Read-retention summary from per-sample filtered/*_filt_stats.tsv."""
     filt_dir = results_dir / "filtered"
     if not filt_dir.exists():
@@ -691,8 +691,8 @@ def parse_microscape_filtering(results_dir: Path) -> dict:
     return out
 
 
-def parse_microscape(results_dir: Path) -> dict:
-    """Parse outputs from a microscape (Illumina amplicon) pipeline run.
+def parse_amplicon(results_dir: Path) -> dict:
+    """Parse outputs from an Illumina amplicon pipeline run.
 
     Reads the final ASV table, taxonomy assignment, and denoising stats.
     Every sub-parser degrades to {} if its files are absent, so partial runs
@@ -706,9 +706,9 @@ def parse_microscape(results_dir: Path) -> dict:
         return {}
 
     outputs = {}
-    for key, fn in (("asv_summary", parse_microscape_asv_table),
-                    ("taxonomy_summary", parse_microscape_taxonomy),
-                    ("filtering", parse_microscape_filtering)):
+    for key, fn in (("asv_summary", parse_amplicon_asv_table),
+                    ("taxonomy_summary", parse_amplicon_taxonomy),
+                    ("filtering", parse_amplicon_filtering)):
         data = fn(results_dir)
         if data:
             outputs[key] = data
@@ -727,7 +727,7 @@ def parse_microscape(results_dir: Path) -> dict:
 PARSERS = {
     "nanopore_mag": parse_nanopore_mag,
     "illumina_mag": parse_illumina_mag,
-    "microscape": parse_microscape,
+    "illumina_amplicon": parse_amplicon,
     "rnaseq": parse_rnaseq,
     "isolate_genome": parse_isolate_genome,
 }

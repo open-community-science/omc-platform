@@ -186,7 +186,7 @@ Write 2-3 paragraphs that:
 Use [CITE] placeholders where literature citations would go."""
 
 
-_MICROSCAPE_WORKFLOW = (
+_AMPLICON_WORKFLOW = (
     "primer removal → quality filtering → DADA2 denoising → read merging → chimera removal → "
     "ASV inference → taxonomic classification against SILVA → phylogenetic tree → "
     "renormalization (taxonomic read partitioning) → co-occurrence network")
@@ -198,8 +198,8 @@ def _format_methods_context(pipeline_type: str, interview_data: dict, pipeline_o
     specified'. It stays honest about the genuine gap (tool versions + exact per-step
     parameters aren't recorded in the current outputs)."""
     parts = []
-    if pipeline_type == "microscape":
-        parts.append("PIPELINE WORKFLOW (danaSeq illumina_amplicon, DADA2): " + _MICROSCAPE_WORKFLOW)
+    if pipeline_type == "illumina_amplicon":
+        parts.append("PIPELINE WORKFLOW (danaSeq illumina_amplicon, DADA2): " + _AMPLICON_WORKFLOW)
         parts.append("NOTE — the 'renormalized' step is a TAXONOMIC read-partition/cleanup "
                      "(chloroplast & mitochondrial reads removed, prokaryote vs eukaryote split), "
                      "NOT a diversity rarefaction. Do not describe rarefaction unless the data show it.")

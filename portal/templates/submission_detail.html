@@ -385,7 +385,7 @@
                     <select id="pipeline-select" class="inline-edit-select" onchange="savePipeline()">
                         <option value="nanopore_mag" {% if submission.pipeline and submission.pipeline.value == 'nanopore_mag' %}selected{% endif %}>Nanopore Metagenome</option>
                         <option value="illumina_mag" {% if submission.pipeline and submission.pipeline.value == 'illumina_mag' %}selected{% endif %}>Illumina Metagenome</option>
-                        <option value="microscape" {% if submission.pipeline and submission.pipeline.value == 'microscape' %}selected{% endif %}>Illumina Amplicons</option>
+                        <option value="illumina_amplicon" {% if submission.pipeline and submission.pipeline.value == 'illumina_amplicon' %}selected{% endif %}>Illumina Amplicons</option>
                         {# rnaseq (illumina_rna) on hold; isolate genomes are submitted as metagenomes #}
                         {% if submission.pipeline and submission.pipeline.value == 'rnaseq' %}<option value="rnaseq" selected>RNA-Seq (in development)</option>{% endif %}
                         {% if submission.pipeline and submission.pipeline.value == 'isolate_genome' %}<option value="isolate_genome" selected>Isolate Genome (in development)</option>{% endif %}
@@ -398,7 +398,7 @@
                only appears once the amplicon pipeline is actually the selection —
                the pipeline is auto-suggested from the data breakdown, so showing
                this in step 1 surfaced primers before the user had chosen. #}
-            {% if submission.pipeline and submission.pipeline.value == 'microscape' %}
+            {% if submission.pipeline and submission.pipeline.value == 'illumina_amplicon' %}
             {% set pr = submission.primers %}
             <details class="wf-details" open>
                 <summary>Amplicon primers</summary>
@@ -804,8 +804,8 @@ const PIPELINES = {
         github: 'https://github.com/rec3141/danaSeq/tree/main/illumina_assembly',
         needs: { platforms: ['ILLUMINA', 'BGISEQ'], sources: ['METAGENOMIC', 'METATRANSCRIPTOMIC', 'GENOMIC'], strategies: ['WGS', 'WGA', 'OTHER'] },
     },
-    microscape: {
-        name: 'microscape',
+    illumina_amplicon: {
+        name: 'illumina_amplicon',
         title: 'Illumina Amplicons',
         desc: 'Processes 16S/18S/ITS amplicon data. Primer trimming, DADA2 denoising, taxonomy assignment, and community composition.',
         status: 'Implemented',

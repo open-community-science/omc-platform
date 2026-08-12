@@ -13,7 +13,7 @@ export OMC_SCRATCH="$HOME/scratch"
 export OMC_RESULTS="$HOME/scratch/omc_results"
 # Cluster-specific pipeline paths, propagated to each pipeline job (--export=ALL)
 # so the portal's generated scripts stay portable. Override per cluster if the
-# danaSeq/microscape install or reference DBs live elsewhere.
+# danaSeq/illumina_amplicon install or reference DBs live elsewhere.
 export OMC_GENICE="${OMC_GENICE:-$HOME/GENICE}"
 export OMC_DB_DIR="${OMC_DB_DIR:-$HOME/scratch/databases}"
 

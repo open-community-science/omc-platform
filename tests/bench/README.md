@@ -24,7 +24,7 @@ per-task latency reflects inference, not cold load.
 
 ## Fixture
 
-`fixtures.py` derives a `parse_microscape`-shaped `pipeline_outputs` from real
+`fixtures.py` derives a `parse_amplicon`-shaped `pipeline_outputs` from real
 submission **c5af6277** — a sea-ice "frost flower" 16S amplicon run
 (BioProject PRJNA1473294) with NCBI-verified study metadata. This is the run
 whose subject earlier models hallucinated (see

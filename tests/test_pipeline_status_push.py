@@ -90,9 +90,9 @@ def test_the_transferred_push_carries_its_results_format():
     This is the one whose loss stranded a finished run at FAILED.
     """
     from portal.app.database import PipelineType
-    script = _build_pipeline_script(_Sub(PipelineType.MICROSCAPE))
+    script = _build_pipeline_script(_Sub(PipelineType.ILLUMINA_AMPLICON))
     transferred = [(p, e) for p, e in _push_calls(script) if p == "transferred"]
-    assert transferred, "microscape must push a transferred status"
+    assert transferred, "illumina_amplicon must push a transferred status"
     _, extra = transferred[0]
     prog = (
         f'extra={extra}\n'
