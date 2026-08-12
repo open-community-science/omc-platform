@@ -52,9 +52,9 @@ def test_facts_are_a_superset_of_sample_metadata():
 def test_accession_and_pipeline_are_included():
     facts = build_study_facts(_Sub(
         sample_metadata=META, bioproject_accession="PRJNA1473294",
-        pipeline=_Pipeline("MICROSCAPE")))
+        pipeline=_Pipeline("ILLUMINA_AMPLICON")))
     assert facts["accession"] == "PRJNA1473294"
-    assert facts["pipeline"] == "MICROSCAPE"
+    assert facts["pipeline"] == "ILLUMINA_AMPLICON"
 
 
 def test_absent_facts_are_omitted_not_nulled():

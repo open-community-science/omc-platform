@@ -1,6 +1,6 @@
 """Run the claim-grounded autoresearch explorer on a REAL submission dir.
 
-Points the explorer at an arbitrary microscape submission's data/ dir, fetches
+Points the explorer at an arbitrary amplicon submission's data/ dir, fetches
 its real study metadata from NCBI (first SRR), and writes per-submission outputs.
 
 Usage: python tests/bench/run_real_sample.py /data/dev/testdata/<slug>

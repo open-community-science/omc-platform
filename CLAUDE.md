@@ -303,7 +303,10 @@ relay channels                     # list active channels
 
 ## Deployment
 
-- **Production:** https://microbial.opencommunity.science — Arbutus VM (`206.12.96.115`)
+- **Production:** https://microbial.opencommunity.science — Arbutus VM (`134.87.12.190`)
+  - Runs on the **new** Arbutus cloud (`arbutus.alliancecan.ca`), project `def-rec3141-dev`.
+    Migrated 2026-08-07 from the legacy cloud (`206.12.96.115`), which is decommissioned in 2026.
+  - SSH: `ssh arbutus` (key `~/.ssh/arbutus-new`). The legacy VM is `arbutus-legacy`.
 - **Quick deploy:** `rsync` changed files to `arbutus:/opt/omc-platform/`, then `sudo systemctl restart omc-portal`. Exclude `.venv`, `.env`, `omc.db`.
 - **Full deploy:** `./deploy.sh` — installs packages, clones repo, sets up systemd + nginx
 - **HPC account:** `def-rec3141_cpu` on `fir.alliancecan.ca` — don't specify partition, let scheduler auto-route
@@ -321,8 +324,11 @@ relay channels                     # list active channels
 
 ## Pipeline (danaSeq)
 
-- **Code:** `/data/danaseq` locally, `/home/rec3141/GENICE/danaSeq` on fir
-- **Containers (per stage):** `ghcr.io/rec3141/danaseq-illumina-assembly`, `danaseq-nanopore-assembly`, `danaseq-mag-analysis`, `danaseq-illumina-rna` (each `:latest`, rebuilt via GitHub Actions on push to `main`). The single `danaseq-mag` image was retired when the pipeline was split into per-stage images.
+- **Code:** `~/Desktop/claude-code/danaSeq` locally, `/home/rec3141/GENICE/danaSeq` on fir
+- **Containers (per stage):** `ghcr.io/rec3141/danaseq-illumina-assembly`, `danaseq-nanopore-assembly`, `danaseq-mag-analysis`, `danaseq-illumina-rna`, `danaseq-illumina-amplicon` (each `:latest`, rebuilt via GitHub Actions on push to `main`). The single `danaseq-mag` image was retired when the pipeline was split into per-stage images.
+- **Amplicons:** the `illumina_amplicon` stage runs from its own SIF at `/home/rec3141/GENICE/danaseq-illumina-amplicon.sif` (pipeline code baked in at `/pipeline`), not from the danaSeq checkout. It was the separate `microscape-nf` repo until 2026-08-08; the `microscape` (Python) and `microscapeR` (R) packages that mirrored it are retired, and the pipeline now runs a single Python engine.
+- **Rebuilding the amplicon SIF:** `bash ~/build-amplicon-sif.sh` on fir, then move `~/danaseq-illumina-amplicon.new.sif` into `~/GENICE/`. Verify the fix is really in the image (`apptainer exec <sif> grep ... /pipeline/modules/...`) — a stale pin has shipped an image matching no commit before.
+- **Checking `.nf` edits compile:** run with real parameters and a nonexistent `--input`, e.g. `apptainer run <sif> run /pipeline/main.nf --input /nonexistent --outdir /tmp/x`. `--help` returns *before* module compilation, so it passes even when a module has a syntax error.
 - **Important:** Pipeline runs inside apptainer container. Host edits to `.nf` files don't take effect until container is rebuilt.
 - **Default flags:** `--all --run_sendsketch false --run_vamb_tax false` (sendsketch needs TaxServer)
 - **Resources:** 128G mem, 32 CPUs for `--all` mode (kaiju/kraken2/GTDB need 128G minimum)

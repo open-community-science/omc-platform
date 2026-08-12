@@ -65,7 +65,7 @@ tests/                  # pytest test suite
 
 1. **Enter any NCBI accession** (PRJNA, SRR, SAMN, etc.) → resolves to parent BioProject
 2. **Select data types** from breakdown table (platform/strategy/source/layout combos)
-3. **Pipeline auto-selected** from library tags (AMPLICON → microscape, WGS → illumina_mag, etc.)
+3. **Pipeline auto-selected** from library tags (AMPLICON → illumina_amplicon, WGS → illumina_mag, etc.)
 4. **Author interview** → AI gathers research context via conversation
 5. **Submit to HPC** → Nextflow pipeline via SLURM on Alliance Canada
 6. **AI manuscript draft** → generated from pipeline outputs + interview data
@@ -89,7 +89,7 @@ tests/                  # pytest test suite
 
 | Pipeline | Strategy | Parser |
 |----------|----------|--------|
-| `microscape` | Illumina amplicon (16S/ITS) | Planned |
+| `illumina_amplicon` | Illumina amplicon (16S/ITS) | Planned |
 | `nanopore_mag` | Long-read MAG assembly | Implemented |
 | `illumina_mag` | Short-read MAG assembly | Implemented |
 | `rnaseq` | RNA-Seq differential expression | Implemented |
@@ -140,12 +140,12 @@ python -m pytest tests/test_e2e_workflow.py -v --timeout=300
 
 ## Deployment
 
-**Production:** https://microbial.opencommunity.science (Arbutus cloud VM)
+**Production:** https://microbial.opencommunity.science (Arbutus cloud VM, `134.87.12.190`)
 
 ```bash
 ./deploy.sh              # deploy to Arbutus VM
 # After DNS setup:
-ssh omc2 sudo certbot --nginx -d microbial.opencommunity.science
+ssh arbutus sudo certbot --nginx -d microbial.opencommunity.science
 ```
 
 **SLURM:** Uses OpenSSH ControlMaster for Duo MFA bypass on Alliance clusters. Authenticate once:

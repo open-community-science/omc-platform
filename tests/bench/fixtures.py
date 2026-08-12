@@ -1,6 +1,6 @@
 """Real-data fixtures for prompt/model benchmarking.
 
-Derives a `parse_microscape`-shaped ``pipeline_outputs`` dict from the viz JSONs
+Derives a `parse_amplicon`-shaped ``pipeline_outputs`` dict from the viz JSONs
 of a real submission (c5af6277 — a sea-ice "frost flower" 16S amplicon run,
 BioProject PRJNA1473294). This is the run whose subject matter earlier models
 hallucinated (see manuscript_generator._format_study), so it doubles as an
@@ -61,9 +61,9 @@ def _read_json(path: Path):
 
 
 def build_pipeline_outputs(data_dir: Path = DATA_DIR) -> dict:
-    """Compute a parse_microscape-shaped summary from whatever viz JSONs exist.
+    """Compute a parse_amplicon-shaped summary from whatever viz JSONs exist.
 
-    Degrades gracefully like parse_microscape: any missing file just drops the
+    Degrades gracefully like parse_amplicon: any missing file just drops the
     fields it would have supplied, so submissions without provenance (retention)
     or without taxonomy still yield a usable summary."""
     data_dir = Path(data_dir)
@@ -144,7 +144,7 @@ def refresh_snapshot() -> dict:
     return outputs
 
 
-PIPELINE_TYPE = "microscape"
+PIPELINE_TYPE = "illumina_amplicon"
 BIOPROJECT = "PRJNA1473294"
 
 

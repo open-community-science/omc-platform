@@ -74,12 +74,12 @@ def test_local_backend_falls_back_when_saved_model_not_served(monkeypatch):
 
 # ── #33: metadata TSV uses the biological collection_date ─────────────────────
 def test_metadata_prelude_uses_collection_date_not_first_created():
-    from portal.app.slurm import _microscape_metadata_prelude
+    from portal.app.slurm import _amplicon_metadata_prelude
 
     sub = types.SimpleNamespace(sample_metadata={"sample_records": [
         {"run_accession": "SRR1", "collection_date": "2025-06-15", "first_created": "2026-01-20"},
     ]})
-    prelude, _args = _microscape_metadata_prelude(sub)
+    prelude, _args = _amplicon_metadata_prelude(sub)
     blob = re.search(r"printf '%s' '([A-Za-z0-9+/=]+)'", prelude).group(1)
     tsv = base64.b64decode(blob).decode()
     header, row = tsv.strip().split("\n")
