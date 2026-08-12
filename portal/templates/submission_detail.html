@@ -785,6 +785,11 @@ function fillPrimer(sel) {
     sel.selectedIndex = 0;  // reset the picker; the values now live in the inputs
 }
 const subId = '{{ submission.slug }}';
+// The pipeline this page was rendered for. Sections like the amplicon primer
+// form are server-rendered per pipeline, so when the pipeline changes -- either
+// picked directly or auto-selected from the run selection -- the page has to be
+// re-rendered to match. Comparing against this avoids reloading when it didn't.
+const RENDERED_PIPELINE = '{{ submission.pipeline.value if submission.pipeline else "" }}';
 
 /* ── Pipeline metadata ── */
 const PIPELINES = {
@@ -1000,6 +1005,13 @@ async function savePipeline() {
     });
     const data = await resp.json();
     if (data.ok) {
+        // Reload rather than patch the DOM. Several sections are rendered
+        // server-side from the pipeline -- the amplicon primer form, the name
+        // in the header, the "Running the X pipeline" line -- so updating only
+        // the info box left the primer form on screen for a submission that is
+        // no longer an amplicon run (and absent for one that just became one).
+        // A reload keeps one source of truth for what each pipeline shows.
+        if (val !== RENDERED_PIPELINE) { location.reload(); return; }
         updatePipelineInfo();
         showStatus('Pipeline updated');
     } else {
@@ -1351,6 +1363,11 @@ function saveSelection() {
         });
         const data = await resp.json();
         if (data.ok && data.pipeline) {
+            // The server re-picks the pipeline from the selected runs. If that
+            // moved it, the pipeline-specific sections below (primers) belong to
+            // the old one, so re-render; otherwise leave the page alone -- this
+            // fires on every selection edit.
+            if (data.pipeline !== RENDERED_PIPELINE) { location.reload(); return; }
             const ps = document.getElementById('pipeline-select');
             if (ps) { ps.value = data.pipeline; updatePipelineInfo(); }
             showStatus('Selection saved');
