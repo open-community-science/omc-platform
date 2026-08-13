@@ -148,53 +148,29 @@ def _run_accession(run) -> Optional[str]:
 
 
 async def _resolve_primers(submission: Submission):
-    """Resolve amplicon primers for an amplicon submission.
+    """Keep the submitter's primers if they gave any, and otherwise set none.
 
-    Order is manual > empirical read detection > metadata. Read detection wins
-    over metadata deliberately: SRA metadata is unreliable (PRJNA1473294 labels
-    every run "16S" though 40 are 18S), and a single wrong metadata pair would
-    then be forced on every sample. The read-based detector is multi-set, so it
-    catches genuinely mixed BioProjects; OMC passes all detected sets to the
-    pipeline (see slurm._amplicon_primer_prelude). Best-effort — never blocks.
+    Manual or automatic, with nothing in between. Whatever OMC records here is
+    passed to the pipeline as fact and used in place of the detection it runs
+    over the whole dataset, so a guess made here from SRA metadata or from a
+    sample of reads is not a helpful default — it is a wrong answer with the
+    authority of a stated one. SRA metadata is unreliable in both directions
+    (PRJNA1473294 labels every run "16S" though 40 are 18S), and a read sample
+    small enough to be cheap is small enough to be misled by spacers, inline
+    barcodes or a thin run.
+
+    Leaving primers unset is what makes the pipeline work them out itself, from
+    every sample rather than a probe, and record what it actually trimmed with.
     """
-    import asyncio
-    from . import primers as pm
-
     existing = submission.primers or {}
     if existing.get("source") == "manual" and existing.get("fwd") and existing.get("rev"):
         return  # user-specified on the submission sheet — respect it
-
-    resolved = None
-    # 1) Empirical multi-set detection from a spread of runs. A BioProject can
-    #    mix amplicon targets (16S + 18S) while labelling every run the same, so
-    #    probe several runs, not one, and keep every distinct set found.
-    accs = []
-    for run in (submission.selected_runs or []):
-        acc = _run_accession(run)
-        if acc:
-            accs.append(acc)
-        elif isinstance(run, dict):
-            accs.extend(a for a in (run.get("run_accessions") or []) if a)
-    if accs:
-        try:
-            sets = await asyncio.get_event_loop().run_in_executor(
-                None, pm.detect_primer_sets, accs
-            )
-        except Exception:
-            sets = []
-        if sets:
-            resolved = dict(sets[0])  # primary = widest coverage
-            if len(sets) > 1:
-                resolved["sets"] = [
-                    {k: v for k, v in st.items() if k != "runs"} for st in sets
-                ]
-
-    # 2) Fall back to metadata-declared primers only if read detection found none.
-    if not resolved:
-        resolved = pm.parse_metadata_primers(submission.sample_metadata)
-
-    if resolved:
-        submission.primers = resolved
+    # Nothing else to resolve: manual or automatic, with nothing in between.
+    # Detecting here from a spread of runs, or reading a primer name out of the
+    # metadata, produced primers that were confidently wrong and were then passed
+    # to the pipeline as fact, in place of the detection it does over the whole
+    # dataset. Leaving primers unset is what makes it do that.
+    submission.primers = None
 
 
 async def _launch_download(slug: str):
