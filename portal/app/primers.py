@@ -444,20 +444,24 @@ def fetch_read_sample(run_accession: str, spots: int = 1000) -> tuple[str, str] 
 
 def resolve(metadata: dict | None, manual: dict | None,
             fastq_r1: str | None = None, fastq_r2: str | None = None) -> dict | None:
-    """Resolve primers by tier precedence: manual > metadata > inferred.
+    """Resolve primers the submitter stated, or nothing.
 
     `manual` is {fwd, rev} from the submission sheet (empty strings ignored).
-    Read paths, if given, enable the inferred tier. Returns a primer dict or None.
+
+    Manual or automatic, with nothing in between. Guessing from metadata or from
+    a sample of reads produced primers that were confidently wrong — a metadata
+    field naming a primer the run does not carry, or a consensus over reads that
+    were out of phase — and passing them left the pipeline trimming with them
+    instead of working it out from the full data it holds. When the submitter has
+    not said, say nothing and let the pipeline detect.
+
+    metadata, fastq_r1 and fastq_r2 are kept in the signature so callers need not
+    change; they are no longer consulted.
     """
     if manual and manual.get("fwd") and manual.get("rev"):
         return {"fwd": manual["fwd"].upper(), "rev": manual["rev"].upper(),
                 "fwd_name": "manual", "rev_name": "manual", "region": "",
                 "source": "manual", "confidence": None}
-    meta = parse_metadata_primers(metadata)
-    if meta:
-        return meta
-    if fastq_r1:
-        return detect_from_reads(fastq_r1, fastq_r2)
     return None
 
 
