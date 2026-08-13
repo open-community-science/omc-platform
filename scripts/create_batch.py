@@ -14,13 +14,21 @@ Usage:
   python3 create_batch.py --submit SLUG1 SLUG2            # queue existing drafts
   python3 create_batch.py --accessions ... --dry-run      # resolve only, write nothing
 """
-import argparse, asyncio, sys
+import argparse, asyncio, os, sys
 from pathlib import Path
 
 # Import the portal package from this checkout, so the script runs wherever the
 # repo is rather than only from the deploy path. Run it with the portal's venv:
 #   /opt/omc-platform/.venv/bin/python scripts/create_batch.py ...
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "portal"))
+PORTAL = Path(__file__).resolve().parent.parent / "portal"
+sys.path.insert(0, str(PORTAL))
+
+# settings.database_url is "sqlite+aiosqlite:///./omc.db" -- relative to the
+# process's working directory, which is why the service sets WorkingDirectory to
+# portal/. Run from anywhere else and the engine happily opens an EMPTY database
+# and every query fails with "no such table: submissions". Match the service
+# rather than require the caller to remember.
+os.chdir(PORTAL)
 
 from sqlalchemy import select                                   # noqa: E402
 from app.database import async_session, Submission, SubmissionStatus, PipelineType  # noqa: E402
