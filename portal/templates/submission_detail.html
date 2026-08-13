@@ -523,9 +523,8 @@
             {% endif %}
 
             {# ── Explore the results ──
-               Shown once the pipeline is done, regardless of draft/post-submit
-               branch above (the banner used to live in the draft-only block, so
-               it never appeared on submitted runs). #}
+               Shown once the pipeline is done, outside the draft/post-submit
+               branch above so it appears on submitted runs too. #}
             {% if step2_done %}
             <div class="wf-step-actions">
                 {% if submission.sample_metadata and submission.sample_metadata.get('microscape_viz_url') %}
@@ -1008,9 +1007,9 @@ async function savePipeline() {
         // Reload rather than patch the DOM. Several sections are rendered
         // server-side from the pipeline -- the amplicon primer form, the name
         // in the header, the "Running the X pipeline" line -- so updating only
-        // the info box left the primer form on screen for a submission that is
-        // no longer an amplicon run (and absent for one that just became one).
-        // A reload keeps one source of truth for what each pipeline shows.
+        // the info box would leave the primer form on screen for a submission
+        // that is not an amplicon run, and absent for one that is. A reload
+        // keeps one source of truth for what each pipeline shows.
         if (val !== RENDERED_PIPELINE) { location.reload(); return; }
         updatePipelineInfo();
         showStatus('Pipeline updated');

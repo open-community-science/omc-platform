@@ -112,9 +112,7 @@ class Settings(BaseSettings):
     pipeline_illumina_assembly: str = "/home/rec3141/GENICE/danaSeq/illumina_assembly"
     pipeline_mag_analysis: str = "/home/rec3141/GENICE/danaSeq/mag_analysis"
     # The amplicon stage ships as a self-contained SIF (pipeline code baked into
-    # the image at /pipeline). It was its own repo, microscape-nf, until that
-    # consolidated into danaSeq as the illumina_amplicon stage; the SIF is built
-    # from ghcr.io/rec3141/danaseq-illumina-amplicon.
+    # the image at /pipeline), built from ghcr.io/rec3141/danaseq-illumina-amplicon.
     #
     # Its path is not a setting: slurm.py resolves it under ${OMC_GENICE} like
     # every other component, so one script works on any cluster. A setting here
