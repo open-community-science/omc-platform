@@ -39,8 +39,12 @@ def _amplicon_primer_prelude(submission: Submission) -> tuple[str, str]:
     it's safe to force detected primers now, unlike forcing a single inferred
     pair globally (which discarded 99.9% of the mismatched reads).
 
-    Falls back to the full known-primer pool when nothing was resolved, so the
-    pipeline still never needs DETECT_PRIMERS.
+    Either exact primers or none: when nothing is resolved we pass no primer
+    arguments and let the pipeline detect. Handing cutadapt the whole curated
+    pool instead looks harmless but is not — it picks whichever of a hundred
+    candidates scores best in each sample independently, and the pipeline keys
+    its truncation and error-model groups on the name of whatever was matched,
+    so one assay is split into as many groups as the pool has near-synonyms.
     """
     p = submission.primers or {}
     # Collect every resolved pair: the primary plus any additional detected sets,
@@ -54,32 +58,19 @@ def _amplicon_primer_prelude(submission: Submission) -> tuple[str, str]:
 
     source = p.get("source", "detected")
     if not pairs:
-        # Nothing resolved — hand cutadapt the entire curated pool so it can
-        # still trim per read without the pipeline's DETECT_PRIMERS fallback.
-        from . import primers as _pm
-        seen_f, seen_r = {}, {}
-        for pr in _pm.PRIMER_DB:
-            seen_f.setdefault(pr["fwd"].upper(), pr["name"])
-            seen_r.setdefault(pr["rev"].upper(), pr["rev_name"])
-        pairs = None  # signal pool mode
-        source = "known-pool"
+        return "", ""
 
     # De-dup sequences across sets so the combined FASTA stays tidy.
     def _fasta(entries: dict) -> str:
         return "".join(f">{n}\\n{s}\\n" for s, n in entries.items())
 
-    if pairs is None:
-        fwd_fa = _fasta(seen_f)
-        rev_fa = _fasta(seen_r)
-        label = f"{len(seen_f)} known forward / {len(seen_r)} reverse primers"
-    else:
-        fwd_seen, rev_seen = {}, {}
-        for fwd, rev, fn, rn in pairs:
-            fwd_seen.setdefault(fwd.upper(), fn or "fwd")
-            rev_seen.setdefault(rev.upper(), rn or "rev")
-        fwd_fa = _fasta(fwd_seen)
-        rev_fa = _fasta(rev_seen)
-        label = " + ".join(f"{fn}/{rn}" for _, _, fn, rn in pairs)
+    fwd_seen, rev_seen = {}, {}
+    for fwd, rev, fn, rn in pairs:
+        fwd_seen.setdefault(fwd.upper(), fn or "fwd")
+        rev_seen.setdefault(rev.upper(), rn or "rev")
+    fwd_fa = _fasta(fwd_seen)
+    rev_fa = _fasta(rev_seen)
+    label = " + ".join(f"{fn}/{rn}" for _, _, fn, rn in pairs)
 
     prelude = f"""echo ">>> Primers: {label} (source: {source})"
 mkdir -p "${{OUTPUT_DIR}}/primers"
@@ -240,9 +231,9 @@ done
         # The image bakes its Nextflow framework jar and, via the entrypoint, forces the
         # CA bundle to the Ubuntu path, a writable NXF_HOME, and the legacy syntax parser.
         # We still set the CA env here defensively (an older SIF may lack the entrypoint fix).
-        # Primers come from OMC's resolver (metadata / manual / inferred from reads) and are
-        # passed explicitly; without them the pipeline's own auto-detection runs (and is flaky),
-        # so a resolved primer pair is strongly preferred.
+        # Primers come from OMC's resolver and are passed explicitly when it has
+        # them. When it does not, no primer argument is passed and the pipeline
+        # detects its own — exact primers or none, never a pool to choose from.
         primer_prelude, primer_args = _amplicon_primer_prelude(submission)
         meta_prelude, meta_args = _amplicon_metadata_prelude(submission)
         # Taxonomy DB gates the taxonomy → BUILD_VIZ branch that produces viz/.
