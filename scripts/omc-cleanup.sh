@@ -31,18 +31,68 @@ if [ ! -d "$STAGING_DIR" ]; then
     exit 0
 fi
 
+# DB access goes through python3 rather than the sqlite3 CLI: the portal itself
+# runs on python3, so it cannot be absent here while there is anything to clean
+# up. Every rm below is gated on a slug being absent from the DB, which makes a
+# query that returns nothing indistinguishable from "no submissions exist" —
+# so a failed query must abort rather than fall through to the orphan branch.
+PYTHON="${OMC_PYTHON:-python3}"
+
+db_read() {
+    # usage: db_read <sql> [params...] — one column per row, one row per line
+    "$PYTHON" - "$DB_PATH" "$@" <<'PY'
+import sqlite3, sys
+db, sql, params = sys.argv[1], sys.argv[2], sys.argv[3:]
+con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+for row in con.execute(sql, params):
+    print(row[0])
+PY
+}
+
+db_write() {
+    # usage: db_write <sql> [params...]
+    "$PYTHON" - "$DB_PATH" "$@" <<'PY'
+import sqlite3, sys
+db, sql, params = sys.argv[1], sys.argv[2], sys.argv[3:]
+con = sqlite3.connect(db)
+con.execute(sql, params)
+con.commit()
+PY
+}
+
 echo "=== OMC Cleanup: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 
 # Find soft-deleted submissions older than grace period
 CUTOFF=$(date -u -d "-${GRACE_PERIOD} seconds" +%Y-%m-%dT%H:%M:%S 2>/dev/null || \
          date -u -v-${GRACE_PERIOD}S +%Y-%m-%dT%H:%M:%S)
 
-DELETED_SLUGS=$(sqlite3 "$DB_PATH" \
-    "SELECT slug FROM submissions WHERE deleted_at IS NOT NULL AND deleted_at < '$CUTOFF';" 2>/dev/null || true)
+if ! DELETED_SLUGS=$(db_read \
+    "SELECT slug FROM submissions WHERE deleted_at IS NOT NULL AND deleted_at < ?" \
+    "$CUTOFF"); then
+    echo "FATAL: could not query deleted submissions" >&2
+    exit 1
+fi
 
 # Also find staging dirs that have no matching submission at all (orphans)
-ACTIVE_SLUGS=$(sqlite3 "$DB_PATH" \
-    "SELECT slug FROM submissions WHERE deleted_at IS NULL;" 2>/dev/null || true)
+if ! ACTIVE_SLUGS=$(db_read \
+    "SELECT slug FROM submissions WHERE deleted_at IS NULL"); then
+    echo "FATAL: could not query active submissions" >&2
+    exit 1
+fi
+
+# A short read of the active list reads as "these submissions no longer exist"
+# and sends their staging dirs to the orphan branch. Count separately and
+# require the two to agree before anything is classified.
+if ! ACTIVE_COUNT=$(db_read \
+    "SELECT COUNT(*) FROM submissions WHERE deleted_at IS NULL"); then
+    echo "FATAL: could not count active submissions" >&2
+    exit 1
+fi
+ACTIVE_READ=$(printf '%s\n' "$ACTIVE_SLUGS" | grep -c . || true)
+if [ "$ACTIVE_READ" -ne "$ACTIVE_COUNT" ]; then
+    echo "FATAL: read $ACTIVE_READ active slugs but the table holds $ACTIVE_COUNT — refusing to classify orphans" >&2
+    exit 1
+fi
 
 for dir in "$STAGING_DIR"/*/; do
     [ -d "$dir" ] || continue
@@ -64,7 +114,7 @@ for dir in "$STAGING_DIR"/*/; do
         echo "  Removed $dir"
 
         # Hard-delete the DB row now that files are cleaned up
-        sqlite3 "$DB_PATH" "DELETE FROM submissions WHERE slug = '$slug';" 2>/dev/null || true
+        db_write "DELETE FROM submissions WHERE slug = ?" "$slug" || true
         echo "  Purged DB row"
         continue
     fi
