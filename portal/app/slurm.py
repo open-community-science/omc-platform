@@ -176,9 +176,8 @@ def _build_pipeline_cmd(submission: Submission) -> str:
     mag = "${OMC_GENICE}/danaSeq/mag_analysis"
     db_dir = "${OMC_DB_DIR}"
     # Beside its wrapper in the checkout, like every other component's .sif, so
-    # danaSeq/tools/rebuild-sifs.sh keeps it current. It used to sit loose at the
-    # GENICE root, which nothing rebuilds -- runs were pinned to whatever image
-    # had been pulled there by hand.
+    # danaSeq/tools/rebuild-sifs.sh keeps it current. An image anywhere else is
+    # rebuilt by nothing, and runs silently pin to whatever was last pulled.
     amplicon_sif = "${OMC_GENICE}/danaSeq/illumina_amplicon/.danaseq-illumina-amplicon.sif"
 
     if pipeline == PipelineType.NANOPORE_MAG:

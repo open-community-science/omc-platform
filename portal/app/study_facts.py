@@ -1,13 +1,9 @@
 """The single source of what an AI is told about a study (issue #56).
 
-Three paths used to assemble study context independently, and each saw a
-different subset: autoresearch merged `sample_metadata` with `primers`, the
-manuscript formatter flattened six whitelisted fields, and review received
-`{pipeline, accession}` and nothing else. Adding a fact meant editing three
-places, and forgetting one failed *silently* — the model simply never learned
-it, with no error anywhere.
-
-`build_study_facts()` is that one place. It returns plain JSON-able data (no ORM
+`build_study_facts()` is the one place study context is assembled, for
+autoresearch, the manuscript formatter and review alike. Assembling it per
+caller means a fact added in one place is missing from the others, and it fails
+*silently* — the model simply never learns it, with no error anywhere. It returns plain JSON-able data (no ORM
 objects), so the `ai/` side can render it without importing portal models.
 
 Two properties worth preserving when extending this:
