@@ -464,8 +464,16 @@ if [ $PIPELINE_EXIT -eq 0 ]; then
     echo "=== Archiving to squashfs ==="
     push_status "archiving"
 
+    # squashfs-tools only grew -quiet in 4.4; grex ships 4.3, where passing it
+    # makes mksquashfs print its usage and exit non-zero. That would strand a
+    # pipeline that had already succeeded, so ask before using it.
+    MKSQ_QUIET=""
+    if mksquashfs -help 2>&1 | grep -q -- '-quiet'; then
+        MKSQ_QUIET="-quiet"
+    fi
+
     echo "Archiving results (excluding BAMs and raw reads)..."
-    if mksquashfs "${{OUTPUT_DIR}}" "${{OUTPUT_DIR}}.sqsh" -noappend -quiet -no-xattrs \
+    if mksquashfs "${{OUTPUT_DIR}}" "${{OUTPUT_DIR}}.sqsh" -noappend $MKSQ_QUIET -no-xattrs \
         -wildcards -e '*.bam' '*.bam.bai' '*.fastq' '*.fastq.gz' '*.fq' '*.fq.gz'; then
         echo "Results archived: $(du -h "${{OUTPUT_DIR}}.sqsh" | cut -f1)"
     else
@@ -473,7 +481,7 @@ if [ $PIPELINE_EXIT -eq 0 ]; then
     fi
 
     echo "Archiving work dir (excluding raw reads and flye intermediates)..."
-    if mksquashfs "${{WORK_DIR}}" "${{WORK_DIR}}.sqsh" -noappend -quiet -no-xattrs \\
+    if mksquashfs "${{WORK_DIR}}" "${{WORK_DIR}}.sqsh" -noappend $MKSQ_QUIET -no-xattrs \\
         -wildcards -e '*.fastq' '*.fastq.gz' '*.fq' '*.fq.gz' 'flye_out'; then
         echo "Work dir archived: $(du -h "${{WORK_DIR}}.sqsh" | cut -f1)"
         if [ "${{OMC_CLEANUP_WORKDIR:-false}}" = "true" ]; then
