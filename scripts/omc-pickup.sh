@@ -113,6 +113,75 @@ if [ -n "$HB_RESP" ]; then
 fi
 echo "$(now) heartbeat ${OMC_CLUSTER}: active=${IS_ACTIVE} routing=${CLUSTER_ROUTING} (running=$HB_RUN pending=$HB_PEND)"
 
+# ── Keep the container images current ────────────────────────────────────
+# danaSeq images are rebuilt on push to main and republished as :latest, so a
+# cluster that never re-pulls runs whatever it happened to fetch once. That is
+# how grex and fir ended up on different pipelines while both called it
+# ":latest" — same tag, different build, and nothing said so.
+#
+# Only the images this cluster already has are refreshed: a cluster that has
+# never run MAG work has no business downloading a 3 GB assembly image. And
+# only when the registry has actually moved — the digest check is two small
+# HTTP calls, the pull is ~1 GB, so it stays cheap on the ~5-minute cycle.
+#
+# Set OMC_SIF_REFRESH=false to pin a cluster to what it has. Worth doing while
+# a batch is in flight: an image that changes mid-batch means runs 1..n and
+# n+1.. came from different pipelines. That is now visible either way, since
+# each run records the build it used, but visible is not the same as intended.
+OMC_SIF_REFRESH="${OMC_SIF_REFRESH:-true}"
+OMC_SIF_REGISTRY="${OMC_SIF_REGISTRY:-ghcr.io}"
+OMC_SIF_OWNER="${OMC_SIF_OWNER:-rec3141}"
+
+_ghcr_digest() {  # $1=repo (owner/name); echoes the :latest manifest digest
+    local repo="$1" tok
+    tok=$(curl -sf --max-time 20 \
+        "https://${OMC_SIF_REGISTRY}/token?scope=repository:${repo}:pull&service=${OMC_SIF_REGISTRY}" \
+        2>/dev/null | jq -r '.token // empty' 2>/dev/null)
+    [ -n "$tok" ] || return 1
+    # HEAD the manifest and read the digest the registry reports. Accept every
+    # manifest media type, or a multi-arch index answers 404 and the image looks
+    # unchanged forever.
+    curl -sf --max-time 20 -I -H "Authorization: Bearer ${tok}" \
+        -H "Accept: application/vnd.oci.image.index.v1+json" \
+        -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+        -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+        -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+        "https://${OMC_SIF_REGISTRY}/v2/${repo}/manifests/latest" 2>/dev/null \
+      | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest:[[:space:]]*//p' | head -1
+}
+
+if [ "$OMC_SIF_REFRESH" = "true" ] && command -v "${OMC_APPTAINER:-apptainer}" >/dev/null 2>&1; then
+    # Keep the layer cache off $HOME — it is small on some clusters and this
+    # unpacks gigabytes.
+    export SINGULARITY_CACHEDIR="${SINGULARITY_CACHEDIR:-${OMC_SCRATCH}/.sif-cache}"
+    export APPTAINER_CACHEDIR="${APPTAINER_CACHEDIR:-$SINGULARITY_CACHEDIR}"
+    mkdir -p "$SINGULARITY_CACHEDIR" 2>/dev/null
+
+    shopt -s nullglob
+    for _sif in "${OMC_GENICE}"/danaSeq/*/.danaseq-*.sif; do
+        _img=$(basename "$_sif" .sif); _img=${_img#.}          # danaseq-<component>
+        _repo="${OMC_SIF_OWNER}/${_img}"
+        _remote=$(_ghcr_digest "$_repo") || continue
+        [ -n "$_remote" ] || continue
+        [ "$_remote" = "$(cat "${_sif}.digest" 2>/dev/null)" ] && continue
+
+        echo "$(now) image ${_img}: registry moved to ${_remote:0:19}… — pulling"
+        # Pull beside it and swap: a job starting mid-pull must never open a
+        # half-written SIF, and one already running keeps its open inode.
+        if "${OMC_APPTAINER}" pull --force "${_sif}.new" "docker://${OMC_SIF_REGISTRY}/${_repo}:latest" >/dev/null 2>&1 \
+           && [ -s "${_sif}.new" ]; then
+            _was=$("${OMC_APPTAINER}" exec "$_sif" printenv DANASEQ_GIT_SHA 2>/dev/null | tr -d '\r\n')
+            _now=$("${OMC_APPTAINER}" exec "${_sif}.new" printenv DANASEQ_GIT_SHA 2>/dev/null | tr -d '\r\n')
+            mv -f "${_sif}.new" "$_sif" && echo "$_remote" > "${_sif}.digest"
+            echo "$(now) image ${_img}: ${_was:-unknown} -> ${_now:-unknown}"
+        else
+            rm -f "${_sif}.new"
+            echo "$(now) image ${_img}: pull FAILED — keeping the image in place"
+        fi
+    done
+    shopt -u nullglob
+fi
+
 # ── Phase 0: Reconcile submitted pipelines ───────────────────────────────
 # The pipeline wrapper runs on a compute node and pushes status to arbutus, but
 # those pushes don't reliably arrive (env propagation / node connectivity), which
