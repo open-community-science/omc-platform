@@ -114,6 +114,12 @@ class Submission(Base):
     # A pinned run is picked up by that cluster whether or not it is active.
     target_cluster = Column(String(32))
 
+    # Which container image actually ran, as "<component>=<git sha>" pairs
+    # reported by the pipeline job. The clusters pull danaSeq images by :latest
+    # tag, so two of them can be running different revisions at the same moment;
+    # recording what ran is what makes that visible on the result.
+    image_revision = Column(String(255))
+
     # GitHub repo
     github_repo = Column(String(255))
 
@@ -209,6 +215,13 @@ async def init_db():
         except Exception:
             await conn.execute(text("ALTER TABLE submissions ADD COLUMN target_cluster VARCHAR(32)"))
             logging.getLogger(__name__).info("Added target_cluster column to submissions")
+
+        # Migration: add image_revision column to submissions
+        try:
+            await conn.execute(text("SELECT image_revision FROM submissions LIMIT 1"))
+        except Exception:
+            await conn.execute(text("ALTER TABLE submissions ADD COLUMN image_revision VARCHAR(255)"))
+            logging.getLogger(__name__).info("Added image_revision column to submissions")
 
         # Migration: add openrouter columns to users
         try:

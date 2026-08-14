@@ -148,6 +148,26 @@ printf '%s' '{blob}' | base64 -d > "${{OUTPUT_DIR}}/metadata/samples.tsv"
     return prelude, args
 
 
+def _pipeline_sifs(pipeline: PipelineType) -> list[str]:
+    """Shell paths of the container images a pipeline runs from.
+
+    danaSeq keeps each component's image beside its wrapper as
+    `.danaseq-<component>.sif`, so the set is derivable from the pipeline rather
+    than needing to be discovered at run time. Used to record which image
+    revision actually ran (see the provenance block in _build_pipeline_script).
+    """
+    base = "${OMC_GENICE}/danaSeq"
+    if pipeline == PipelineType.NANOPORE_MAG:
+        return [f"{base}/nanopore_assembly/.danaseq-nanopore-assembly.sif",
+                f"{base}/mag_analysis/.danaseq-mag-analysis.sif"]
+    if pipeline == PipelineType.ILLUMINA_MAG:
+        return [f"{base}/illumina_assembly/.danaseq-illumina-assembly.sif",
+                f"{base}/mag_analysis/.danaseq-mag-analysis.sif"]
+    if pipeline == PipelineType.ILLUMINA_AMPLICON:
+        return [f"{base}/illumina_amplicon/.danaseq-illumina-amplicon.sif"]
+    return []
+
+
 def _build_pipeline_cmd(submission: Submission) -> str:
     """Return the shell command block that runs a given OMC pipeline.
 
@@ -343,6 +363,9 @@ def _build_pipeline_script(submission: Submission, attempt: int = 0) -> str:
 
     # Pipeline-specific run command (assembly->mag chain, or amplicon SIF)
     pipeline_cmd = _build_pipeline_cmd(submission)
+    # Quoted so a path containing ${...} survives into the loop unexpanded here
+    # and is expanded by the job's shell instead.
+    sif_list = " ".join(f'"{p}"' for p in _pipeline_sifs(submission.pipeline))
 
     return f"""#!/bin/bash
 #SBATCH --job-name=omc-run-{submission.slug}
@@ -390,9 +413,17 @@ SLUG="{submission.slug}"
 # the backslashes intact -- invalid JSON, a 500, and a status the portal never
 # receives. `|| true` then hides it, so runs finished silently and only the
 # pickup reconciler ever corrected them.
+#
+# The portal stores the last body it received, so anything sent once is lost on
+# the next push. The image revision is therefore attached to every status rather
+# than announced once at startup, and is read at call time — it is still empty
+# when this function is defined.
 push_status() {{
     local phase="$1"
     local extra="${{2:-}}"
+    if [ -n "${{OMC_IMAGE_REVISION:-}}" ]; then
+        extra="${{extra}},\\"image_revision\\":\\"${{OMC_IMAGE_REVISION}}\\""
+    fi
     if [ -n "$OMC_STAGING_URL" ] && [ -n "$OMC_STAGING_KEY" ]; then
         curl -sf -X POST "${{OMC_STAGING_URL}}/staging/${{SLUG}}/status" \\
             -H "Authorization: Bearer ${{OMC_STAGING_KEY}}" \\
@@ -428,6 +459,20 @@ if [ "$NUM_FILES" -eq 0 ]; then
     push_status "failed" ',"reason":"No fastq files"'
     exit 1
 fi
+
+# Which container image is about to run. The clusters pull danaSeq images by
+# :latest, so at any moment two of them can hold different revisions — recording
+# what ran is what keeps a result attributable to a specific pipeline build.
+OMC_IMAGE_REVISION=""
+for _sif in {sif_list}; do
+    [ -f "$_sif" ] || continue
+    _rev=$("${{OMC_APPTAINER}}" inspect "$_sif" 2>/dev/null \\
+           | sed -n 's/^org\\.opencontainers\\.image\\.revision:[[:space:]]*//p' | head -1)
+    [ -n "$_rev" ] || continue
+    _name=$(basename "$_sif" .sif); _name=${{_name#.danaseq-}}
+    OMC_IMAGE_REVISION="${{OMC_IMAGE_REVISION:+$OMC_IMAGE_REVISION,}}${{_name}}=${{_rev}}"
+done
+echo "Container image: ${{OMC_IMAGE_REVISION:-unknown}}"
 
 echo "running" > ${{OUTPUT_DIR}}/.status
 push_status "running" ',"job_id":"'$SLURM_JOB_ID'","slurm_state":"RUNNING"'
@@ -957,6 +1002,13 @@ async def poll_all_running_jobs(db_session) -> list:
         # Update job ID if we got a real one
         if job_id and sub.slurm_job_id != job_id:
             sub.slurm_job_id = job_id
+
+        # Which image ran. Recorded on the submission because the status file is
+        # transient and holds only the last push, while this is the one fact that
+        # ties a result to a specific pipeline build.
+        rev = hpc.get("image_revision")
+        if rev and sub.image_revision != rev:
+            sub.image_revision = rev
 
         # Update status based on phase
         if phase == "running" and sub.status != SubmissionStatus.RUNNING:

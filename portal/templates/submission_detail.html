@@ -581,54 +581,73 @@
             {% endif %}
             {% endif %}
 
-            {% if pipeline_versions %}
+            {% if pipeline_versions or submission.image_revision %}
             <details class="wf-details">
                 <summary>Pipeline info</summary>
                 <div class="wf-details-body">
-                    {% if pipeline_versions.pipeline %}
+                    {# Which container image actually ran, reported by the job itself.
+                       The clusters pull danaSeq images by :latest, so two of them can
+                       hold different revisions at once — this is what ties a result to
+                       one build. #}
+                    {% if submission.image_revision %}
+                    <h4 class="wf-section-label">Container image</h4>
+                    <dl class="wf-meta-grid">
+                        {% for part in submission.image_revision.split(',') %}
+                        {% set bits = part.split('=') %}
+                        <dt>{{ bits[0] }}</dt>
+                        <dd class="mono">
+                            <a href="https://github.com/rec3141/danaSeq/commit/{{ bits[1] }}" target="_blank" rel="noopener">{{ bits[1][:12] }}</a>
+                        </dd>
+                        {% endfor %}
+                        {% if submission.target_cluster %}
+                        <dt>Cluster</dt><dd>{{ submission.target_cluster }}</dd>
+                        {% endif %}
+                    </dl>
+                    {% endif %}
+                    {% if pipeline_versions and pipeline_versions.pipeline %}
                     <h4 class="wf-section-label">Pipeline</h4>
                     <dl class="wf-meta-grid">
-                        {% if pipeline_versions.pipeline.get('name') %}
+                        {% if pipeline_versions and pipeline_versions.pipeline.get('name') %}
                         <dt>Name</dt><dd>{{ pipeline_versions.pipeline.name }}</dd>
                         {% endif %}
-                        {% if pipeline_versions.pipeline.get('version') %}
+                        {% if pipeline_versions and pipeline_versions.pipeline.get('version') %}
                         <dt>Version</dt><dd>{{ pipeline_versions.pipeline.version }}</dd>
                         {% endif %}
-                        {% if pipeline_versions.pipeline.get('revision') or pipeline_versions.pipeline.get('commitId') %}
+                        {% if pipeline_versions and pipeline_versions.pipeline.get('revision') or pipeline_versions.pipeline.get('commitId') %}
                         <dt>Commit</dt><dd class="mono">{{ pipeline_versions.pipeline.get('revision', pipeline_versions.pipeline.get('commitId', '')) }}</dd>
                         {% endif %}
-                        {% if pipeline_versions.pipeline.get('repository') %}
+                        {% if pipeline_versions and pipeline_versions.pipeline.get('repository') %}
                         <dt>Repository</dt><dd><a href="{{ pipeline_versions.pipeline.repository }}" target="_blank">{{ pipeline_versions.pipeline.repository.split('/')[-1] }}</a></dd>
                         {% endif %}
                     </dl>
                     {% endif %}
 
-                    {% if pipeline_versions.get('nextflow') %}
+                    {% if pipeline_versions and pipeline_versions.get('nextflow') %}
                     <h4 class="wf-section-label" style="margin-top: 0.75rem;">Nextflow</h4>
                     <dl class="wf-meta-grid">
                         <dt>Version</dt><dd>{{ pipeline_versions.nextflow.get('version', '') }}</dd>
                     </dl>
                     {% endif %}
 
-                    {% if pipeline_versions.get('run') %}
+                    {% if pipeline_versions and pipeline_versions.get('run') %}
                     <h4 class="wf-section-label" style="margin-top: 0.75rem;">Run</h4>
                     <dl class="wf-meta-grid">
-                        {% if pipeline_versions.run.get('runName') %}
+                        {% if pipeline_versions and pipeline_versions.run.get('runName') %}
                         <dt>Run Name</dt><dd>{{ pipeline_versions.run.runName }}</dd>
                         {% endif %}
-                        {% if pipeline_versions.run.get('start') %}
+                        {% if pipeline_versions and pipeline_versions.run.get('start') %}
                         <dt>Started</dt><dd>{{ pipeline_versions.run.start }}</dd>
                         {% endif %}
-                        {% if pipeline_versions.run.get('container') %}
+                        {% if pipeline_versions and pipeline_versions.run.get('container') %}
                         <dt>Container</dt><dd class="mono">{{ pipeline_versions.run.container }}</dd>
                         {% endif %}
-                        {% if pipeline_versions.run.get('containerEngine') %}
+                        {% if pipeline_versions and pipeline_versions.run.get('containerEngine') %}
                         <dt>Engine</dt><dd>{{ pipeline_versions.run.containerEngine }}</dd>
                         {% endif %}
                     </dl>
                     {% endif %}
 
-                    {% if pipeline_versions.get('params') %}
+                    {% if pipeline_versions and pipeline_versions.get('params') %}
                     <h4 class="wf-section-label" style="margin-top: 0.75rem;">Parameters</h4>
                     <dl class="wf-meta-grid">
                         {% for k, v in pipeline_versions.params.items() %}
@@ -637,7 +656,7 @@
                     </dl>
                     {% endif %}
 
-                    {% if pipeline_versions.get('tools') %}
+                    {% if pipeline_versions and pipeline_versions.get('tools') %}
                     <h4 class="wf-section-label" style="margin-top: 0.75rem;">Tool versions</h4>
                     <dl class="wf-meta-grid">
                         {% for tool, ver in pipeline_versions.tools.items() %}
