@@ -22,14 +22,17 @@ logger = logging.getLogger(__name__)
 def _amplicon_primer_prelude(submission: Submission) -> tuple[str, str]:
     """Return (shell_prelude, primer_args) passing OMC-resolved primers to the amplicon pipeline.
 
-    OMC resolves primers before the run — from submission metadata where it
-    exists, otherwise inferred from the reads — and passes them explicitly, so
+    Primers reach here only when the submitter set them by hand: _resolve_primers
+    keeps a manual pair and otherwise records none (#87). Where they are set,
     what was trimmed is recorded on the submission, visible in the portal and
     correctable by hand, instead of being decided inside the job.
 
-    The pipeline detects its own primers when none are passed — DETECT_PRIMERS
-    samples reads, matches 5' ends against its curated table, and writes a FASTA
-    for REMOVE_PRIMERS — but it cannot see the study metadata OMC already holds.
+    Otherwise the pipeline works them out itself: DETECT_PRIMERS samples reads
+    and matches 5' ends against its curated table, RESOLVE_PRIMER_SET
+    consolidates those per-sample detections into the one set REMOVE_PRIMERS
+    trims everything with, and a run where no sample yielded a primer stops
+    with an error rather than producing an empty result. What it cannot do is
+    see the study metadata OMC already holds.
 
     Crucially we emit *every* resolved set into one combined fwd.fa / rev.fa.
     cutadapt with `-g file:` tries each primer and trims the best match per
