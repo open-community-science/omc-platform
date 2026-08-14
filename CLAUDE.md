@@ -320,9 +320,9 @@ Three targets run the same pickup loop and the same portal-generated `pipeline.s
 |---|---|---|---|
 | Host | `fir.alliancecan.ca` | `nibi.alliancecan.ca` | `grex.hpc.umanitoba.ca` (login node `bison`) |
 | Account | `def-rec3141_cpu` | `def-rec3141_cpu` | `def-rec3141` |
-| Container runtime | apptainer | apptainer | **singularity** (`module load singularity/4.4.1`; no apptainer exists) |
+| Container runtime | `module load apptainer` (1.3.5) | `module load apptainer` (1.3.5) | `module load singularity/4.4.1` — no apptainer exists here at all |
 | Storage | `~/scratch` | `~/scratch` | no scratch filesystem — `~/scratch` and `~/GENICE` symlink into `/project/6043541/rec3141` (48 TB, 4M inodes; home is only 100 GB / 500k) |
-| Batch env | full | full | starts with **neither Lmod nor `/opt/slurm/bin` on PATH** — `cluster.env` sources `/etc/profile.d/z09-modules.sh` and prepends the SLURM bin |
+| Batch env | Lmod + SLURM bin present | Lmod + SLURM bin present | starts with **neither Lmod nor `/opt/slurm/bin` on PATH** — `cluster.env` sources `/etc/profile.d/z09-modules.sh` and prepends the SLURM bin |
 | Reference DBs | full 571 GB set | — | silva only (amplicons); the rest is a pending Globus transfer |
 
 **Routing.** `Submission.target_cluster` pins a run to one cluster; unpinned runs go to whichever cluster the admin panel has made *active*. The decision travels with the staged data as a `.cluster` marker, and `/staging/ready`+`/ready-runs` filter on the `cluster=` the loop sends. A pinned run reaches its cluster even while that cluster is standby. Admins pin from the submission page (Step 3), up to the moment a cluster claims the run. A loop old enough not to send `cluster=` is offered unpinned work only — it cannot honour a pin, so it is never shown one.
