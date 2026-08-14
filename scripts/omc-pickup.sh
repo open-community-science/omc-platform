@@ -43,6 +43,12 @@ OMC_ACCOUNT="${OMC_ACCOUNT:-}"
 SBATCH_ACCT=()
 [ -n "$OMC_ACCOUNT" ] && SBATCH_ACCT=(--account="$OMC_ACCOUNT")
 
+# Container runtime. Defaulted here, not just where it is used: this script runs
+# under `set -u`, and a cluster whose cluster.env loads an apptainer module
+# without naming the binary (fir does) leaves the variable undefined, which under
+# nounset kills the whole script rather than the one command.
+OMC_APPTAINER="${OMC_APPTAINER:-apptainer}"
+
 # The pipeline job reads these as ${OMC_…} defaults, and reaches them through
 # `sbatch --export=ALL` below. Marked exported here so a plain assignment in
 # cluster.env still travels, whether the loop job exported it first or this
@@ -150,7 +156,7 @@ _ghcr_digest() {  # $1=repo (owner/name); echoes the :latest manifest digest
       | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest:[[:space:]]*//p' | head -1
 }
 
-if [ "$OMC_SIF_REFRESH" = "true" ] && command -v "${OMC_APPTAINER:-apptainer}" >/dev/null 2>&1; then
+if [ "$OMC_SIF_REFRESH" = "true" ] && command -v "$OMC_APPTAINER" >/dev/null 2>&1; then
     # Keep the layer cache off $HOME — it is small on some clusters and this
     # unpacks gigabytes.
     export SINGULARITY_CACHEDIR="${SINGULARITY_CACHEDIR:-${OMC_SCRATCH}/.sif-cache}"
