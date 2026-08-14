@@ -109,6 +109,11 @@ class Submission(Base):
     status = Column(Enum(SubmissionStatus), default=SubmissionStatus.DRAFT)
     slurm_job_id = Column(String(50))
 
+    # HPC cluster this run is pinned to (fir, nibi, grex, …). NULL means "any":
+    # the cluster currently designated active in the admin panel picks it up.
+    # A pinned run is picked up by that cluster whether or not it is active.
+    target_cluster = Column(String(32))
+
     # GitHub repo
     github_repo = Column(String(255))
 
@@ -197,6 +202,13 @@ async def init_db():
         except Exception:
             await conn.execute(text("ALTER TABLE submissions ADD COLUMN primers JSON"))
             logging.getLogger(__name__).info("Added primers column to submissions")
+
+        # Migration: add target_cluster column to submissions
+        try:
+            await conn.execute(text("SELECT target_cluster FROM submissions LIMIT 1"))
+        except Exception:
+            await conn.execute(text("ALTER TABLE submissions ADD COLUMN target_cluster VARCHAR(32)"))
+            logging.getLogger(__name__).info("Added target_cluster column to submissions")
 
         # Migration: add openrouter columns to users
         try:

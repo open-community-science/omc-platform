@@ -7,15 +7,23 @@
 #SBATCH --output=/home/rec3141/scratch/omc-pickup.log
 #SBATCH --error=/home/rec3141/scratch/omc-pickup.log
 
+# Per-cluster overrides (account, container runtime, paths, module loads) so the
+# same script runs on every cluster. See scripts/cluster.env.example.
+[ -f "$HOME/.config/omc/cluster.env" ] && . "$HOME/.config/omc/cluster.env"
+
 export OMC_STAGING_URL="https://microbial.opencommunity.science"
 export OMC_STAGING_KEY="$(cat ~/.config/omc/staging-key)"
-export OMC_SCRATCH="$HOME/scratch"
-export OMC_RESULTS="$HOME/scratch/omc_results"
+export OMC_SCRATCH="${OMC_SCRATCH:-$HOME/scratch}"
+export OMC_RESULTS="${OMC_RESULTS:-$OMC_SCRATCH/omc_results}"
 # Cluster-specific pipeline paths, propagated to each pipeline job (--export=ALL)
 # so the portal's generated scripts stay portable. Override per cluster if the
 # danaSeq/illumina_amplicon install or reference DBs live elsewhere.
 export OMC_GENICE="${OMC_GENICE:-$HOME/GENICE}"
-export OMC_DB_DIR="${OMC_DB_DIR:-$HOME/scratch/databases}"
+export OMC_DB_DIR="${OMC_DB_DIR:-$OMC_SCRATCH/databases}"
+# Container runtime for the amplicon SIF, which the portal's script invokes
+# directly. grex has SingularityCE behind a module and no apptainer at all.
+export OMC_APPTAINER="${OMC_APPTAINER:-apptainer}"
+export OMC_ACCOUNT="${OMC_ACCOUNT:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")")" && pwd)"
 # Under sbatch, $0 points at SLURM's spool copy of this script (path differs per
@@ -43,9 +51,24 @@ echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) omc-pickup loop started (PID $$, job $SLURM
 #
 # To stop the system intentionally you must cancel BOTH the running job AND the
 # pending dependent successor:  scancel --name=omc-pickup -u "$USER"
-sbatch --dependency=afterany:"$SLURM_JOB_ID" --begin=now+5minutes \
-    "$SCRIPT_DIR/omc-pickup-loop.sh" \
-    && echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) queued successor (afterany:$SLURM_JOB_ID)"
+#
+# The successor must repeat the account override the first submission was given:
+# the #SBATCH directive in this file names fir's allocation, and a cluster whose
+# cluster.env corrects it would otherwise lose the correction the first time the
+# chain rolled over.
+LOOP_SBATCH=()
+[ -n "$OMC_ACCOUNT" ] && LOOP_SBATCH+=(--account="$OMC_ACCOUNT")
+if sbatch "${LOOP_SBATCH[@]}" --dependency=afterany:"$SLURM_JOB_ID" --begin=now+5minutes \
+        "$SCRIPT_DIR/omc-pickup-loop.sh"; then
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) queued successor (afterany:$SLURM_JOB_ID)"
+else
+    # The chain is the only thing keeping pickups alive across a job's death, so
+    # a failure here is not a warning — say so loudly rather than run seven days
+    # and stop. A cluster whose batch jobs start without SLURM's own bin on PATH
+    # fails exactly here; see the PATH section of scripts/cluster.env.example.
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ERROR: could not queue a successor —" \
+         "this loop will NOT restart when it ends (sbatch: $(command -v sbatch || echo 'not on PATH'))"
+fi
 # ---------------------------------------------------------------------------
 
 while true; do

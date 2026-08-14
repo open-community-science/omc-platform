@@ -310,7 +310,24 @@ relay channels                     # list active channels
 - **Quick deploy:** `rsync` changed files to `arbutus:/opt/omc-platform/`, then `sudo systemctl restart omc-portal`. Exclude `.venv`, `.env`, `omc.db`.
 - **Full deploy:** `./deploy.sh` — installs packages, clones repo, sets up systemd + nginx
 - **HPC account:** `def-rec3141_cpu` on `fir.alliancecan.ca` — don't specify partition, let scheduler auto-route
-- **Fir cron:** `omc-pickup.sh` runs every 5min, polls arbutus staging API, downloads data over HTTP, submits sbatch, pushes status back. No SSH needed in either direction.
+- **Cluster pickup:** `omc-pickup.sh` runs every 5min inside a long-lived `omc-pickup` SLURM job, polls the arbutus staging API, downloads data over HTTP, submits sbatch, pushes status back. No SSH needed in either direction.
+
+## HPC Clusters
+
+Three targets run the same pickup loop and the same portal-generated `pipeline.sh`. What differs between them lives in `~/.config/omc/cluster.env` (template: `scripts/cluster.env.example`), never in the scripts.
+
+| | fir | nibi | grex |
+|---|---|---|---|
+| Host | `fir.alliancecan.ca` | `nibi.alliancecan.ca` | `grex.hpc.umanitoba.ca` (login node `bison`) |
+| Account | `def-rec3141_cpu` | `def-rec3141_cpu` | `def-rec3141` |
+| Container runtime | apptainer | apptainer | **singularity** (`module load singularity/4.4.1`; no apptainer exists) |
+| Storage | `~/scratch` | `~/scratch` | no scratch filesystem — `~/scratch` and `~/GENICE` symlink into `/project/6043541/rec3141` (48 TB, 4M inodes; home is only 100 GB / 500k) |
+| Batch env | full | full | starts with **neither Lmod nor `/opt/slurm/bin` on PATH** — `cluster.env` sources `/etc/profile.d/z09-modules.sh` and prepends the SLURM bin |
+| Reference DBs | full 571 GB set | — | silva only (amplicons); the rest is a pending Globus transfer |
+
+**Routing.** `Submission.target_cluster` pins a run to one cluster; unpinned runs go to whichever cluster the admin panel has made *active*. The decision travels with the staged data as a `.cluster` marker, and `/staging/ready`+`/ready-runs` filter on the `cluster=` the loop sends. A pinned run reaches its cluster even while that cluster is standby. Admins pin from the submission page (Step 3), up to the moment a cluster claims the run. A loop old enough not to send `cluster=` is offered unpinned work only — it cannot honour a pin, so it is never shown one.
+
+**Globus.** Bulk DB transfers between clusters: fir is `d6a86f93-b5de-4d26-ae5a-bcbec9cc6600` (`alliancecan#fir-globus-ipv6`), grex is `35a6851d-7ab1-41d0-b614-9a864b6ded17` (`UManitoba Grex HPC`). The grex collection needs a one-time `globus session consent` in a browser before the CLI can touch it.
 
 ## HPC Job Flow (SSH-free)
 

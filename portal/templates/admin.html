@@ -49,9 +49,11 @@
     <section class="admin-section">
         <h2>HPC clusters</h2>
         <p class="section-hint">
-            The <strong>active</strong> cluster picks up new jobs; standby clusters stay warm,
-            keep reconciling their own in-flight jobs, and take over the moment you switch.
-            Status comes from each loop's heartbeat (every ~5&nbsp;min) — no SSH.
+            The <strong>active</strong> cluster picks up every job that isn't pinned to a
+            specific one; standby clusters stay warm, collect their own pinned work, keep
+            reconciling their in-flight jobs, and take over the moment you switch. Pin a
+            submission to a cluster from its own page. Status comes from each loop's
+            heartbeat (every ~5&nbsp;min) — no SSH.
         </p>
         <div class="table-wrap">
         <table class="admin-table">
@@ -284,13 +286,14 @@
         {% if active_rows %}
         <div class="table-wrap">
         <table class="admin-table">
-            <thead><tr><th>Submission</th><th>User</th><th>Pipeline</th><th>Status</th><th>HPC phase</th><th>Age</th></tr></thead>
+            <thead><tr><th>Submission</th><th>User</th><th>Pipeline</th><th>Cluster</th><th>Status</th><th>HPC phase</th><th>Age</th></tr></thead>
             <tbody>
             {% for r in active_rows %}
             <tr{% if r.stuck %} class="row-warn"{% endif %}>
                 <td><a href="/submissions/{{ r.slug }}">{{ r.slug }}</a></td>
                 <td>{{ r.login }}</td>
                 <td>{{ r.pipeline }}</td>
+                <td>{% if r.cluster %}{{ r.cluster }}{% else %}<span class="muted">any</span>{% endif %}</td>
                 <td><span class="status-badge status-{{ r.status }}">{{ r.status|status_label }}</span></td>
                 <td>{{ r.hpc_phase or '—' }}{% if r.detail %} <span class="muted">· {{ r.detail }}</span>{% endif %}</td>
                 <td>{{ fmt_h(r.age_h) }}{% if r.stuck %} ⚠{% endif %}</td>

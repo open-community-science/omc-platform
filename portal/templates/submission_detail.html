@@ -24,6 +24,33 @@
    3: interview & manuscript) rather than the page header, so it appears where
    it's actually used in the pipeline. #}
 
+{# Which HPC runs this submission. Admin-only: authors pick a pipeline, not a
+   cluster. Editable up to the moment a cluster claims the run — after that the
+   data and the job live there. Unpinned runs go to the active cluster. #}
+{% macro cluster_picker() %}
+{% if is_admin(user) %}
+{% set known = clusters | map(attribute='name') | list %}
+<div class="wf-edit-row" style="border-bottom: none;">
+    <label class="wf-edit-label" for="cluster-select">HPC cluster</label>
+    <div class="wf-edit-field">
+        <select id="cluster-select" class="inline-edit-select" onchange="saveTargetCluster()">
+            <option value="" {% if not submission.target_cluster %}selected{% endif %}>
+                Any — currently {{ active_cluster }}
+            </option>
+            {% for c in clusters %}
+            <option value="{{ c.name }}" {% if submission.target_cluster == c.name %}selected{% endif %}>
+                {{ c.name }}{% if c.stale %} · offline?{% endif %}
+            </option>
+            {% endfor %}
+            {% if submission.target_cluster and submission.target_cluster not in known %}
+            <option value="{{ submission.target_cluster }}" selected>{{ submission.target_cluster }} · never seen</option>
+            {% endif %}
+        </select>
+    </div>
+</div>
+{% endif %}
+{% endmacro %}
+
 {% block content %}
 <div class="submission-detail">
 
@@ -392,6 +419,7 @@
                     </select>
                 </div>
             </div>
+            {{ cluster_picker() }}
             <div id="pipeline-info" class="pipeline-info-box"></div>
 
             {# Amplicon primers live here, under the pipeline selector, so the box
@@ -503,8 +531,11 @@
 
             {% elif s in ['submitted', 'queued', 'running'] %}
             <p class="wf-step-desc">
-                Running the <strong>{{ submission.pipeline.value|pipeline_label }}</strong> pipeline on Alliance Canada HPC.
+                Running the <strong>{{ submission.pipeline.value|pipeline_label }}</strong> pipeline on
+                {% if submission.target_cluster %}<strong>{{ submission.target_cluster }}</strong>{% else %}Alliance Canada HPC{% endif %}.
             </p>
+            {# Still retargetable while it waits for a cluster to claim it. #}
+            {% if s == 'queued' %}{{ cluster_picker() }}{% endif %}
             <div class="wf-step-status" hx-get="/submissions/{{ submission.slug }}/status" hx-trigger="every 10s" hx-swap="innerHTML">
                 <p class="status-polling">
                     Job is <strong>{{ s }}</strong>{% if submission.slurm_job_id %} (SLURM {{ submission.slurm_job_id }}){% endif %}... checking automatically.
@@ -1013,6 +1044,22 @@ async function savePipeline() {
         if (val !== RENDERED_PIPELINE) { location.reload(); return; }
         updatePipelineInfo();
         showStatus('Pipeline updated');
+    } else {
+        showStatus('Error: ' + (data.error || 'Failed to save'));
+    }
+}
+
+/* ── Target cluster (admin only; the picker only renders for admins) ── */
+async function saveTargetCluster() {
+    const val = document.getElementById('cluster-select').value;
+    const resp = await fetch(`/submissions/${subId}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_cluster: val }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+        showStatus(val ? `Pinned to ${val}` : 'Unpinned — runs on the active cluster');
     } else {
         showStatus('Error: ' + (data.error || 'Failed to save'));
     }

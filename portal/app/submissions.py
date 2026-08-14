@@ -10,7 +10,7 @@ from typing import Optional
 from .config import get_settings
 from .database import get_db, Submission, User, SubmissionStatus, PipelineType
 from .auth import require_user
-from .slurm import submit_local_download_job
+from .slurm import submit_local_download_job, write_cluster_marker
 from .sra_metadata import fetch_sra_metadata, resolve_to_bioproject
 
 router = APIRouter(prefix="/submissions", tags=["submissions"])
@@ -410,6 +410,24 @@ async def update_submission(
         title = body["title"].strip()
         if title:
             submission.title = title
+
+    # Target cluster — which HPC picks this run up. Admin-only, and only until a
+    # cluster has actually claimed the run: once the pipeline is submitted the
+    # data and the job live on that cluster and moving them is not a form field.
+    if "target_cluster" in body:
+        from .auth import is_admin
+        if not is_admin(user):
+            return JSONResponse({"error": "Admins only"}, status_code=403)
+        if submission.status not in (SubmissionStatus.DRAFT, SubmissionStatus.QUEUED):
+            return JSONResponse(
+                {"error": "Cluster is fixed once the run has been picked up"},
+                status_code=400,
+            )
+        name = (body["target_cluster"] or "").strip()[:32]
+        submission.target_cluster = name or None
+        # A run already staged for pickup carries its own marker; keep it in step
+        # so a retarget between submit and pickup reaches the right cluster.
+        write_cluster_marker(submission)
 
     # Fields locked after HPC submission
     if submission.status == SubmissionStatus.DRAFT:

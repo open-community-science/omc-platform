@@ -15,6 +15,12 @@
 
 set -uo pipefail
 
+# Per-cluster overrides, so the same script runs everywhere and the differences
+# between clusters are data rather than code. Sourced before the defaults below,
+# and re-read every cycle (this script is re-executed every 300s), so an edit
+# takes effect without restarting the loop job. See scripts/cluster.env.example.
+[ -f "$HOME/.config/omc/cluster.env" ] && . "$HOME/.config/omc/cluster.env"
+
 # Required env vars
 : "${OMC_STAGING_URL:?Set OMC_STAGING_URL (e.g. https://microbial.opencommunity.science)}"
 : "${OMC_STAGING_KEY:?Set OMC_STAGING_KEY (staging API bearer token)}"
@@ -24,8 +30,24 @@ set -uo pipefail
 AUTH_HEADER="Authorization: Bearer ${OMC_STAGING_KEY}"
 STAGING_API="${OMC_STAGING_URL}/staging"
 
-# Which cluster is this? Alliance sets CC_CLUSTER (fir/nibi/…); fall back to host.
+# Which cluster is this? Alliance sets CC_CLUSTER (fir/nibi/grex/…); fall back to
+# host. This name is what the portal pins a submission to, so it has to be stable
+# — a login node's hostname (grex's is `bison`) is not.
 OMC_CLUSTER="${OMC_CLUSTER:-${CC_CLUSTER:-$(hostname -s 2>/dev/null || echo unknown)}}"
+
+# SLURM account to charge. Empty means "whatever the pipeline script's #SBATCH
+# --account says" — the portal bakes in its configured default. grex's allocation
+# is `def-rec3141` where fir's is `def-rec3141_cpu`, so it sets this and the
+# sbatch command line wins over the directive in the file.
+OMC_ACCOUNT="${OMC_ACCOUNT:-}"
+SBATCH_ACCT=()
+[ -n "$OMC_ACCOUNT" ] && SBATCH_ACCT=(--account="$OMC_ACCOUNT")
+
+# The pipeline job reads these as ${OMC_…} defaults, and reaches them through
+# `sbatch --export=ALL` below. Marked exported here so a plain assignment in
+# cluster.env still travels, whether the loop job exported it first or this
+# script was started straight from cron.
+export OMC_SCRATCH OMC_RESULTS OMC_GENICE OMC_DB_DIR OMC_APPTAINER
 
 # Delete each Nextflow work dir once it has been archived to .sqsh. Work dirs are
 # by far the largest consumer of the scratch file quota — a single amplicon run
@@ -58,15 +80,21 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # ── Cluster heartbeat + active-cluster gate ──────────────────────────────
 # Tell arbutus we're alive (with our current job counts) and learn whether we
-# are the *active* pickup cluster. Standby clusters still run Phase 0 below
-# (reconciling their own in-flight jobs) but skip Phase 1/2 (new pickups), so
-# multiple loops can run without racing for the same job. The failover switch
-# lives in the admin panel (POST /admin/cluster/active).
+# are the *active* pickup cluster. The failover switch lives in the admin panel
+# (POST /admin/cluster/active).
 #
-# Fail OPEN: if the portal/endpoint is unreachable (old portal, network blip),
-# IS_ACTIVE stays true and behaviour is unchanged — but /ready-runs would be
-# empty in that case anyway, so nothing gets double-picked.
+# When the portal answers with cluster_routing, it filters /ready-runs by the
+# cluster asking, so we hand it our name and take whatever comes back: work
+# pinned to us, plus everything unpinned if we're the active one. Against a
+# portal without routing we fall back to the older rule — a standby cluster runs
+# Phase 0 (reconciling its own in-flight jobs) and skips Phase 1/2 entirely —
+# because that portal would otherwise offer every cluster the same new jobs.
+#
+# Fail OPEN: if the portal/endpoint is unreachable (network blip), IS_ACTIVE
+# stays true and behaviour is unchanged — but /ready-runs would be empty in that
+# case anyway, so nothing gets double-picked.
 IS_ACTIVE=true
+CLUSTER_ROUTING=false
 HB_RUN=$(squeue -h -u "$USER" -t RUNNING -o '%j' 2>/dev/null | grep -cvE '^omc-pickup')
 HB_PEND=$(squeue -h -u "$USER" -t PENDING -o '%j' 2>/dev/null | grep -cvE '^omc-pickup')
 HB_BODY=$(jq -nc --arg c "$OMC_CLUSTER" --arg h "$(hostname -s 2>/dev/null || echo '')" \
@@ -81,8 +109,9 @@ if [ -n "$HB_RESP" ]; then
     _act=$(echo "$HB_RESP" | jq -r 'if .is_active == true then "true" elif .is_active == false then "false" else "unknown" end' 2>/dev/null)
     [ "$_act" = "true" ] && IS_ACTIVE=true
     [ "$_act" = "false" ] && IS_ACTIVE=false
+    [ "$(echo "$HB_RESP" | jq -r '.cluster_routing == true' 2>/dev/null)" = "true" ] && CLUSTER_ROUTING=true
 fi
-echo "$(now) heartbeat ${OMC_CLUSTER}: active=${IS_ACTIVE} (running=$HB_RUN pending=$HB_PEND)"
+echo "$(now) heartbeat ${OMC_CLUSTER}: active=${IS_ACTIVE} routing=${CLUSTER_ROUTING} (running=$HB_RUN pending=$HB_PEND)"
 
 # ── Phase 0: Reconcile submitted pipelines ───────────────────────────────
 # The pipeline wrapper runs on a compute node and pushes status to arbutus, but
@@ -95,8 +124,10 @@ echo "$(now) heartbeat ${OMC_CLUSTER}: active=${IS_ACTIVE} (running=$HB_RUN pend
 # OOM recovery: if a pipeline was OOM-killed, resubmit it at the next memory
 # tier (up to 3 attempts) by editing the sbatch --mem in its pipeline.sh, rather
 # than reporting a hard failure. The assembly step caps its tools to OMC_MEM_GB,
-# so a bigger allocation gives them a bigger real budget.
-OMC_MEM_TIERS="128 187 249 373 498"
+# so a bigger allocation gives them a bigger real budget. The tiers are node
+# sizes, so they're overridable per cluster: a tier larger than the biggest node
+# the job's partitions offer would sit PENDING forever instead of retrying.
+OMC_MEM_TIERS="${OMC_MEM_TIERS:-128 187 249 373 498}"
 _oom_retry() {  # $1=slug $2=OUTPUT_DIR(with trailing /) $3=job_id ; 0 if resubmitted
     local slug="$1" out="$2" jid="$3" ps="${2}pipeline.sh"
     [ -f "$ps" ] || return 1
@@ -123,7 +154,7 @@ _oom_retry() {  # $1=slug $2=OUTPUT_DIR(with trailing /) $3=job_id ; 0 if resubm
         ! -name pipeline.sh ! -name job_ids.txt ! -name .pipeline-submitted \
         -exec rm -rf {} + 2>/dev/null
     rm -rf "${OMC_SCRATCH}/omc_work/${slug}" 2>/dev/null
-    local newjob; newjob=$(cd /tmp && sbatch --parsable "$ps" 2>/dev/null)
+    local newjob; newjob=$(cd /tmp && sbatch "${SBATCH_ACCT[@]}" --parsable "$ps" 2>/dev/null)
     [[ "$newjob" =~ ^[0-9]+$ ]] || return 1
     echo "pipeline=$newjob" > "${out}job_ids.txt"
     push_status "$slug" "$(jq -nc --arg m "$next" \
@@ -214,14 +245,17 @@ done
 shopt -u nullglob
 
 # ── Phase 1: Pick up individual runs as they complete ────────────────────
-# Only the active cluster picks up NEW jobs. Standby clusters stop here (Phase 0
-# reconciliation above already ran for their own in-flight jobs).
-if [ "$IS_ACTIVE" != "true" ]; then
+# With routing, the portal decides what this cluster may claim — a standby still
+# collects work pinned to it. Without routing, only the active cluster picks up
+# NEW jobs and standbys stop here (Phase 0 reconciliation above already ran for
+# their own in-flight jobs).
+if [ "$CLUSTER_ROUTING" != "true" ] && [ "$IS_ACTIVE" != "true" ]; then
     echo "$(now) standby (${OMC_CLUSTER}) — skipping new pickups"
     exit 0
 fi
 
-READY_JSON=$(curl -sf -H "$AUTH_HEADER" "${STAGING_API}/ready-runs" 2>/dev/null)
+READY_JSON=$(curl -sf -H "$AUTH_HEADER" \
+    --get --data-urlencode "cluster=${OMC_CLUSTER}" "${STAGING_API}/ready-runs" 2>/dev/null)
 if [ $? -ne 0 ] || [ -z "$READY_JSON" ]; then
     # Fall through to legacy check
     READY_JSON='{"ready_runs":[]}'
@@ -318,7 +352,8 @@ echo "$READY_JSON" | jq -c '.ready_runs[]' 2>/dev/null | while IFS= read -r slug
 
         # Submit pipeline
         push_status "$SLUG" '{"phase":"downloading","detail":"Submitting pipeline"}'
-        SBATCH_OUT=$(sbatch --export=ALL,OMC_STAGING_URL="${OMC_STAGING_URL}",OMC_STAGING_KEY="${OMC_STAGING_KEY}" \
+        SBATCH_OUT=$(sbatch "${SBATCH_ACCT[@]}" \
+            --export=ALL,OMC_STAGING_URL="${OMC_STAGING_URL}",OMC_STAGING_KEY="${OMC_STAGING_KEY}" \
             "${OUTPUT_DIR}/pipeline.sh" 2>&1)
         SBATCH_RC=$?
         if [ $SBATCH_RC -ne 0 ]; then

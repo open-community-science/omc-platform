@@ -324,6 +324,7 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
                 "age_h": age,
                 "hpc_phase": hpc.get("phase", ""),
                 "detail": hpc.get("detail", "") or hpc.get("slurm_state", ""),
+                "cluster": s.target_cluster or "",
             }
             if status in _ACTIVE_STATES:
                 row["stuck"] = age is not None and age > _STUCK_HOURS
@@ -554,10 +555,15 @@ async def submission_detail(
         key=lambda x: x["label"],
     )
 
+    # Clusters an admin can pin this run to (see the cluster picker in Step 3).
+    from .staging import get_cluster_status
+    cluster_info = get_cluster_status()
+
     return templates.TemplateResponse(
         "submission_detail.html",
         {"request": request, "user": user, "submission": submission,
          "pipeline_versions": pipeline_versions, "known_primers": known_primers,
+         "clusters": cluster_info["clusters"], "active_cluster": cluster_info["active"],
          # settings is needed by the autoresearch trigger partial (Step 3) to gate
          # itself on settings.autoresearch_enabled.
          "settings": settings},

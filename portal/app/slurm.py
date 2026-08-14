@@ -156,7 +156,10 @@ def _build_pipeline_cmd(submission: Submission) -> str:
     The returned block is executed inside a `set -e` subshell, so any step
     failing aborts the pipeline with its exit code. Uses ${INPUT_DIR},
     ${OUTPUT_DIR} exported by the surrounding sbatch script. Each danaSeq
-    run-*.sh --apptainer resolves its component's rebuilt .danaseq-*.sif.
+    run-*.sh --container resolves its component's rebuilt .danaseq-*.sif and
+    picks the container runtime the executing cluster actually has — apptainer
+    on fir, singularity on grex. The amplicon SIF is invoked directly, so it
+    goes through ${OMC_APPTAINER} for the same reason.
     """
     pipeline = submission.pipeline
     # Reference the executing cluster's paths via shell vars (OMC_GENICE / OMC_DB_DIR),
@@ -175,11 +178,11 @@ def _build_pipeline_cmd(submission: Submission) -> str:
         # Single co-assembly: results/assembly/assembly.fasta + results/mapping/depths.txt
         return f"""ASM="${{OUTPUT_DIR}}/assembly"; MAG="${{OUTPUT_DIR}}/mag"
 echo ">>> Step 1/2: nanopore assembly"
-"{nano}/run-nanopore-assembly.sh" --apptainer \\
+"{nano}/run-nanopore-assembly.sh" --container \\
     --input "${{INPUT_DIR}}/fastq" \\
     --outdir "$ASM"
 echo ">>> Step 2/2: MAG analysis"
-"{mag}/run-mag-analysis.sh" --apptainer \\
+"{mag}/run-mag-analysis.sh" --container \\
     --assembly "$ASM/assembly/assembly.fasta" \\
     --depths "$ASM/mapping/depths.txt" \\
     --bam_dir "$ASM/mapping/" \\
@@ -206,7 +209,7 @@ echo ">>> Step 2/2: MAG analysis"
     [ -e "${{b}}_2.fastq.gz" ] && ln -sf "${{b}}_2.fastq.gz" "${{b}}_R2_001.fastq.gz"
   done )
 echo ">>> Step 1/2: illumina assembly"
-"{illu}/run-illumina-assembly.sh" --apptainer \\
+"{illu}/run-illumina-assembly.sh" --container \\
     --input "${{INPUT_DIR}}/fastq" \\
     --assembly_memory "${{OMC_ASM_MEM_GB}}GB"{human_arg} \\
     --outdir "$ASM"
@@ -217,7 +220,7 @@ for asm in "$ASM"/assembly/*/*.dedupe.fasta; do
     found=1
     s=$(basename "$(dirname "$asm")")
     echo "  --- MAG analysis for sample: $s ---"
-    "{mag}/run-mag-analysis.sh" --apptainer \\
+    "{mag}/run-mag-analysis.sh" --container \\
         --assembly "$asm" \\
         --depths "$ASM/mapping/$s/$s.depths.txt" \\
         --bam_dir "$ASM/mapping/$s/" \\
@@ -255,7 +258,7 @@ mkdir -p "${{WORK_DIR}}"
 # Denoising gets 75% of the job's memory so concurrent Nextflow tasks still fit.
 OMC_CPUS="${{SLURM_CPUS_PER_TASK:-8}}"
 OMC_DENOISE_MEM=$(( ${{OMC_MEM_GB:-16}} * 3 / 4 ))
-{primer_prelude}{meta_prelude}apptainer run \\
+{primer_prelude}{meta_prelude}"${{OMC_APPTAINER}}" run \\
     --env CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
     --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \\
     --env REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
@@ -276,7 +279,7 @@ OMC_DENOISE_MEM=$(( ${{OMC_MEM_GB:-16}} * 3 / 4 ))
 # starts after primer removal, so samples whose reads cutadapt discarded (wrong
 # primer pair for that run) were indistinguishable from shallow ones. Run after
 # the pipeline over its published outputs — best effort, never fails the job.
-apptainer exec \\
+"${{OMC_APPTAINER}}" exec \\
     --bind "${{OUTPUT_DIR}}:${{OUTPUT_DIR}}" \\
     "{amplicon_sif}" \\
     python3 /pipeline/bin/read_tracking.py \\
@@ -355,6 +358,10 @@ set -uo pipefail
 OMC_SCRATCH="${{OMC_SCRATCH:-{scratch}}}"
 OMC_GENICE="${{OMC_GENICE:-{genice}}}"
 OMC_DB_DIR="${{OMC_DB_DIR:-{db_dir_default}}}"
+# Container runtime for the amplicon SIF. Alliance's national clusters ship
+# apptainer; grex ships SingularityCE as a module, so its pickup sets this to
+# `singularity`. danaSeq's own run-*.sh --container auto-detects the same way.
+OMC_APPTAINER="${{OMC_APPTAINER:-apptainer}}"
 INPUT_DIR="$OMC_SCRATCH/sra_downloads/{submission.slug}"
 OUTPUT_DIR="$OMC_SCRATCH/omc_results/{submission.slug}"
 WORK_DIR="$OMC_SCRATCH/omc_work/{submission.slug}"
@@ -708,6 +715,25 @@ trap - EXIT
 """
 
 
+def write_cluster_marker(submission: Submission) -> None:
+    """Pin the staged run to submission.target_cluster, or unpin it.
+
+    The staging API reads this marker to decide which cluster's pickup loop may
+    claim the run; an unpinned run goes to whichever cluster is currently active.
+    The marker travels with the data, so routing needs no DB lookup on the
+    staging path. No-op before the staging directory exists — the submit path
+    writes it again once the directory is there.
+    """
+    marker = Path(settings.local_download_path) / submission.slug / ".cluster"
+    if not marker.parent.is_dir():
+        return
+    target = (submission.target_cluster or "").strip()
+    if target:
+        marker.write_text(target)
+    else:
+        marker.unlink(missing_ok=True)
+
+
 async def submit_local_download_job(submission: Submission) -> str:
     """Stage scripts for download and mark as queued for the worker.
 
@@ -745,6 +771,8 @@ async def submit_local_download_job(submission: Submission) -> str:
     # Write pipeline.sh locally — fir cron will download it via HTTP
     with open(f"{local_dir}/pipeline.sh", "w") as f:
         f.write(pipeline_script)
+
+    write_cluster_marker(submission)
 
     # Write download wrapper (worker will execute it)
     dl_path = f"{local_dir}/download.sh"

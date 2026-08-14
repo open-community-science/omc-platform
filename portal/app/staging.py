@@ -34,11 +34,41 @@ def _check_staging_key(authorization: str = Header(default="")) -> None:
         raise HTTPException(401, "Invalid staging key")
 
 
+def _pinned_cluster(slug_dir: Path) -> str:
+    """Cluster this staged run is pinned to, or "" when it is unpinned.
+
+    Written by submit_local_download_job from Submission.target_cluster, so the
+    routing decision travels with the data rather than needing a DB lookup here.
+    """
+    try:
+        return (slug_dir / ".cluster").read_text().strip()
+    except OSError:
+        return ""
+
+
+def _claimable_by(slug_dir: Path, cluster: str, active: str) -> bool:
+    """May `cluster` pick this staged run up?
+
+    A pinned run belongs to its cluster alone, active or not. An unpinned one
+    goes to whichever cluster is currently active.
+
+    An empty `cluster` is a pickup loop too old to name itself, and therefore too
+    old to respect a pin — so it is offered unpinned work only. That is exactly
+    what it saw before pinning existed, and it keeps an un-upgraded cluster from
+    claiming another cluster's run if it is ever made active.
+    """
+    pinned = _pinned_cluster(slug_dir)
+    if not cluster:
+        return not pinned
+    return pinned == cluster if pinned else cluster == active
+
+
 @router.get("/ready")
-async def list_ready(authorization: str = Header(default="")):
+async def list_ready(cluster: str = "", authorization: str = Header(default="")):
     """List slugs that have finished downloading and are ready for pickup.
 
-    Returns a list of objects with slug and file manifest.
+    Returns a list of objects with slug and file manifest, filtered to what
+    `cluster` is allowed to claim (see _claimable_by).
     """
     _check_staging_key(authorization)
 
@@ -46,12 +76,15 @@ async def list_ready(authorization: str = Header(default="")):
     if not staging_root.exists():
         return {"ready": []}
 
+    active = get_active_cluster()
     ready = []
     for slug_dir in staging_root.iterdir():
         if not slug_dir.is_dir():
             continue
         ready_marker = slug_dir / ".ready"
         if not ready_marker.exists():
+            continue
+        if not _claimable_by(slug_dir, cluster, active):
             continue
 
         # Build file manifest
@@ -68,6 +101,7 @@ async def list_ready(authorization: str = Header(default="")):
             "files": sorted(files),
             "has_pipeline": has_pipeline,
             "ready_at": ready_marker.read_text().strip(),
+            "cluster": _pinned_cluster(slug_dir),
         })
 
     return {"ready": ready}
@@ -137,11 +171,12 @@ async def mark_picked_up(slug: str, authorization: str = Header(default="")):
 
 
 @router.get("/ready-runs")
-async def list_ready_runs(authorization: str = Header(default="")):
+async def list_ready_runs(cluster: str = "", authorization: str = Header(default="")):
     """List individual runs that have finished downloading and are ready for pickup.
 
-    Returns runs grouped by slug. Fir can pick up runs incrementally
-    as they complete, rather than waiting for the entire job to finish.
+    Returns runs grouped by slug, filtered to what `cluster` is allowed to claim
+    (see _claimable_by). A cluster can pick runs up incrementally as they
+    complete, rather than waiting for the entire job to finish.
     """
     _check_staging_key(authorization)
 
@@ -149,6 +184,7 @@ async def list_ready_runs(authorization: str = Header(default="")):
     if not staging_root.exists():
         return {"ready_runs": []}
 
+    active = get_active_cluster()
     ready_runs = []
     for slug_dir in staging_root.iterdir():
         if not slug_dir.is_dir() or slug_dir.name.startswith("."):
@@ -156,6 +192,8 @@ async def list_ready_runs(authorization: str = Header(default="")):
 
         run_ready_dir = slug_dir / ".run-ready"
         if not run_ready_dir.exists():
+            continue
+        if not _claimable_by(slug_dir, cluster, active):
             continue
 
         runs = []
@@ -189,6 +227,7 @@ async def list_ready_runs(authorization: str = Header(default="")):
                 "runs": runs,
                 "all_done": all_done,
                 "has_pipeline": has_pipeline,
+                "cluster": _pinned_cluster(slug_dir),
             })
 
     return {"ready_runs": ready_runs}
@@ -250,10 +289,11 @@ async def push_status(slug: str, request: Request, authorization: str = Header(d
 # ── Cluster heartbeat + active-cluster switch ───────────────────────────
 #
 # Each HPC cluster's pickup loop heartbeats here every cycle and asks whether
-# it is the *active* cluster. Only the active cluster picks up NEW jobs; standby
-# clusters keep reconciling their own in-flight jobs but skip new pickups. This
-# lets several loops run at once without racing for the same job, and turns
-# failover into a portal switch (see POST /admin/cluster/active) instead of SSH.
+# it is the *active* cluster. The active cluster picks up every job that isn't
+# pinned to a specific cluster; a job pinned via Submission.target_cluster goes
+# to that cluster whatever the switch says. So several loops run at once without
+# racing for the same job, and failover is a portal switch (see POST
+# /admin/cluster/active) instead of SSH.
 #
 # State is file-based (like the rest of this module): one JSON per cluster plus
 # an `active` marker, all under .clusters/. Default active cluster is "fir".
@@ -345,7 +385,13 @@ async def cluster_heartbeat(request: Request, authorization: str = Header(defaul
 
     Body: {"cluster": "fir", "hostname": "...", "running": N, "pending": N,
            "loop_job": "...", "note": "..."}
-    Reply: {"ok": true, "active_cluster": "...", "is_active": bool}
+    Reply: {"ok": true, "active_cluster": "...", "is_active": bool,
+            "cluster_routing": true}
+
+    `cluster_routing` tells the loop that /ready and /ready-runs honour their
+    `cluster` parameter, so it can ask for its own share instead of gating the
+    whole pickup on being active. A loop that doesn't see the flag keeps the
+    active-only behaviour, which is what an older portal expects.
     """
     _check_staging_key(authorization)
     body = await request.json()
@@ -365,7 +411,8 @@ async def cluster_heartbeat(request: Request, authorization: str = Header(defaul
     (_CLUSTERS_DIR / f"{name}.json").write_text(json.dumps(rec))
 
     active = get_active_cluster()
-    return {"ok": True, "active_cluster": active, "is_active": name == active}
+    return {"ok": True, "active_cluster": active, "is_active": name == active,
+            "cluster_routing": True}
 
 
 @router.get("/cluster/status")
