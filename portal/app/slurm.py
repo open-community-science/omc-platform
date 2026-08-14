@@ -148,26 +148,6 @@ printf '%s' '{blob}' | base64 -d > "${{OUTPUT_DIR}}/metadata/samples.tsv"
     return prelude, args
 
 
-def _pipeline_sifs(pipeline: PipelineType) -> list[str]:
-    """Shell paths of the container images a pipeline runs from.
-
-    danaSeq keeps each component's image beside its wrapper as
-    `.danaseq-<component>.sif`, so the set is derivable from the pipeline rather
-    than needing to be discovered at run time. Used to record which image
-    revision actually ran (see the provenance block in _build_pipeline_script).
-    """
-    base = "${OMC_GENICE}/danaSeq"
-    if pipeline == PipelineType.NANOPORE_MAG:
-        return [f"{base}/nanopore_assembly/.danaseq-nanopore-assembly.sif",
-                f"{base}/mag_analysis/.danaseq-mag-analysis.sif"]
-    if pipeline == PipelineType.ILLUMINA_MAG:
-        return [f"{base}/illumina_assembly/.danaseq-illumina-assembly.sif",
-                f"{base}/mag_analysis/.danaseq-mag-analysis.sif"]
-    if pipeline == PipelineType.ILLUMINA_AMPLICON:
-        return [f"{base}/illumina_amplicon/.danaseq-illumina-amplicon.sif"]
-    return []
-
-
 def _build_pipeline_cmd(submission: Submission) -> str:
     """Return the shell command block that runs a given OMC pipeline.
 
@@ -363,9 +343,6 @@ def _build_pipeline_script(submission: Submission, attempt: int = 0) -> str:
 
     # Pipeline-specific run command (assembly->mag chain, or amplicon SIF)
     pipeline_cmd = _build_pipeline_cmd(submission)
-    # Quoted so a path containing ${...} survives into the loop unexpanded here
-    # and is expanded by the job's shell instead.
-    sif_list = " ".join(f'"{p}"' for p in _pipeline_sifs(submission.pipeline))
 
     return f"""#!/bin/bash
 #SBATCH --job-name=omc-run-{submission.slug}
@@ -460,20 +437,6 @@ if [ "$NUM_FILES" -eq 0 ]; then
     exit 1
 fi
 
-# Which container image is about to run. The clusters pull danaSeq images by
-# :latest, so at any moment two of them can hold different revisions — recording
-# what ran is what keeps a result attributable to a specific pipeline build.
-OMC_IMAGE_REVISION=""
-for _sif in {sif_list}; do
-    [ -f "$_sif" ] || continue
-    _rev=$("${{OMC_APPTAINER}}" inspect "$_sif" 2>/dev/null \\
-           | sed -n 's/^org\\.opencontainers\\.image\\.revision:[[:space:]]*//p' | head -1)
-    [ -n "$_rev" ] || continue
-    _name=$(basename "$_sif" .sif); _name=${{_name#.danaseq-}}
-    OMC_IMAGE_REVISION="${{OMC_IMAGE_REVISION:+$OMC_IMAGE_REVISION,}}${{_name}}=${{_rev}}"
-done
-echo "Container image: ${{OMC_IMAGE_REVISION:-unknown}}"
-
 echo "running" > ${{OUTPUT_DIR}}/.status
 push_status "running" ',"job_id":"'$SLURM_JOB_ID'","slurm_state":"RUNNING"'
 
@@ -500,6 +463,17 @@ echo "Completed: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 if [ $PIPELINE_EXIT -eq 2 ] && [ -n "$(ls -A "${{OUTPUT_DIR}}" 2>/dev/null)" ]; then
     echo "WARNING: Pipeline exited 2 but outputs exist — treating as success (likely Apptainer cleanup timeout)"
     PIPELINE_EXIT=0
+fi
+
+# Which build produced this. The pipeline bakes its own commit into the run
+# manifest at build time, so read that rather than deriving the same fact a
+# second way from the image's labels — one wiring, and it is the pipeline's own
+# account of itself. Every push from here on carries it (see push_status).
+_manifest="${{OUTPUT_DIR}}/viz/run_manifest.json"
+if [ -f "$_manifest" ]; then
+    OMC_IMAGE_REVISION=$(sed -n 's/.*"commit_id"[[:space:]]*:[[:space:]]*"\\([0-9a-fA-F]\\{{7,\\}}\\)".*/\\1/p' \\
+                         "$_manifest" | head -1)
+    echo "Pipeline build: ${{OMC_IMAGE_REVISION:-unrecorded}}"
 fi
 
 # Signal completion
