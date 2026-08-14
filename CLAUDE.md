@@ -321,7 +321,7 @@ Three targets run the same pickup loop and the same portal-generated `pipeline.s
 | Host | `fir.alliancecan.ca` | `nibi.alliancecan.ca` | `grex.hpc.umanitoba.ca` (login node `bison`) |
 | Account | `def-rec3141_cpu` | `def-rec3141_cpu` | `def-rec3141` |
 | Container runtime | `module load apptainer` (1.3.5) | `module load apptainer` (1.3.5) | `module load singularity/4.4.1` — no apptainer exists here at all |
-| Storage | `~/scratch` | `~/scratch` | no scratch filesystem — `~/scratch` and `~/GENICE` symlink into `/project/6043541/rec3141` (48 TB, 4M inodes; home is only 100 GB / 500k) |
+| Storage | `~/scratch` | `~/scratch` | no scratch filesystem — `~/scratch` and `~/GENICE` symlink into `/project/6043541/rec3141` (48 TB, 4M inodes; home is only 100 GB / 500k), but `cluster.env` names the **real** `/project` paths: a bind mount through a symlink is a dangling path inside the container |
 | Batch env | Lmod + SLURM bin present | Lmod + SLURM bin present | starts with **neither Lmod nor `/opt/slurm/bin` on PATH** — `cluster.env` sources `/etc/profile.d/z09-modules.sh` and prepends the SLURM bin |
 | Reference DBs | full 571 GB set | — | silva only (amplicons); the rest is a pending Globus transfer |
 
