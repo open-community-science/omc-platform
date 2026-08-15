@@ -364,6 +364,11 @@ async def set_primers(
     fwds = [v.strip().upper() for v in form.getlist("fwd")]
     revs = [v.strip().upper() for v in form.getlist("rev")]
 
+    # Independent of the sequences: a run can be pre-trimmed whether or not the
+    # submitter knows which primers were used, and saying which primers were used
+    # is not a claim that they are still on the reads.
+    submission.pre_trimmed = bool(form.get("pre_trimmed"))
+
     pairs = []
     for f, r in zip(fwds, revs):
         if not f and not r:

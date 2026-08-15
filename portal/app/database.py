@@ -1,7 +1,7 @@
 """Database setup and models."""
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import Column, Integer, String, DateTime, Text, Enum, ForeignKey, JSON, text
+from sqlalchemy import Column, Integer, String, DateTime, Text, Enum, ForeignKey, JSON, Boolean, text
 from datetime import datetime
 import enum
 import logging
@@ -134,6 +134,13 @@ class Submission(Base):
     # source: metadata|manual|inferred-db|inferred-denovo, confidence}
     primers = Column(JSON)
 
+    # Submitter says the reads reach us with their primers already removed, so
+    # the pipeline must not try to remove them again — cutadapt matches the front
+    # of the amplicon instead and trims real sequence off every read. The pipeline
+    # detects this on its own too; this is for the cases it cannot see, such as a
+    # non-ribosomal assay with no reference to measure the boundary against.
+    pre_trimmed = Column(Boolean, default=False)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     submitted_at = Column(DateTime)
@@ -208,6 +215,14 @@ async def init_db():
         except Exception:
             await conn.execute(text("ALTER TABLE submissions ADD COLUMN primers JSON"))
             logging.getLogger(__name__).info("Added primers column to submissions")
+
+        # Migration: add pre_trimmed column to submissions
+        try:
+            await conn.execute(text("SELECT pre_trimmed FROM submissions LIMIT 1"))
+        except Exception:
+            await conn.execute(text(
+                "ALTER TABLE submissions ADD COLUMN pre_trimmed BOOLEAN DEFAULT 0"))
+            logging.getLogger(__name__).info("Added pre_trimmed column to submissions")
 
         # Migration: add target_cluster column to submissions
         try:

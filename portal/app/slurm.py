@@ -260,6 +260,10 @@ done
         # them. When it does not, no primer argument is passed and the pipeline
         # detects its own — exact primers or none, never a pool to choose from.
         primer_prelude, primer_args = _amplicon_primer_prelude(submission)
+        # The pipeline works this out from the reads as well; the flag is the
+        # submitter overriding a call it cannot always make.
+        if submission.pre_trimmed:
+            primer_args += ' \\\n    --skip_primer_removal true'
         meta_prelude, meta_args = _amplicon_metadata_prelude(submission)
         # Taxonomy DB gates the taxonomy → BUILD_VIZ branch that produces viz/.
         ref_dbs = settings.amplicon_ref_databases.replace("{db}", "${OMC_DB_DIR}")

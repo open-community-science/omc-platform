@@ -512,8 +512,18 @@
                             {% endfor %}
                         </div>
                         <button type="button" class="btn btn-secondary btn-sm" onclick="addPrimerRow()">+ Add primer set</button>
+                        <label class="primer-pretrimmed">
+                            <input type="checkbox" name="pre_trimmed" value="1"
+                                   {% if submission.pre_trimmed %}checked{% endif %}>
+                            Reads are already primer-trimmed
+                        </label>
                         <button type="submit" class="btn btn-secondary btn-sm">Save primers</button>
                         <span class="muted">Leave blank to auto-detect per sample.</span>
+                        <p class="section-hint">Tick this if the primers were removed before
+                        the reads were deposited. Trimming them a second time takes the front
+                        of the amplicon off every read. We check for this ourselves on 16S/18S
+                        runs — the box is for the ones we cannot check, such as functional-gene
+                        assays with no reference to measure against.</p>
                     </form>
                     {% endif %}
                 </div>
