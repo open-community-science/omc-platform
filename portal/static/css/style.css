@@ -1605,3 +1605,95 @@ a.dchip.done:hover { background: rgba(34,197,94,.24); }
   .dchip.done { color: #4ade80; } .dchip.progress { color: #93c5fd; }
   .dchip.pending { color: #94a3b8; } .dchip.failed { color: #fca5a5; } .dchip.link { color: #a5b4fc; }
 }
+
+
+/* ── Dashboard list view ─────────────────────────────────────────────────
+   The same submissions as the cards, with the run figures a card has no room
+   for. Sorting lives on the column headers rather than the dropdown, because a
+   table is read down a column. */
+.view-toggle {
+    display: inline-flex;
+    margin-left: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 0.375rem;
+    overflow: hidden;
+}
+
+.view-btn {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8125rem;
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    border: 0;
+    cursor: pointer;
+}
+
+.view-btn + .view-btn { border-left: 1px solid var(--color-border); }
+.view-btn.is-on { background: var(--color-primary); color: #fff; }
+
+.submissions-table-wrap {
+    overflow-x: auto;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+}
+
+.submissions-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.submissions-table th,
+.submissions-table td {
+    padding: 0.55rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+    white-space: nowrap;
+}
+
+.submissions-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--color-bg);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-text-muted);
+}
+
+.submissions-table th.sortable { cursor: pointer; user-select: none; }
+.submissions-table th.sortable:hover { color: var(--color-text); }
+.submissions-table th.sorted { color: var(--color-primary); }
+.submissions-table th.sorted[data-dir="asc"]::after  { content: " ▲"; font-size: 0.7em; }
+.submissions-table th.sorted[data-dir="desc"]::after { content: " ▼"; font-size: 0.7em; }
+
+.submissions-table tbody tr:hover { background: var(--color-bg); }
+.submissions-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Title carries the slug under it: the accession names the study, the slug
+   names the run, and with reruns the two are not interchangeable. */
+.submissions-table .t-title { white-space: normal; min-width: 18rem; }
+.submissions-table .t-title a { color: var(--color-text); font-weight: 500; }
+.submissions-table .t-slug {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+.submissions-table .t-build { font-family: var(--font-mono); font-size: 0.8125rem; }
+
+.submissions-table .t-err {
+    display: inline-block;
+    margin-left: 0.35rem;
+    width: 1.1rem;
+    height: 1.1rem;
+    line-height: 1.1rem;
+    text-align: center;
+    border-radius: 50%;
+    background: var(--color-error);
+    color: #fff;
+    font-size: 0.75rem;
+    cursor: help;
+}

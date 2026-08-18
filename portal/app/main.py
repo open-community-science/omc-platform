@@ -138,9 +138,27 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         if key.startswith(f"ena-{user.id}-")
     }
 
+    # Per-run figures the card view has no room for and the list view is for.
+    # Keyed by slug rather than folded into the model, so the cards are untouched.
+    extras = {}
+    for s in submissions:
+        meta = s.sample_metadata or {}
+        runs = sum(len(r.get("run_accessions") or []) for r in (s.selected_runs or []))
+        # image_revision is "<image>=<sha>"; the sha is the half worth showing,
+        # and it is what says which build produced a result.
+        rev = (s.image_revision or "").split("=")[-1]
+        extras[s.slug] = {
+            "runs": runs or (meta.get("num_sra_runs") or 0),
+            "viz": meta.get("microscape_viz_url") or "",
+            "cluster": s.target_cluster or "",
+            "build": rev[:7] if rev and rev != str(s.image_revision) else "",
+            "error": (s.error_message or "").strip(),
+        }
+
     return templates.TemplateResponse(
         "dashboard.html",
-        {"request": request, "user": user, "submissions": submissions, "ena_sessions": ena_sessions},
+        {"request": request, "user": user, "submissions": submissions,
+         "extras": extras, "ena_sessions": ena_sessions},
     )
 
 

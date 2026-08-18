@@ -32,6 +32,10 @@
             <option value="title">Title A–Z</option>
         </select>
         <span class="sub-count" id="sub-count"></span>
+        <span class="view-toggle" id="view-toggle">
+            <button type="button" class="view-btn is-on" data-view="cards">Cards</button>
+            <button type="button" class="view-btn" data-view="list">List</button>
+        </span>
     </div>
 
     <div class="submissions-list" id="submissions-list">
@@ -78,6 +82,60 @@
         </div>
         {% endfor %}
     </div>
+    {# ── list view: the same submissions, with the run figures the cards omit.
+          Sorting is per column here rather than from the dropdown, because a
+          table invites comparing one column across rows. ── #}
+    <div class="submissions-table-wrap" id="submissions-table-wrap" style="display:none">
+        <table class="submissions-table" id="submissions-table">
+            <thead>
+                <tr>
+                    <th data-key="title"    class="sortable">Title</th>
+                    <th data-key="accession" class="sortable">Accession</th>
+                    <th data-key="pipeline" class="sortable">Pipeline</th>
+                    <th data-key="status"   class="sortable">Status</th>
+                    <th data-key="runs"     class="sortable num">Runs</th>
+                    <th data-key="cluster"  class="sortable">Cluster</th>
+                    <th data-key="build"    class="sortable">Build</th>
+                    <th data-key="created"  class="sortable">Created</th>
+                    <th>Results</th>
+                </tr>
+            </thead>
+            <tbody id="submissions-tbody">
+                {% for sub in submissions %}
+                {% set x = extras.get(sub.slug, {}) %}
+                <tr class="submission-row"
+                    data-status="{{ sub.status.value }}"
+                    data-pipeline="{{ sub.pipeline.value if sub.pipeline else '' }}"
+                    data-title="{{ (sub.title or 'Untitled')|lower }}"
+                    data-accession="{{ (sub.bioproject_accession or '')|lower }}"
+                    data-slug="{{ sub.slug|lower }}"
+                    data-created="{{ sub.created_at.isoformat() }}"
+                    data-runs="{{ x.get('runs') or 0 }}"
+                    data-cluster="{{ x.get('cluster') or '' }}"
+                    data-build="{{ x.get('build') or '' }}">
+                    <td class="t-title">
+                        <a href="/submissions/{{ sub.slug }}">{{ sub.title or 'Untitled' }}</a>
+                        <span class="t-slug">{{ sub.slug }}</span>
+                    </td>
+                    <td>{{ sub.bioproject_accession or '—' }}</td>
+                    <td>{{ sub.pipeline.value if sub.pipeline else '—' }}</td>
+                    <td>
+                        <span class="status-badge status-{{ sub.status.value }}">{{ sub.status.value|status_label }}</span>
+                        {% if x.get('error') %}<span class="t-err" title="{{ x.get('error') }}">!</span>{% endif %}
+                    </td>
+                    <td class="num">{{ x.get('runs') or '—' }}</td>
+                    <td>{{ x.get('cluster') or '—' }}</td>
+                    <td class="t-build">{{ x.get('build') or '—' }}</td>
+                    <td>{{ sub.created_at.strftime('%Y-%m-%d') }}</td>
+                    <td>
+                        {% if x.get('viz') %}<a href="{{ x.get('viz') }}" target="_blank" rel="noopener">viz ↗</a>{% else %}—{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
     <div class="empty-state" id="sub-empty" style="display:none">
         <p>No submissions match your filters.</p>
     </div>
@@ -134,6 +192,24 @@
     const count = document.getElementById('sub-count');
     const empty = document.getElementById('sub-empty');
     const cards = Array.from(list.querySelectorAll('.submission-card'));
+    const wrap = document.getElementById('submissions-table-wrap');
+    const tbody = document.getElementById('submissions-tbody');
+    const rows = tbody ? Array.from(tbody.querySelectorAll('.submission-row')) : [];
+    const toggle = document.getElementById('view-toggle');
+
+    // Which column the table is ordered by. The dropdown orders the cards; a
+    // table is read down a column, so it is ordered by clicking one.
+    let tableKey = 'created', tableDir = -1;
+    const NUMERIC = new Set(['runs']);
+
+    function matches(el, q, st, pl) {
+        const matchQ = !q
+            || el.dataset.title.includes(q)
+            || el.dataset.accession.includes(q)
+            || el.dataset.slug.includes(q);
+        return matchQ && (!st || el.dataset.status === st)
+                      && (!pl || el.dataset.pipeline === pl);
+    }
 
     function apply() {
         const q = search.value.trim().toLowerCase();
@@ -142,19 +218,14 @@
 
         let shown = 0;
         cards.forEach(c => {
-            const matchQ = !q
-                || c.dataset.title.includes(q)
-                || c.dataset.accession.includes(q)
-                || c.dataset.slug.includes(q);
-            const matchS = !st || c.dataset.status === st;
-            const matchP = !pl || c.dataset.pipeline === pl;
-            const ok = matchQ && matchS && matchP;
+            const ok = matches(c, q, st, pl);
             c.style.display = ok ? '' : 'none';
             if (ok) shown++;
         });
+        rows.forEach(r => { r.style.display = matches(r, q, st, pl) ? '' : 'none'; });
 
         const mode = sort.value;
-        const sorted = cards.slice().sort((a, b) => {
+        cards.slice().sort((a, b) => {
             switch (mode) {
                 case 'created-asc':  return a.dataset.created.localeCompare(b.dataset.created);
                 case 'status':       return a.dataset.status.localeCompare(b.dataset.status);
@@ -162,13 +233,59 @@
                 case 'title':        return a.dataset.title.localeCompare(b.dataset.title);
                 default:             return b.dataset.created.localeCompare(a.dataset.created);
             }
-        });
-        sorted.forEach(c => list.appendChild(c));
+        }).forEach(c => list.appendChild(c));
+
+        sortTable();
 
         count.textContent = shown === cards.length
             ? `${cards.length} submission${cards.length === 1 ? '' : 's'}`
             : `${shown} of ${cards.length}`;
         empty.style.display = shown === 0 ? '' : 'none';
+    }
+
+    function sortTable() {
+        if (!tbody) return;
+        rows.slice().sort((a, b) => {
+            const x = a.dataset[tableKey] ?? '', y = b.dataset[tableKey] ?? '';
+            if (NUMERIC.has(tableKey)) {
+                return (parseFloat(x) - parseFloat(y)) * tableDir;
+            }
+            return x.localeCompare(y) * tableDir;
+        }).forEach(r => tbody.appendChild(r));
+
+        document.querySelectorAll('#submissions-table th.sortable').forEach(th => {
+            th.classList.toggle('sorted', th.dataset.key === tableKey);
+            th.dataset.dir = th.dataset.key === tableKey ? (tableDir < 0 ? 'desc' : 'asc') : '';
+        });
+    }
+
+    document.querySelectorAll('#submissions-table th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+            const key = th.dataset.key;
+            // Same column again reverses; a new column starts descending for
+            // numbers and dates, ascending for names.
+            if (key === tableKey) tableDir = -tableDir;
+            else { tableKey = key; tableDir = (NUMERIC.has(key) || key === 'created') ? -1 : 1; }
+            sortTable();
+        });
+    });
+
+    if (toggle) {
+        const KEY = 'omc-dash-view';
+        function setView(v) {
+            const isList = v === 'list';
+            list.style.display = isList ? 'none' : '';
+            if (wrap) wrap.style.display = isList ? '' : 'none';
+            sort.style.display = isList ? 'none' : '';
+            toggle.querySelectorAll('.view-btn').forEach(b =>
+                b.classList.toggle('is-on', b.dataset.view === v));
+            try { localStorage.setItem(KEY, v); } catch (e) { /* private mode */ }
+        }
+        toggle.querySelectorAll('.view-btn').forEach(b =>
+            b.addEventListener('click', () => setView(b.dataset.view)));
+        let saved = null;
+        try { saved = localStorage.getItem(KEY); } catch (e) { /* private mode */ }
+        setView(saved === 'list' ? 'list' : 'cards');
     }
 
     [search, fStatus, fPipeline, sort].forEach(el => {
