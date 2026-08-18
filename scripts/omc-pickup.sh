@@ -174,7 +174,12 @@ if [ "$OMC_SIF_REFRESH" = "true" ] && command -v "$OMC_APPTAINER" >/dev/null 2>&
         echo "$(now) image ${_img}: registry moved to ${_remote:0:19}… — pulling"
         # Pull beside it and swap: a job starting mid-pull must never open a
         # half-written SIF, and one already running keeps its open inode.
-        if "${OMC_APPTAINER}" pull --force "${_sif}.new" "docker://${OMC_SIF_REGISTRY}/${_repo}:latest" >/dev/null 2>&1 \
+        # Keep the pull's own words. Discarding them turned "mksquashfs was
+        # killed, the job has too little memory" into "pull FAILED", and that
+        # cost four days and 1,451 identical log lines before anyone could see
+        # what was wrong. Still non-fatal — the cycle carries on either way.
+        _pullerr=$(mktemp)
+        if "${OMC_APPTAINER}" pull --force "${_sif}.new" "docker://${OMC_SIF_REGISTRY}/${_repo}:latest" >"$_pullerr" 2>&1 \
            && [ -s "${_sif}.new" ]; then
             _was=$("${OMC_APPTAINER}" exec "$_sif" printenv DANASEQ_GIT_SHA 2>/dev/null | tr -d '\r\n')
             _now=$("${OMC_APPTAINER}" exec "${_sif}.new" printenv DANASEQ_GIT_SHA 2>/dev/null | tr -d '\r\n')
@@ -183,7 +188,10 @@ if [ "$OMC_SIF_REFRESH" = "true" ] && command -v "$OMC_APPTAINER" >/dev/null 2>&
         else
             rm -f "${_sif}.new"
             echo "$(now) image ${_img}: pull FAILED — keeping the image in place"
+            # The last few lines carry the reason; the rest is progress chatter.
+            sed -e 's/^/    /' "$_pullerr" | tail -5
         fi
+        rm -f "$_pullerr"
     done
     shopt -u nullglob
 fi
