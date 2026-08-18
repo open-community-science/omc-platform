@@ -30,7 +30,7 @@ if [ -d /opt/omc-platform ]; then
     cd /opt/omc-platform
     sudo git pull origin main
 else
-    sudo git clone https://github.com/rec3141/omc-platform.git /opt/omc-platform
+    sudo git clone https://github.com/open-community-science/omc-platform.git /opt/omc-platform
 fi
 sudo chown -R ubuntu:ubuntu /opt/omc-platform
 REPO

@@ -1735,3 +1735,11 @@ a.dchip.done:hover { background: rgba(34,197,94,.24); }
     clip: rect(0 0 0 0);
     white-space: nowrap;
 }
+
+/* The line under the hero buttons: says the public analyses need no account,
+   which is the whole reason that button is there. */
+.hero-note {
+    margin-top: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+}

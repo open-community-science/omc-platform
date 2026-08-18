@@ -792,7 +792,7 @@ citation:
 
 ## Data Availability
 
-All sequence data are available from the NCBI SRA under accession [{accession}](https://www.ncbi.nlm.nih.gov/bioproject/{accession}). Analysis code, results, and interactive figures are available in this repository. This paper was generated using the [Open Microbial Community](https://github.com/rec3141/omc-platform) platform.
+All sequence data are available from the NCBI SRA under accession [{accession}](https://www.ncbi.nlm.nih.gov/bioproject/{accession}). Analysis code, results, and interactive figures are available in this repository. This paper was generated using the [Open Microbial Community](https://github.com/open-community-science/omc-platform) platform.
 
 ## References {{.unnumbered}}
 
