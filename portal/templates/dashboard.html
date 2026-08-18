@@ -98,6 +98,7 @@
                     <th data-key="build"    class="sortable">Build</th>
                     <th data-key="created"  class="sortable">Created</th>
                     <th>Results</th>
+                    <th class="t-actions"><span class="sr-only">Actions</span></th>
                 </tr>
             </thead>
             <tbody id="submissions-tbody">
@@ -125,10 +126,22 @@
                     </td>
                     <td class="num">{{ x.get('runs') or '—' }}</td>
                     <td>{{ x.get('cluster') or '—' }}</td>
-                    <td class="t-build">{{ x.get('build') or '—' }}</td>
+                    <td class="t-build">
+                        {%- if x.get('build_url') -%}
+                        <a href="{{ x.get('build_url') }}" target="_blank" rel="noopener"
+                           title="The commit this run was built from">{{ x.get('build') }}</a>
+                        {%- else -%}—{%- endif -%}
+                    </td>
                     <td>{{ sub.created_at.strftime('%Y-%m-%d') }}</td>
                     <td>
                         {% if x.get('viz') %}<a href="{{ x.get('viz') }}" target="_blank" rel="noopener">viz ↗</a>{% else %}—{% endif %}
+                    </td>
+                    <td class="t-actions">
+                        <form action="/submissions/{{ sub.slug }}/delete" method="POST" class="delete-form"
+                              onsubmit="return confirm('Delete {{ sub.slug }} — {{ (sub.title or 'Untitled')|replace("'", "") }}?')">
+                            <button type="submit" class="btn-row-delete" title="Delete this submission"
+                                    aria-label="Delete {{ sub.slug }}">&times;</button>
+                        </form>
                     </td>
                 </tr>
                 {% endfor %}

@@ -1697,3 +1697,41 @@ a.dchip.done:hover { background: rgba(34,197,94,.24); }
     font-size: 0.75rem;
     cursor: help;
 }
+
+.submissions-table .t-build a {
+    font-family: var(--font-mono);
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.submissions-table .t-build a:hover { text-decoration: underline; }
+
+/* Delete sits in its own column so a mis-aimed click lands on nothing rather
+   than on the row's link. Muted until hovered: it is destructive, not routine. */
+.submissions-table .t-actions { width: 2.5rem; text-align: right; }
+
+.btn-row-delete {
+    border: 0;
+    background: transparent;
+    color: var(--color-text-muted);
+    font-size: 1.15rem;
+    line-height: 1;
+    padding: 0.15rem 0.4rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+}
+
+.btn-row-delete:hover,
+.btn-row-delete:focus-visible {
+    background: var(--color-error);
+    color: #fff;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}

@@ -147,11 +147,14 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         # image_revision is "<image>=<sha>"; the sha is the half worth showing,
         # and it is what says which build produced a result.
         rev = (s.image_revision or "").split("=")[-1]
+        # A bare image name with no "=" is not a revision; only a real sha links.
+        sha = rev if rev and rev != str(s.image_revision) else ""
         extras[s.slug] = {
             "runs": runs or (meta.get("num_sra_runs") or 0),
             "viz": meta.get("microscape_viz_url") or "",
             "cluster": s.target_cluster or "",
-            "build": rev[:7] if rev and rev != str(s.image_revision) else "",
+            "build": sha[:7],
+            "build_url": f"{settings.pipeline_repo_url}/commit/{sha}" if sha else "",
             "error": (s.error_message or "").strip(),
         }
 

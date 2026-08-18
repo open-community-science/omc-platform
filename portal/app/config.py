@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     #   Nanopore Metagenome (NANOPORE_MAG) = nanopore_assembly -> mag_analysis
     #   Illumina Metagenome (ILLUMINA_MAG) = illumina_assembly -> mag_analysis
     #   Illumina Amplicons  (ILLUMINA_AMPLICON) = illumina_amplicon (runs from its SIF)
+    # Where the pipeline source lives, so a run can link to the commit that
+    # produced it: image_revision records "<image>=<sha>" and the sha is a commit
+    # in this repo.
+    pipeline_repo_url: str = "https://github.com/rec3141/danaSeq"
     pipeline_base: str = "/home/rec3141/GENICE/danaSeq"
     pipeline_nanopore_assembly: str = "/home/rec3141/GENICE/danaSeq/nanopore_assembly"
     pipeline_illumina_assembly: str = "/home/rec3141/GENICE/danaSeq/illumina_assembly"
