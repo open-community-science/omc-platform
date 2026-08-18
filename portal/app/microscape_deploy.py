@@ -164,7 +164,7 @@ def diagnose_empty_run(slug: str) -> str:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _extract_site(slug: str) -> Path | None:
+def _extract_site(slug: str, site_source: Path | None = None) -> Path | None:
     """unsquashfs the built site + its viz data from the results archive.
 
     The pipeline writes these to two separate trees: the SPA bundle lands in
@@ -173,20 +173,31 @@ def _extract_site(slug: str) -> Path | None:
     so the viz/ payload is copied into <site>/data/ here — without it the page
     loads but reports "0 samples | 0 ASVs".
 
+    `site_source` replaces the archive's own bundle with one built elsewhere, so
+    a run can be re-skinned with a newer viz without rerunning the pipeline. The
+    data still comes from that run's archive — only the app is swapped.
+
     Returns the directory containing index.html, or None if there's no built site.
     """
     sqsh = _results_sqsh(slug)
     if not sqsh.exists():
         return None
     tmp = Path(tempfile.mkdtemp(prefix=f"omc-deploy-{slug}-"))
+    # Without a replacement bundle the archive has to supply one; with it, only
+    # the data is needed and a missing site/ is no longer fatal.
+    members = ["viz"] if site_source else ["site", "viz"]
     try:
         subprocess.run(
-            ["unsquashfs", "-f", "-d", str(tmp), str(sqsh), "site", "viz"],
+            ["unsquashfs", "-f", "-d", str(tmp), str(sqsh), *members],
             check=True, capture_output=True, timeout=180,
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
         shutil.rmtree(tmp, ignore_errors=True)
         return None
+    if site_source:
+        staged = tmp / "site"
+        shutil.rmtree(staged, ignore_errors=True)
+        shutil.copytree(site_source, staged)
     index = next(tmp.rglob("index.html"), None)
     if not index:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -227,7 +238,8 @@ def _tar_site(site_dir: Path) -> bytes:
     return buf.getvalue()
 
 
-async def deploy_submission(submission, user, visibility: str = "public") -> str | None:
+async def deploy_submission(submission, user, visibility: str = "public",
+                            site_source: Path | None = None) -> str | None:
     """Provision the user's lab and push the run's viz site to microscape.app.
 
     Returns the public run URL on success, or None (best-effort — never raises
@@ -244,7 +256,7 @@ async def deploy_submission(submission, user, visibility: str = "public") -> str
         logger.info("microscape deploy skipped for %s: no provision token", submission.slug)
         return None
 
-    site_dir = _extract_site(submission.slug)
+    site_dir = _extract_site(submission.slug, site_source=site_source)
     if site_dir is None:
         logger.warning("microscape deploy: no built site/ in results for %s", submission.slug)
         return None
