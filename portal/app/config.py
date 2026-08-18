@@ -110,6 +110,10 @@ class Settings(BaseSettings):
     # Where the pipeline source lives, so a run can link to the commit that
     # produced it: image_revision records "<image>=<sha>" and the sha is a commit
     # in this repo.
+    # Runs owned by this account are readable without logging in — bulk public
+    # data analysed for its own sake, kept apart from a person's own work. It is
+    # a normal account with a synthetic github_id; nobody logs into it.
+    public_user_login: str = "public"
     pipeline_repo_url: str = "https://github.com/rec3141/danaSeq"
     pipeline_base: str = "/home/rec3141/GENICE/danaSeq"
     pipeline_nanopore_assembly: str = "/home/rec3141/GENICE/danaSeq/nanopore_assembly"

@@ -34,6 +34,11 @@ from .openrouter import router as openrouter_router
 from .ena import router as ena_router
 
 settings = get_settings()
+
+# Resolved once: the public account's id, or None. _UNSET distinguishes "not
+# looked up yet" from "looked up, does not exist".
+_UNSET = object()
+_PUBLIC_UID = _UNSET
 logger = logging.getLogger(__name__)
 
 # Setup paths. The templates instance is shared (see templating.py) so globals
@@ -527,27 +532,81 @@ async def admin_set_active_cluster(
     return RedirectResponse(url="/admin", status_code=303)
 
 
+async def _public_user_id(db: AsyncSession):
+    """id of the account whose runs need no login, or None if it does not exist."""
+    global _PUBLIC_UID
+    if _PUBLIC_UID is _UNSET:
+        row = await db.execute(
+            select(User).where(User.github_login == settings.public_user_login))
+        u = row.scalar_one_or_none()
+        _PUBLIC_UID = u.id if u else None
+    return _PUBLIC_UID
+
+
+def _dashboard_extras(submissions):
+    """Per-run figures for the list view. Shared by the dashboard and /public."""
+    extras = {}
+    for s in submissions:
+        meta = s.sample_metadata or {}
+        runs = sum(len(r.get("run_accessions") or []) for r in (s.selected_runs or []))
+        rev = (s.image_revision or "").split("=")[-1]
+        sha = rev if rev and rev != str(s.image_revision) else ""
+        extras[s.slug] = {
+            "runs": runs or (meta.get("num_sra_runs") or 0),
+            "viz": meta.get("microscape_viz_url") or "",
+            "cluster": s.target_cluster or "",
+            "build": sha[:7],
+            "build_url": f"{settings.pipeline_repo_url}/commit/{sha}" if sha else "",
+            "error": (s.error_message or "").strip(),
+        }
+    return extras
+
+
+@app.get("/public", response_class=HTMLResponse)
+async def public_runs(request: Request, db: AsyncSession = Depends(get_db)):
+    """Runs over public data, readable by anyone — no login, no delete."""
+    uid = await _public_user_id(db)
+    submissions = []
+    if uid is not None:
+        submissions = (await db.execute(
+            select(Submission).where(
+                Submission.user_id == uid,
+                Submission.deleted_at.is_(None),
+            ).order_by(Submission.created_at.desc()))).scalars().all()
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {"request": request, "user": await get_current_user(request, db),
+         "submissions": submissions, "extras": _dashboard_extras(submissions),
+         "ena_sessions": {}, "readonly": True,
+         "heading": "Public runs"},
+    )
+
+
 @app.get("/submissions/{slug}", response_class=HTMLResponse)
 async def submission_detail(
     slug: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Submission detail page."""
+    """Submission detail page. Public-account runs need no login."""
     user = await get_current_user(request, db)
-    if not user:
-        return templates.TemplateResponse(
-            "login_required.html",
-            {"request": request},
-        )
+    public_uid = await _public_user_id(db)
 
     stmt = select(Submission).where(
         Submission.slug == slug,
-        Submission.user_id == user.id,
         Submission.deleted_at.is_(None),
     )
     result = await db.execute(stmt)
     submission = result.scalar_one_or_none()
+
+    # Readable if you own it, or if it belongs to the public account. Anything
+    # else is 404 rather than 403: a stranger learning that a slug exists but is
+    # not theirs is more than they need to know.
+    if submission is not None and submission.user_id != public_uid:
+        if not user:
+            return templates.TemplateResponse("login_required.html", {"request": request})
+        if submission.user_id != user.id:
+            submission = None
 
     if not submission:
         return templates.TemplateResponse(

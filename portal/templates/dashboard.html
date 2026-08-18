@@ -5,7 +5,11 @@
 {% block content %}
 <div class="dashboard">
     <div class="dashboard-header">
-        <h1>Your Submissions</h1>
+        <h1>{{ heading or 'Your Submissions' }}</h1>
+        {% if readonly %}
+        <p class="section-hint">Analyses of public sequence data. Anyone can read
+        these; they belong to the <code>public</code> account rather than to a person.</p>
+        {% endif %}
     </div>
 
     {% if submissions %}
@@ -74,10 +78,12 @@
             </div>
             <div class="submission-status">
                 <span class="status-badge status-{{ sub.status.value }}">{{ sub.status.value|status_label }}</span>
+                {% if not readonly %}
                 <form action="/submissions/{{ sub.slug }}/delete" method="POST" class="delete-form"
                       onsubmit="return confirm('Delete this submission?')">
                     <button type="submit" class="btn btn-delete">Delete</button>
                 </form>
+                {% endif %}
             </div>
         </div>
         {% endfor %}
@@ -98,7 +104,7 @@
                     <th data-key="build"    class="sortable">Build</th>
                     <th data-key="created"  class="sortable">Created</th>
                     <th>Results</th>
-                    <th class="t-actions"><span class="sr-only">Actions</span></th>
+                    {% if not readonly %}<th class="t-actions"><span class="sr-only">Actions</span></th>{% endif %}
                 </tr>
             </thead>
             <tbody id="submissions-tbody">
@@ -136,6 +142,7 @@
                     <td>
                         {% if x.get('viz') %}<a href="{{ x.get('viz') }}" target="_blank" rel="noopener">viz ↗</a>{% else %}—{% endif %}
                     </td>
+                    {% if not readonly %}
                     <td class="t-actions">
                         <form action="/submissions/{{ sub.slug }}/delete" method="POST" class="delete-form"
                               onsubmit="return confirm('Delete {{ sub.slug }} — {{ (sub.title or 'Untitled')|replace("'", "") }}?')">
@@ -143,6 +150,7 @@
                                     aria-label="Delete {{ sub.slug }}">&times;</button>
                         </form>
                     </td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
@@ -154,7 +162,8 @@
     </div>
     {% else %}
     <div class="empty-state">
-        <p>No submissions yet. Click <strong>New Submission</strong> above to get started.</p>
+        {% if readonly %}<p>No public runs yet.</p>
+        {% else %}<p>No submissions yet. Click <strong>New Submission</strong> above to get started.</p>{% endif %}
     </div>
     {% endif %}
 
