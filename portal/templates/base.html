@@ -16,8 +16,10 @@
         <nav class="nav-container">
             <a href="/" class="logo">OMC</a>
             <div class="nav-links">
-                <!-- Outside the {% if user %} on purpose: these runs are readable
-                     without an account, so the link must be too. -->
+                {# Outside the signed-in branch on purpose: these runs are
+                   readable without an account, so the link must be too.
+                   A Jinja comment, not an HTML one — Jinja reads its own tags
+                   inside HTML comments and an example one opens a real block. #}
                 <a href="/public">Public Runs</a>
                 {% if user %}
                 {% block header_actions %}{% endblock %}
