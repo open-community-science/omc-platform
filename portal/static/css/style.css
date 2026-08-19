@@ -1760,3 +1760,89 @@ a.dchip.done:hover { background: rgba(34,197,94,.24); }
     font-size: 0.875rem;
     color: var(--color-text-muted);
 }
+
+/* ── Publication-gap widget (landing page) ───────────────────────────── */
+.pubgap {
+    --pg-c0: #c2c1ba; --pg-c1: #86b6ef; --pg-c2: #3987e5; --pg-c3: #184f95;
+    --pg-grid: #eef1f5; --pg-axis: var(--color-border);
+    --pg-secondary: var(--color-text-muted); --pg-muted: #94a3b8;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 2rem;
+    margin: 3rem auto 0;
+    max-width: 1000px;
+}
+.pubgap h2 { font-size: 1.5rem; margin-bottom: .35rem; }
+.pubgap .pg-sub {
+    color: var(--color-text-muted); font-size: .95rem;
+    max-width: 70ch; margin-bottom: 1.25rem;
+}
+.pubgap .pg-controls {
+    display: flex; flex-wrap: wrap; gap: .9rem; align-items: center; margin-bottom: .5rem;
+}
+.pubgap .pg-controls label { font-size: .85rem; color: var(--color-text-muted); }
+.pubgap select {
+    font-family: inherit; font-size: .85rem; padding: .35rem .5rem; margin-left: .4rem;
+    border: 1px solid var(--color-border); border-radius: 7px;
+    background: var(--color-surface); color: var(--color-text);
+}
+.pubgap .pg-seg-ctl {
+    display: inline-flex; border: 1px solid var(--color-border);
+    border-radius: 8px; overflow: hidden;
+}
+.pubgap .pg-seg-ctl button {
+    background: none; border: none; border-right: 1px solid var(--color-border);
+    color: var(--color-text-muted); padding: .35rem .8rem;
+    font-size: .85rem; font-family: inherit; cursor: pointer;
+}
+.pubgap .pg-seg-ctl button:last-child { border-right: none; }
+.pubgap .pg-seg-ctl button[aria-pressed="true"] {
+    background: var(--color-bg); color: var(--color-text); font-weight: 600;
+}
+.pubgap .pg-headline {
+    font-size: .9rem; color: var(--color-text-muted);
+    margin: .75rem 0 1rem; min-height: 1.4em;
+}
+.pubgap .pg-headline b { color: var(--color-text); }
+.pubgap .pg-legend {
+    display: flex; flex-wrap: wrap; gap: .4rem 1.2rem;
+    font-size: .85rem; color: var(--color-text-muted); margin-bottom: .8rem;
+}
+.pubgap .pg-legend span.item { display: flex; align-items: center; gap: .45rem; }
+.pubgap .pg-legend i { width: 13px; height: 13px; border-radius: 3px; display: block; }
+.pubgap .pg-chart-wrap { overflow-x: auto; }
+.pubgap svg { display: block; min-width: 660px; width: 100%; height: auto; }
+.pubgap .pg-seg { cursor: pointer; }
+.pubgap .pg-seg:hover { opacity: .82; }
+.pubgap .pg-note {
+    font-size: .82rem; color: var(--color-text-muted);
+    margin-top: 1.1rem; max-width: 80ch;
+}
+.pubgap .pg-fallback { color: var(--color-text-muted); font-size: .9rem; }
+.pg-tip {
+    position: fixed; pointer-events: none; opacity: 0; transition: opacity .1s;
+    background: var(--color-surface); color: var(--color-text);
+    border: 1px solid var(--color-border); border-radius: 8px;
+    padding: .6rem .7rem; font-size: .82rem; min-width: 175px;
+    box-shadow: 0 6px 20px rgba(15, 23, 42, .14); z-index: 60;
+}
+.pg-tip table { border-collapse: collapse; width: 100%; margin-top: .35rem; }
+.pg-tip td { padding: 1px 0; color: var(--color-text-muted); }
+.pg-tip td:last-child { text-align: right; color: var(--color-text); font-variant-numeric: tabular-nums; }
+.pg-tip tr.on td { font-weight: 600; color: var(--color-text); }
+.pg-tip .pg-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: .4rem; }
+.pg-tip .pg-tip-foot { margin-top: .35rem; color: var(--color-text-muted); }
+.pubgap table.pg-data {
+    border-collapse: collapse; width: 100%; margin-top: .9rem;
+    font-size: .84rem; font-variant-numeric: tabular-nums;
+}
+.pubgap table.pg-data th, .pubgap table.pg-data td {
+    padding: .3rem .55rem; text-align: right; border-bottom: 1px solid var(--pg-grid);
+}
+.pubgap table.pg-data th:first-child, .pubgap table.pg-data td:first-child { text-align: left; }
+.pubgap table.pg-data th { color: var(--color-text-muted); font-weight: 600; }
+.pubgap table.pg-data tr.pg-total { font-weight: 600; }
+@media (max-width: 640px) {
+    .pubgap { padding: 1.25rem; border-radius: 10px; }
+}

@@ -6,7 +6,7 @@
 <div class="hero">
     <h1>Open Microbial Community</h1>
     <p class="tagline">A git-native, AI-assisted platform for microbial ecology research</p>
-    <p class="subtitle">Point at an SRA accession. Select your analysis. Get a paper.</p>
+    <p class="subtitle">Point at an accession. Select an analysis. Get a paper.</p>
 
     {% if not user %}
     <a href="/auth/login" class="btn btn-primary btn-large">Get Started with GitHub</a>
@@ -29,7 +29,7 @@
             <p>No article processing charges</p>
         </div>
         <div class="feature">
-            <h3>Days to weeks</h3>
+            <h3>Hours to days</h3>
             <p>vs. 6-18 months to publication</p>
         </div>
         <div class="feature">
@@ -43,24 +43,81 @@
     </div>
 </section>
 
+<section class="pubgap" id="pubgap">
+    <h2>The data is already there. The papers aren't.</h2>
+    <p class="pg-sub">
+        Across 60 natural-aquatic metagenome taxids, public archives hold
+        <strong>36,806 BioProjects</strong> and <strong>1.34 Pbp</strong> of sequence &mdash;
+        ocean, lake, river, estuary, ice, spring and groundwater. Most of it has never
+        appeared in a paper. OMC exists to close that gap.
+    </p>
+
+    <div class="pg-body">
+        <div class="pg-controls">
+            <label>Environment
+                <select id="pg-grp"></select>
+            </label>
+            <div class="pg-seg-ctl" role="group" aria-label="Y axis metric">
+                <button type="button" data-metric="count" aria-pressed="true">BioProjects</button>
+                <button type="button" data-metric="bases" aria-pressed="false">Sequence (bp)</button>
+            </div>
+            <div class="pg-seg-ctl" role="group" aria-label="Submitter filter">
+                <button type="button" data-view="all" aria-pressed="false">All submitters</button>
+                <button type="button" data-view="nonjgi" aria-pressed="true">Excluding JGI</button>
+                <button type="button" data-view="jgi" aria-pressed="false">JGI only</button>
+            </div>
+        </div>
+        <p class="pg-headline" id="pg-headline"></p>
+
+        <div class="pg-legend">
+            <span class="item"><i style="background:var(--pg-c0)"></i>0 papers</span>
+            <span class="item"><i style="background:var(--pg-c1)"></i>1 paper</span>
+            <span class="item"><i style="background:var(--pg-c2)"></i>2</span>
+            <span class="item"><i style="background:var(--pg-c3)"></i>3+</span>
+        </div>
+
+        <div class="pg-chart-wrap">
+            <svg id="pg-chart" viewBox="0 0 900 462" role="img"
+                 aria-label="Stacked column chart of aquatic metagenome BioProjects per year, segmented by number of associated publications"></svg>
+        </div>
+
+        <button type="button" class="btn btn-secondary" id="pg-toggle" aria-expanded="false"
+                style="margin-top:1rem;">Show data table</button>
+        <div id="pg-tablebox" hidden></div>
+        <div class="pg-tip" id="pg-tip" role="status" aria-live="polite"></div>
+    </div>
+
+    <p class="pg-note">
+        Bars put published projects at the baseline so their counts stay comparable across years;
+        the grey &ldquo;0 papers&rdquo; segment sits on top. Publication evidence is the union of
+        Europe PMC accession matches, NCBI BioProject&rarr;PubMed links and ENA project
+        cross-references &mdash; it misses citations that appear only in paywalled text or
+        supplements, so these are conservative. 55% of aquatic BioProjects come from the DOE Joint
+        Genome Institute, which registers one BioProject per sample; the default view excludes them
+        so the denominator reflects distinct research efforts. Projects spanning two environments
+        are counted in both. 2025&ndash;2026 are incomplete &mdash; papers may still be in the
+        pipeline. Sources: ENA Portal API, Europe PMC, NCBI E-utilities (19 Aug 2026).
+    </p>
+</section>
+
 <section class="how-it-works">
     <h2>How It Works</h2>
     <ol class="steps">
         <li>
-            <strong>Submit your data</strong>
-            <p>Enter an SRA accession and select your analysis pipeline</p>
+            <strong>Submit data</strong>
+            <p>Enter a public sequence accession and select an analysis pipeline</p>
         </li>
         <li>
             <strong>Pipeline runs on HPC</strong>
-            <p>Standardized Nextflow pipelines process your sequences</p>
+            <p>Standardized Nextflow pipelines process the sequences</p>
         </li>
         <li>
-            <strong>Answer a few questions</strong>
-            <p>Our AI interviews you about the study context</p>
+            <strong>Autoresearch explores the results</strong>
+            <p>An AI agent interrogates the pipeline outputs, tests each claim against the data, and keeps only what verifies</p>
         </li>
         <li>
             <strong>Draft generated</strong>
-            <p>AI creates a manuscript from results + your input</p>
+            <p>AI writes a manuscript from the verified findings</p>
         </li>
         <li>
             <strong>Review via GitHub</strong>
@@ -68,4 +125,8 @@
         </li>
     </ol>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/publication-gap.js" defer></script>
 {% endblock %}
