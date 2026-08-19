@@ -433,6 +433,7 @@ Key settings:
 - `client_body_temp_path /data/nginx-tmp;` — set globally in `/etc/nginx/nginx.conf` as a safety net for the same reason
 - `proxy_read_timeout 3600;` + `proxy_send_timeout 3600;` — on `/staging/` location, 1h timeouts for multi-GB uploads
 - `Upgrade`/`Connection` headers on session proxy — required for Chainlit/Marimo WebSocket
+- nginx temp dirs (`/var/lib/nginx/proxy`, `/var/lib/nginx/body`) must be owned by `www-data`, the worker user. Running any nginx binary as root with a config that lacks `user www-data` (the compiled-in default is `nobody`) re-chowns them to `nobody:root 700`; workers then cannot write buffer files, and every proxied response larger than the in-memory buffers (~64KB) is truncated — the browser sees `ERR_CONTENT_LENGTH_MISMATCH` with a 200, and error.log shows `[crit] open() ... Permission denied while reading upstream`. Small responses still work, so the site looks mostly fine. `sudo nginx -t` with the main config restores correct ownership on the configured temp paths.
 
 ### LLM Access (Reverse SSH Tunnel)
 
@@ -507,7 +508,7 @@ To deploy on a new VM:
 8. Run network setup: `sudo session/setup-network.sh`
 9. Create directories: `mkdir -p /data/sra_downloads /data/results /mnt/omc-sessions`
 10. Set up systemd services — portal must listen on `0.0.0.0:8002` with `--http httptools`
-11. Configure nginx + certbot for TLS (see Nginx Config above) — must use `proxy_http_version 1.1`, dedicated `/staging/` location with `proxy_request_buffering off`, and `client_body_temp_path`/`proxy_temp_path` on the data volume (root disk is too small for upload buffering)
+11. Configure nginx + certbot for TLS (see Nginx Config above) — must use `proxy_http_version 1.1`, dedicated `/staging/` location with `proxy_request_buffering off`, and `client_body_temp_path`/`proxy_temp_path` on the data volume (root disk is too small for upload buffering). After setup, verify temp dir ownership: `find /var/lib/nginx ! -user www-data` must return nothing (see the temp-dir bullet in Nginx Config)
 12. Set up relay key: `mkdir -p ~/.config/omc && openssl rand -base64 32 > ~/.config/omc/relay-key`
 13. Set up LLM access — reverse SSH tunnel from LLM host, or point `LLM_BASE_URL` at a cloud API
 
