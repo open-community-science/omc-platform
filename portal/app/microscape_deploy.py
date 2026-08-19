@@ -14,6 +14,7 @@ Flow (portal-side, after results transfer):
 from __future__ import annotations
 
 import io
+import json
 import logging
 import shutil
 import subprocess
@@ -164,7 +165,8 @@ def diagnose_empty_run(slug: str) -> str:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _extract_site(slug: str, site_source: Path | None = None) -> Path | None:
+def _extract_site(slug: str, site_source: Path | None = None,
+                  run_info: dict | None = None) -> Path | None:
     """unsquashfs the built site + its viz data from the results archive.
 
     The pipeline writes these to two separate trees: the SPA bundle lands in
@@ -214,6 +216,15 @@ def _extract_site(slug: str, site_source: Path | None = None) -> Path | None:
                 shutil.copy2(f, data_dir / f.name)
     else:
         logger.warning("no viz/ data in results for %s — site will render empty", slug)
+
+    if run_info:
+        # What the study is called and which BioProject it came from are OMC's
+        # to know: the pipeline is handed a directory of reads and never learns
+        # the accession. Written at deploy so the page can say whose data this
+        # is without the viewer going back to the portal to find out.
+        (site_dir / "data").mkdir(exist_ok=True)
+        with open(site_dir / "data" / "run_info.json", "w") as fh:
+            json.dump(run_info, fh, indent=2)
     return site_dir
 
 
@@ -256,7 +267,19 @@ async def deploy_submission(submission, user, visibility: str = "public",
         logger.info("microscape deploy skipped for %s: no provision token", submission.slug)
         return None
 
-    site_dir = _extract_site(submission.slug, site_source=site_source)
+    site_dir = _extract_site(
+        submission.slug, site_source=site_source,
+        run_info={
+            "slug": submission.slug,
+            "title": submission.title or "",
+            "bioproject": submission.bioproject_accession or "",
+            "pipeline": submission.pipeline.value if submission.pipeline else "",
+            "cluster": submission.target_cluster or "",
+            "build": (submission.image_revision or "").split("=")[-1],
+            "portal_url": f"{settings.portal_public_url.rstrip('/')}"
+                          f"/submissions/{submission.slug}",
+        },
+    )
     if site_dir is None:
         logger.warning("microscape deploy: no built site/ in results for %s", submission.slug)
         return None

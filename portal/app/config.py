@@ -114,6 +114,10 @@ class Settings(BaseSettings):
     # data analysed for its own sake, kept apart from a person's own work. It is
     # a normal account with a synthetic github_id; nobody logs into it.
     public_user_login: str = "public"
+    # Where this portal answers from. A deployed viz page lives on another host
+    # entirely, so a link from it back to the run has to be absolute and cannot
+    # be worked out from the request that built it.
+    portal_public_url: str = "https://microbial.opencommunity.science"
     pipeline_repo_url: str = "https://github.com/rec3141/danaSeq"
     pipeline_base: str = "/home/rec3141/GENICE/danaSeq"
     pipeline_nanopore_assembly: str = "/home/rec3141/GENICE/danaSeq/nanopore_assembly"
