@@ -573,11 +573,18 @@ def _dashboard_extras(submissions, assays=None):
             "error": (s.error_message or "").strip(),
             "assay": _assay_label(facts.get("assays")),
             "asvs": facts.get("n_asvs") or 0,
+            "mags": facts.get("n_mags"),
             "reads": facts.get("reads") or 0,
             # Gigabase pairs. A run's size in bases is what says whether a study
             # is a pilot or a survey, which the read count alone does not: one
             # study's read is 150 bases and another's is 300.
             "gbp": round((facts.get("bases") or 0) / 1e9, 2),
+            # What the run produced, in the unit its pipeline produces. A MAG
+            # run reporting 0 has still answered the question, so the count is
+            # shown whenever it was recorded — absent means not yet, not none.
+            "yield_n": facts.get("n_mags") if facts.get("n_mags") is not None
+                       else (facts.get("n_asvs") or None),
+            "yield_unit": "MAGs" if facts.get("n_mags") is not None else "ASVs",
         }
     return extras
 

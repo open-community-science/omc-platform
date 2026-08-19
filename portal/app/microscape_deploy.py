@@ -244,7 +244,8 @@ def _describe_placement(place: str) -> tuple[str, str]:
 
 
 _ASSAY_MEMBERS = ("trimmed/primer_assignment.tsv", "primers",
-                  "viz/renorm_stats.json", "viz/samples.json")
+                  "viz/renorm_stats.json", "viz/samples.json",
+                  "viz/data/overview.json")
 
 
 def _count(value) -> int:
@@ -391,7 +392,18 @@ def assay_facts(slug: str) -> dict | None:
                 n_asvs = None
 
         totals = _sequencing_totals(tmp / "viz" / "samples.json")
-        return {"mtime": mtime, "assays": assays, "n_asvs": n_asvs, **totals}
+        # What a MAG run produced, counted the way that pipeline counts it. Its
+        # overview is the equivalent of the amplicon renormalisation summary and
+        # sits one directory deeper.
+        n_mags = None
+        try:
+            with open(tmp / "viz" / "data" / "overview.json") as fh:
+                overview = json.load(fh)
+            n_mags = int(overview.get("n_mags") or 0)
+        except (OSError, ValueError, TypeError):
+            pass
+        return {"mtime": mtime, "assays": assays, "n_asvs": n_asvs,
+                "n_mags": n_mags, **totals}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

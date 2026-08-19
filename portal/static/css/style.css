@@ -1698,6 +1698,9 @@ a.dchip.done:hover { background: rgba(34,197,94,.24); }
    wants to be; it wraps rather than widening the table for every other row. */
 .submissions-table .t-target { white-space: normal; max-width: 14rem; }
 
+/* Right-aligned like the other figures it sits among, since it is one. */
+.submissions-table .t-yield { text-align: right; font-variant-numeric: tabular-nums; }
+
 .submissions-table .t-err {
     display: inline-block;
     margin-left: 0.35rem;

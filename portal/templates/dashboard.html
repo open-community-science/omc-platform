@@ -101,10 +101,9 @@
                     <th data-key="runs"     class="sortable num">Runs</th>
                     <th data-key="gbp"      class="sortable num">Gbp</th>
                     <th data-key="reads"    class="sortable num">Reads</th>
-                    <th data-key="asvs"     class="sortable num">ASVs</th>
                     <th data-key="pipeline" class="sortable">Pipeline</th>
                     <th data-key="assay"    class="sortable">Target</th>
-                    <th>Results</th>
+                    <th data-key="results" class="sortable num">Results</th>
                     <th data-key="created"  class="sortable">Created</th>
                     {% if not readonly %}<th class="t-actions"><span class="sr-only">Actions</span></th>{% endif %}
                 </tr>
@@ -120,7 +119,7 @@
                     data-slug="{{ sub.slug|lower }}"
                     data-created="{{ sub.created_at.isoformat() }}"
                     data-runs="{{ x.get('runs') or 0 }}"
-                    data-asvs="{{ x.get('asvs') or 0 }}"
+                    data-results="{{ x.get('yield_n') or 0 }}"
                     data-assay="{{ x.get('assay') or '' }}"
                     data-reads="{{ x.get('reads') or 0 }}"
                     data-gbp="{{ x.get('gbp') or 0 }}">
@@ -138,14 +137,23 @@
                        pipeline: the size of a study is what was sequenced. #}
                     <td class="num">{% if x.get('gbp') %}{{ "%.2f"|format(x.get('gbp')) }}{% else %}—{% endif %}</td>
                     <td class="num">{% if x.get('reads') %}{{ "{:,}".format(x.get('reads')) }}{% else %}—{% endif %}</td>
-                    <td class="num">{% if x.get('asvs') %}{{ "{:,}".format(x.get('asvs')) }}{% else %}—{% endif %}</td>
                     <td>{{ sub.pipeline.value if sub.pipeline else '—' }}</td>
                     {# Gene and region come from what the pipeline assigned each
                        sample to, so they are blank until results are back — and
                        for any pipeline that has no assay to assign. #}
                     <td class="t-target">{{ x.get('assay') or '—' }}</td>
-                    <td>
-                        {% if x.get('viz') %}<a href="{{ x.get('viz') }}" target="_blank" rel="noopener">viz ↗</a>{% else %}—{% endif %}
+                    {# What the run produced, as the link to it: "4,787 ASVs" or
+                       "12 MAGs". A count with nowhere to go is still the answer
+                       to what came back, so it shows without the link. #}
+                    <td class="t-yield">
+                        {%- if x.get('yield_n') is not none -%}
+                            {%- set label = "{:,} {}".format(x.get('yield_n'), x.get('yield_unit')) -%}
+                            {%- if x.get('viz') -%}
+                            <a href="{{ x.get('viz') }}" target="_blank" rel="noopener">{{ label }} ↗</a>
+                            {%- else -%}{{ label }}{%- endif -%}
+                        {%- elif x.get('viz') -%}
+                            <a href="{{ x.get('viz') }}" target="_blank" rel="noopener">results ↗</a>
+                        {%- else -%}—{%- endif -%}
                     </td>
                     <td>{{ sub.created_at.strftime('%Y-%m-%d') }}</td>
                     {% if not readonly %}
@@ -228,7 +236,7 @@
     // Which column the table is ordered by. The dropdown orders the cards; a
     // table is read down a column, so it is ordered by clicking one.
     let tableKey = 'created', tableDir = -1;
-    const NUMERIC = new Set(['runs', 'asvs', 'reads', 'gbp']);
+    const NUMERIC = new Set(['runs', 'reads', 'gbp', 'results']);
 
     function matches(el, q, st, pl) {
         const matchQ = !q
