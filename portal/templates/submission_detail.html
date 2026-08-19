@@ -633,13 +633,17 @@
                         {%- if a.lineage %} <span class="muted">· {{ a.lineage }}</span>{% endif %}
                     </h4>
                     <dl class="wf-meta-grid">
+                        {# A detected primer has no name, so its sequence fills
+                           that field and printing both says it twice. #}
                         <dt>Forward</dt>
-                        <dd><strong>{{ a.fwd_name }}</strong>{% if a.fwd %} <code>{{ a.fwd }}</code>{% endif %}</dd>
+                        <dd>{% if a.fwd_name and a.fwd_name != a.fwd %}<strong>{{ a.fwd_name }}</strong> {% endif %}
+                            <code>{{ a.fwd or a.fwd_name }}</code></dd>
                         <dt>Reverse</dt>
-                        <dd><strong>{{ a.rev_name }}</strong>{% if a.rev %} <code>{{ a.rev }}</code>{% endif %}</dd>
+                        <dd>{% if a.rev_name and a.rev_name != a.rev %}<strong>{{ a.rev_name }}</strong> {% endif %}
+                            <code>{{ a.rev or a.rev_name }}</code></dd>
                         <dt>Samples</dt>
                         <dd>{{ a.samples }}{% if a.match_fraction is not none %}
-                            <span class="muted">· {{ (a.match_fraction * 100) | round(1) }}% of reads matched, median across samples</span>
+                            <span class="muted">· primers in {{ (a.match_fraction * 100) | round(1) }}% of reads, median across the assay's samples</span>
                             {% endif %}</dd>
                     </dl>
                     {% endfor %}
