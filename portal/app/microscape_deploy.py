@@ -23,6 +23,7 @@ import tempfile
 from pathlib import Path
 
 import httpx
+from sqlalchemy.orm import attributes
 
 from .config import get_settings
 
@@ -165,6 +166,43 @@ def diagnose_empty_run(slug: str) -> str:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ENA carries a release date for every study, keyed by the same accession NCBI
+# issues, and answers without a key or an account. NCBI's own Registration_Date
+# is behind an Entrez call that the deploy path has no other reason to make.
+_ENA_STUDY = "https://www.ebi.ac.uk/ena/portal/api/search"
+
+
+async def bioproject_dates(accession: str) -> dict:
+    """{'first_public': 'YYYY-MM-DD', 'last_updated': ...} for a BioProject.
+
+    Empty when the accession is unknown to ENA or ENA is unreachable — a run
+    still deploys without a date on it.
+    """
+    if not accession:
+        return {}
+    params = {
+        "result": "study",
+        "query": f"study_accession={accession}",
+        "fields": "first_public,last_updated",
+        "format": "tsv",
+        "limit": "1",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(_ENA_STUDY, params=params)
+        r.raise_for_status()
+        lines = [ln for ln in r.text.splitlines() if ln.strip()]
+        if len(lines) < 2:
+            return {}
+        header = lines[0].split("\t")
+        row = lines[1].split("\t")
+        got = dict(zip(header, row))
+        return {k: got.get(k, "") for k in ("first_public", "last_updated") if got.get(k)}
+    except Exception as exc:
+        logger.warning("ENA date lookup failed for %s: %s", accession, exc)
+        return {}
+
+
 def _extract_site(slug: str, site_source: Path | None = None,
                   run_info: dict | None = None) -> Path | None:
     """unsquashfs the built site + its viz data from the results archive.
@@ -206,15 +244,19 @@ def _extract_site(slug: str, site_source: Path | None = None,
         return None
     site_dir = index.parent
 
-    # Stage viz/*.json as the site's data/ payload.
+    # Stage the viz payload as the site's data/. The amplicon pipeline writes
+    # its JSONs straight into viz/; the MAG pipelines nest them under viz/data/.
+    # Both flatten to the same place, since the SPA fetches ./data/<name>.
     viz_dir = tmp / "viz"
+    staged = 0
     if viz_dir.is_dir():
         data_dir = site_dir / "data"
         data_dir.mkdir(exist_ok=True)
-        for f in viz_dir.iterdir():
+        for f in viz_dir.rglob("*"):
             if f.is_file():
                 shutil.copy2(f, data_dir / f.name)
-    else:
+                staged += 1
+    if not staged:
         logger.warning("no viz/ data in results for %s — site will render empty", slug)
 
     if run_info:
@@ -267,12 +309,24 @@ async def deploy_submission(submission, user, visibility: str = "public",
         logger.info("microscape deploy skipped for %s: no provision token", submission.slug)
         return None
 
+    # Asked once and kept on the submission: the date a study was released does
+    # not change, and a refresh re-deploys every run at once.
+    meta = dict(submission.sample_metadata or {})
+    dates = meta.get("bioproject_dates")
+    if dates is None:
+        dates = await bioproject_dates(submission.bioproject_accession or "")
+        meta["bioproject_dates"] = dates
+        submission.sample_metadata = meta
+        attributes.flag_modified(submission, "sample_metadata")
+
     site_dir = _extract_site(
         submission.slug, site_source=site_source,
         run_info={
             "slug": submission.slug,
             "title": submission.title or "",
             "bioproject": submission.bioproject_accession or "",
+            "registered": (dates or {}).get("first_public", ""),
+            "updated": (dates or {}).get("last_updated", ""),
             "pipeline": submission.pipeline.value if submission.pipeline else "",
             "cluster": submission.target_cluster or "",
             "build": (submission.image_revision or "").split("=")[-1],

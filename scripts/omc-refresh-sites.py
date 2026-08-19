@@ -30,7 +30,8 @@ os.chdir("/opt/omc-platform/portal")
 
 from sqlalchemy import select                                                # noqa: E402
 from sqlalchemy.orm import attributes                                        # noqa: E402
-from app.database import async_session, Submission, SubmissionStatus, User   # noqa: E402
+from app.database import (async_session, Submission, SubmissionStatus,       # noqa: E402
+                          PipelineType, User)
 from app.microscape_deploy import deploy_submission                          # noqa: E402
 
 IMAGE = "ghcr.io/rec3141/danaseq-illumina-amplicon"
@@ -83,9 +84,13 @@ async def main() -> int:
     a = ap.parse_args()
 
     async with async_session() as db:
+        # The bundle this builds is the amplicon viz, which knows only how to
+        # read an amplicon run's viz/ payload. Handed a MAG run it publishes an
+        # app that finds nothing, over the top of whatever that run had before.
         q = select(Submission).where(
             Submission.deleted_at.is_(None),
             Submission.status == SubmissionStatus.RESULTS_READY,
+            Submission.pipeline == PipelineType.ILLUMINA_AMPLICON,
         ).order_by(Submission.created_at.desc())
         if a.slugs:
             q = q.where(Submission.slug.in_(a.slugs))
@@ -95,6 +100,10 @@ async def main() -> int:
                 sys.exit(f"no such user: {a.user}")
             q = q.where(Submission.user_id == u.id)
         subs = (await db.execute(q)).scalars().all()
+        if a.slugs:
+            asked = set(a.slugs) - {x.slug for x in subs}
+            if asked:
+                print(f"[WARN] not amplicon runs, skipped: {' '.join(sorted(asked))}")
 
     if a.only_deployed:
         subs = [s for s in subs if (s.sample_metadata or {}).get("microscape_viz_url")]
