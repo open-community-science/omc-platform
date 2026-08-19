@@ -8,6 +8,11 @@
 # local .env over the server's. The nginx step now refuses to clobber a config
 # that differs (see OMC_DEPLOY_NGINX below), because the live one is
 # Certbot-managed and this script emits a plain HTTP bootstrap config.
+#
+# Opt-in switches, all default to off / leave-server-alone:
+#   OMC_DEPLOY_NGINX=1   replace an existing nginx site config (backs it up)
+#   OMC_DEPLOY_ENV=1     replace the server's portal/.env (backs it up)
+#   OMC_DEPLOY_KEY=path  install this GitHub App .pem
 set -euo pipefail
 
 HOST="${1:-134.87.12.190}"
@@ -70,25 +75,82 @@ pip install -q -r requirements.txt
 PYTHON
 
 # Step 4: Copy .env (secrets — not in git)
+#
+# The server's .env is the live production config: real API keys, the staging
+# token fir authenticates with, the SECRET_KEY every active login cookie is
+# signed against. The local copy is a developer's, pointing at a LAN LLM and a
+# dev database. Copying it up unconditionally replaces production config with
+# whoever ran the script last — the same clobber-by-default shape as an rsync
+# with the wrong excludes. So seed it only when the server has none.
 echo "--- Copying configuration ---"
-scp portal/.env "${REMOTE}:/opt/omc-platform/portal/.env"
+PLACED_ENV=0
+if ssh "$REMOTE" 'test -f /opt/omc-platform/portal/.env'; then
+    if [ "${OMC_DEPLOY_ENV:-0}" = "1" ]; then
+        [ -f portal/.env ] || { echo "ERROR: OMC_DEPLOY_ENV=1 but no local portal/.env to send." >&2; exit 1; }
+        stamp="$(date +%Y%m%d-%H%M%S)"
+        ssh "$REMOTE" "cp /opt/omc-platform/portal/.env /opt/omc-platform/portal/.env.bak-${stamp}"
+        echo "    Existing .env backed up to portal/.env.bak-${stamp}"
+        scp -q portal/.env "${REMOTE}:/opt/omc-platform/portal/.env"
+        PLACED_ENV=1
+        echo "    OMC_DEPLOY_ENV=1 — replaced the server's .env."
+    else
+        echo "    Server already has portal/.env — leaving it alone."
+        echo "    (OMC_DEPLOY_ENV=1 replaces it from this machine, keeping a backup)"
+    fi
+else
+    [ -f portal/.env ] || {
+        echo "ERROR: the server has no portal/.env and there is none here to seed it with." >&2
+        echo "       Create portal/.env from the table in CLAUDE.md > Configuration." >&2
+        exit 1
+    }
+    scp -q portal/.env "${REMOTE}:/opt/omc-platform/portal/.env"
+    PLACED_ENV=1
+    echo "    Seeded portal/.env from this machine."
+fi
 
 # Step 5: Copy GitHub App private key
+# Same rule, and the filename is not hardcoded — the key rotates, and a script
+# naming one issue date goes stale the first time it does.
 echo "--- Copying GitHub App key ---"
-scp omc-platform.2026-03-12.private-key.pem "${REMOTE}:/opt/omc-platform/"
+if ssh "$REMOTE" 'ls /opt/omc-platform/*.pem >/dev/null 2>&1'; then
+    echo "    Server already has a GitHub App key — leaving it alone."
+    echo "    (OMC_DEPLOY_KEY=/path/to/key.pem installs a different one)"
+    if [ -n "${OMC_DEPLOY_KEY:-}" ]; then
+        [ -f "$OMC_DEPLOY_KEY" ] || { echo "ERROR: no such key: $OMC_DEPLOY_KEY" >&2; exit 1; }
+        scp -q "$OMC_DEPLOY_KEY" "${REMOTE}:/opt/omc-platform/"
+        echo "    Installed $(basename "$OMC_DEPLOY_KEY")."
+    fi
+else
+    key="${OMC_DEPLOY_KEY:-$(ls ./*.private-key.pem 2>/dev/null | head -1)}"
+    [ -n "$key" ] && [ -f "$key" ] || {
+        echo "ERROR: the server has no GitHub App key and none was found here." >&2
+        echo "       Point OMC_DEPLOY_KEY at the .pem downloaded from the GitHub App." >&2
+        exit 1
+    }
+    scp -q "$key" "${REMOTE}:/opt/omc-platform/"
+    echo "    Installed $(basename "$key")."
+fi
 
-# Step 6: Update .env paths for production
-ssh "$REMOTE" bash <<'ENVFIX'
+# Step 6: Point a freshly seeded .env at production
+#
+# Only when this run placed the file. Re-running these against a live .env
+# rewrites settings the server may have been tuned away from by hand — the
+# LLM_BASE_URL there is a reverse SSH tunnel on localhost, not what a checkout
+# ships. The SECRET_KEY line only matches the placeholder, so it mints a key on
+# a fresh install and never rotates a real one out from under live sessions.
+if [ "$PLACED_ENV" = "1" ]; then
+    ssh "$REMOTE" DOMAIN="$DOMAIN" bash <<'ENVFIX'
 set -euo pipefail
 cd /opt/omc-platform/portal
-# Fix paths for production
 sed -i 's|/data/omc/omc-platform|/opt/omc-platform|g' .env
-# Set production values
 sed -i 's|DEBUG=true|DEBUG=false|' .env
 sed -i "s|SECRET_KEY=change-me-in-production|SECRET_KEY=$(openssl rand -hex 32)|" .env
-# Update redirect URI for production domain
-sed -i 's|GITHUB_REDIRECT_URI=.*|GITHUB_REDIRECT_URI=https://microbial.opencommunity.science/auth/callback|' .env
+sed -i "s|GITHUB_REDIRECT_URI=.*|GITHUB_REDIRECT_URI=https://${DOMAIN}/auth/callback|" .env
 ENVFIX
+    echo "    Rewrote paths, DEBUG and the OAuth redirect for production."
+else
+    echo "    Left the server's .env untouched (nothing seeded this run)."
+fi
 
 # Step 7: systemd service
 echo "--- Setting up systemd service ---"
