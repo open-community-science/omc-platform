@@ -113,7 +113,9 @@
       <a class="dchip done" href="/submissions/{{ submission.slug }}/manuscript">✓ Manuscript</a>
       {% elif has_draft %}
       <span class="dchip done">✓ Manuscript</span>
-      {% else %}
+      {% elif can_edit %}
+      {# A 'pending' chip is an invitation to produce the thing. Someone who
+         cannot produce it is being shown a step that is not theirs to take. #}
       <span class="dchip pending">Manuscript</span>
       {% endif %}
       {# Autoresearch #}
@@ -121,7 +123,7 @@
       <a class="dchip done" href="/autoresearch/{{ submission.slug }}/findings">✓ Autoresearch · {{ n_ar_claims }} claim{{ '' if n_ar_claims == 1 else 's' }}</a>
       {% elif has_autoresearch %}
       <span class="dchip done">✓ Autoresearch · {{ n_ar_claims }} claim{{ '' if n_ar_claims == 1 else 's' }}</span>
-      {% elif has_pipeline_results %}
+      {% elif has_pipeline_results and can_edit %}
       <span class="dchip pending">Autoresearch</span>
       {% endif %}
       {# Reviews #}
