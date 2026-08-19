@@ -1,6 +1,13 @@
 #!/bin/bash
-# Deploy OMC Platform to Arbutus VM
+# Bootstrap a NEW OMC Platform host (packages, repo, venv, systemd, nginx).
 # Usage: ./deploy.sh [host] [user]
+#
+# This is not the script for shipping a code change to a running server — use
+# ./quick-deploy.sh for that. Several steps here are destructive to an existing
+# host: they overwrite the nginx site config and the systemd unit, and copy the
+# local .env over the server's. The nginx step now refuses to clobber a config
+# that differs (see OMC_DEPLOY_NGINX below), because the live one is
+# Certbot-managed and this script emits a plain HTTP bootstrap config.
 set -euo pipefail
 
 HOST="${1:-134.87.12.190}"
@@ -15,11 +22,18 @@ echo "--- Installing system packages ---"
 ssh "$REMOTE" bash <<'SETUP'
 set -euo pipefail
 sudo apt-get update -qq
+# Kept in step with CLAUDE.md > "Host Environment > System Packages". Without
+# docker/squashfuse/fuse3 the portal serves pages but cannot mount pipeline
+# results or launch author sessions; without sra-toolkit it cannot stage SRA
+# downloads.
 sudo apt-get install -y -qq \
     python3-pip python3-venv python3-dev \
     nginx certbot python3-certbot-nginx \
     git build-essential libffi-dev libssl-dev \
-    sqlite3
+    sqlite3 \
+    docker.io \
+    squashfs-tools squashfuse fuse3 \
+    sra-toolkit
 SETUP
 
 # Step 2: Clone/update repo
@@ -28,6 +42,15 @@ ssh "$REMOTE" bash <<'REPO'
 set -euo pipefail
 if [ -d /opt/omc-platform ]; then
     cd /opt/omc-platform
+    # A dirty tree makes `git pull` fail mid-run with a wall of git output. Say
+    # what is actually wrong. Files rsynced by quick-deploy.sh show up here.
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+        echo "ERROR: /opt/omc-platform has uncommitted changes to tracked files:" >&2
+        git status --porcelain --untracked-files=no | sed 's/^/         /' >&2
+        echo "       Reconcile them first, e.g.:" >&2
+        echo "         ssh <host> 'cd /opt/omc-platform && git fetch origin && git reset --hard origin/main'" >&2
+        exit 1
+    fi
     sudo git pull origin main
 else
     sudo git clone https://github.com/open-community-science/omc-platform.git /opt/omc-platform
@@ -103,6 +126,29 @@ SYSTEMD
 
 # Step 8: nginx reverse proxy
 echo "--- Configuring nginx ---"
+# The config below is a plain-HTTP bootstrap for a fresh host. A live host's
+# config is Certbot-managed and may carry blocks this script knows nothing about
+# (a /sampletown/ proxy, for one). Overwriting it would drop TLS and take those
+# blocks offline — which is how sites-available and sites-enabled drifted apart
+# on the legacy host. So: back up, diff, and stop unless told otherwise.
+if ssh "$REMOTE" 'test -f /etc/nginx/sites-available/omc-platform'; then
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    ssh "$REMOTE" "sudo cp /etc/nginx/sites-available/omc-platform \
+        /etc/nginx/sites-available/omc-platform.bak-${stamp}"
+    echo "    Existing config backed up to omc-platform.bak-${stamp}"
+    if ssh "$REMOTE" 'sudo grep -q "managed by Certbot" /etc/nginx/sites-available/omc-platform'; then
+        echo "WARNING: the live config is managed by Certbot (TLS)." >&2
+        echo "         This script writes a plain HTTP config — applying it drops HTTPS" >&2
+        echo "         until you re-run: sudo certbot --nginx -d ${DOMAIN}" >&2
+    fi
+    if [ "${OMC_DEPLOY_NGINX:-0}" != "1" ]; then
+        echo "ERROR: refusing to overwrite an existing nginx config." >&2
+        echo "       Review the backup above, then re-run with OMC_DEPLOY_NGINX=1" >&2
+        echo "       if you really mean to replace it." >&2
+        exit 1
+    fi
+    echo "    OMC_DEPLOY_NGINX=1 — replacing the existing config."
+fi
 ssh "$REMOTE" sudo tee /etc/nginx/sites-available/omc-platform > /dev/null <<NGINX
 server {
     listen 80;
@@ -148,6 +194,22 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_read_timeout 300;
+    }
+
+    # Session container proxy — forwards /session-proxy/{port}/* to localhost:{port}/*
+    # Does NOT strip the prefix; the apps handle their own root path. Chainlit and
+    # Marimo are WebSocket-driven, so the Upgrade headers here are load-bearing:
+    # without this block author sessions do not work at all.
+    location ~ ^/session-proxy/(\d+)/ {
+        proxy_pass http://127.0.0.1:\$1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
     }
 }
 NGINX
