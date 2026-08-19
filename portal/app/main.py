@@ -10,7 +10,7 @@ if _project_root not in sys.path:
 from fastapi import FastAPI, Request, Depends, Form as FForm, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -649,6 +649,68 @@ async def submission_detail(
          "settings": settings},
     )
 
+
+
+@app.get("/submissions/{slug}/offline.zip")
+async def submission_offline_bundle(
+    slug: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """The published run as a folder that opens without a network.
+
+    Built from the results archive rather than read back off the viz host, so
+    what you get is this run's own site and this run's own data, and the portal
+    stays ignorant of where the published copy is kept.
+    """
+    import shutil
+    from .microscape_deploy import _extract_site, bioproject_dates
+    from .offline_bundle import build_zip
+
+    user = await get_current_user(request, db)
+    public_uid = await _public_user_id(db)
+
+    submission = (await db.execute(select(Submission).where(
+        Submission.slug == slug,
+        Submission.deleted_at.is_(None),
+    ))).scalar_one_or_none()
+
+    # Same rule as the detail page: yours or the public account's, else 404 —
+    # a stranger should not learn that a slug exists but is not theirs.
+    if submission is not None and submission.user_id != public_uid:
+        if not user or submission.user_id != user.id:
+            submission = None
+    if not submission:
+        raise HTTPException(status_code=404, detail="not found")
+
+    dates = (submission.sample_metadata or {}).get("bioproject_dates")
+    if dates is None:
+        dates = await bioproject_dates(submission.bioproject_accession or "")
+    run_info = {
+        "slug": submission.slug,
+        "title": submission.title or "",
+        "bioproject": submission.bioproject_accession or "",
+        "registered": (dates or {}).get("first_public", ""),
+        "updated": (dates or {}).get("last_updated", ""),
+        "pipeline": submission.pipeline.value if submission.pipeline else "",
+        "cluster": submission.target_cluster or "",
+        "build": (submission.image_revision or "").split("=")[-1],
+        "portal_url": f"{settings.portal_public_url.rstrip('/')}/submissions/{submission.slug}",
+    }
+
+    site_dir = _extract_site(slug, run_info=run_info)
+    if site_dir is None:
+        raise HTTPException(status_code=404, detail="no published site for this run")
+    try:
+        buf = build_zip(site_dir, run_info)
+    finally:
+        # _extract_site unpacks into a temp tree; the zip is in memory by now.
+        shutil.rmtree(site_dir.parent, ignore_errors=True)
+
+    return StreamingResponse(
+        buf, media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{slug}-danaseq.zip"'},
+    )
 
 @app.get("/submissions/{slug}/interview", response_class=HTMLResponse)
 async def interview_page(

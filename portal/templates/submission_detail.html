@@ -571,6 +571,11 @@
                 {% if submission.sample_metadata and submission.sample_metadata.get('microscape_viz_url') %}
                 <a href="{{ submission.sample_metadata.microscape_viz_url }}" target="_blank"
                    class="btn btn-primary">Explore Data on microscape.app →</a>
+                {# The same page as a folder: opens from disk with no server and
+                   no network, and carries the JSON behind every figure. #}
+                <a href="/submissions/{{ submission.slug }}/offline.zip"
+                   class="btn btn-secondary"
+                   title="The full interactive page plus its data, to keep and open offline">Download for offline use</a>
                 {% endif %}
                 <form action="/sessions/{{ submission.slug }}/launch" method="POST" style="display:inline;">
                     <button type="submit" class="btn btn-secondary">
