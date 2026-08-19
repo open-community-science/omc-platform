@@ -1,16 +1,19 @@
 """Package a published run so it can be read without a network.
 
-A deployed site is a static SPA that fetches its data from `data/` beside it.
-Downloaded and opened from a `file://` URL, those fetches are treated as
-cross-origin and refused: the app loads, finds nothing, and reports an empty
-run. Nothing about that tells the reader the data is sitting in the same folder.
+A deployed site is a static SPA: an HTML file that pulls in a module script, a
+stylesheet and its data. Opened from a `file://` URL none of those arrive. A
+module script is fetched under CORS even when a <script> tag names it, a
+stylesheet likewise, and `file://` is its own opaque origin — so the browser
+refuses its own sibling files and the page renders nothing at all.
 
-A `<script>` tag is not subject to that rule, so the bundle carries the payload
-as one — `data.js`, holding each file base64-encoded and still gzipped, keyed by
-the path the app would otherwise have fetched. The app prefers it when present
-(see `embedded()` in the viz data store), so the same build serves both. The
-site's own `data/` is kept as well: it costs little next to the JS bundle, and a
-reader who does serve the folder over HTTP gets the normal path.
+Inline content is not fetched, so it is the only thing that survives. The bundle
+is therefore one HTML file with the script, the stylesheet and the data all
+inlined, and no second file for the page to ask for. The run's JSON is kept
+alongside as well, for a reader who wants the numbers rather than the page.
+
+Fonts are dropped rather than inlined: they cannot load from `file://` either,
+the stack already falls back to the system UI font, and carrying them would add
+megabytes to buy nothing.
 """
 from __future__ import annotations
 
@@ -19,6 +22,7 @@ import gzip
 import io
 import json
 import logging
+import re
 import zipfile
 from pathlib import Path
 
@@ -38,12 +42,15 @@ _README = """\
 BioProject {bioproject}{released}
 Run {slug} — {portal_url}
 
-Open index.html in a browser. Everything it needs is in this folder; nothing is
-fetched from the network, and it works with no internet connection.
+Open index.html in a browser. It is one self-contained file — the page, its code
+and its data — so it works with no server and no internet connection.
 
-The numbers behind the figures are in data/ as JSON, and again inside data.js
-where the page reads them from. tree.nwk is the phylogeny in Newick format.
-Every table in the Data Tables tab exports to CSV from the page itself.
+The numbers behind the figures are in data/ as JSON, for reading rather than
+viewing; tree.nwk is the phylogeny in Newick format. Every table in the Data
+Tables tab also exports to CSV from the page itself.
+
+The page uses your system font rather than the one the website uses, which a
+browser will not load from a local file.
 
 Built by the dānaSeq amplicon pipeline, {build}.
 """
@@ -64,15 +71,56 @@ def _payload(data_dir: Path) -> dict[str, str]:
     return out
 
 
-def _with_data_script(index_html: str) -> str:
-    """Load data.js before the app, so the payload is there when it looks."""
-    tag = '<script src="./data.js"></script>\n  '
-    marker = '<script type="module"'
-    if tag.strip() in index_html:
-        return index_html
-    if marker in index_html:
-        return index_html.replace(marker, tag + marker, 1)
-    return index_html.replace("</body>", f"  {tag}</body>", 1)
+_LINK_RE = re.compile(r'<link[^>]+rel=["\']stylesheet["\'][^>]*>', re.I)
+_HREF_RE = re.compile(r'href=["\']([^"\']+)["\']', re.I)
+_SCRIPT_RE = re.compile(r'<script([^>]*)\ssrc=["\']([^"\']+)["\'][^>]*>\s*</script>', re.I)
+_FONT_FACE_RE = re.compile(r"@font-face\s*\{[^}]*\}", re.I)
+
+
+def _read(site_dir: Path, url: str) -> str | None:
+    """A file the page refers to, resolved against the site root."""
+    rel = url.split("?", 1)[0].split("#", 1)[0].lstrip("./")
+    path = site_dir / rel
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        logger.warning("offline bundle: %s referenced but not readable", rel)
+        return None
+
+
+def _selfcontained(index_html: str, site_dir: Path, payload: dict) -> str:
+    """One HTML file: nothing left for the page to fetch."""
+
+    def inline_css(m):
+        href = _HREF_RE.search(m.group(0))
+        css = _read(site_dir, href.group(1)) if href else None
+        if css is None:
+            return m.group(0)
+        # The font files are not carried, so the rules that name them would only
+        # produce failed requests; the family list falls back on its own.
+        return "<style>\n" + _FONT_FACE_RE.sub("", css) + "\n</style>"
+
+    def inline_js(m):
+        attrs, src = m.group(1), m.group(2)
+        js = _read(site_dir, src)
+        if js is None:
+            return m.group(0)
+        # `type` is kept — an inline module is still a module, and this bundle is
+        # one — while `crossorigin` and `src` are meaningless once inlined.
+        kind = ' type="module"' if "module" in attrs else ""
+        return f"<script{kind}>\n{js}\n</script>"
+
+    html = _LINK_RE.sub(inline_css, index_html)
+    html = _SCRIPT_RE.sub(inline_js, html)
+
+    # Before the app, and a classic script so it runs during parsing rather than
+    # after the deferred module that reads it.
+    data = ("<script>window.__VIZ_GZ = " + json.dumps(payload) + ";</script>\n")
+    if "</head>" in html:
+        html = html.replace("</head>", data + "</head>", 1)
+    else:
+        html = data + html
+    return html
 
 
 def build_zip(site_dir: Path, run_info: dict | None = None) -> io.BytesIO:
@@ -82,24 +130,18 @@ def build_zip(site_dir: Path, run_info: dict | None = None) -> io.BytesIO:
     slug = info.get("slug") or site_dir.name
     buf = io.BytesIO()
 
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-        for f in sorted(site_dir.rglob("*")):
-            if not f.is_file():
-                continue
-            rel = f.relative_to(site_dir)
-            if rel.name == "data.js":
-                continue  # rebuilt below
-            data = f.read_bytes()
-            if rel.as_posix() == "index.html":
-                data = _with_data_script(data.decode("utf-8")).encode("utf-8")
-            z.writestr(f"{slug}/{rel.as_posix()}", data)
+    payload = _payload(site_dir / "data")
+    index = (site_dir / "index.html").read_text(encoding="utf-8", errors="replace")
+    page = _selfcontained(index, site_dir, payload)
 
-        payload = _payload(site_dir / "data")
-        # One assignment rather than a literal per file: a few large base64
-        # strings parse faster than a deeply nested object, and the app only
-        # ever indexes into it.
-        z.writestr(f"{slug}/data.js",
-                   "window.__VIZ_GZ = " + json.dumps(payload) + ";\n")
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        z.writestr(f"{slug}/index.html", page)
+        # The numbers on their own, for reading rather than viewing. assets/ is
+        # not carried: everything in it is now part of the page above, and
+        # shipping it again would double the download.
+        for f in sorted((site_dir / "data").glob("*")):
+            if f.is_file():
+                z.writestr(f"{slug}/data/{f.name}", f.read_bytes())
 
         released = info.get("registered")
         z.writestr(f"{slug}/README.txt", _README.format(

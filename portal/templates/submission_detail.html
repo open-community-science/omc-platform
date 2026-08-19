@@ -615,12 +615,6 @@
                settings.autoresearch_enabled; reuses the page subId / showStatus /
                showPersistentStatus globals. #}
             {% if can_edit %}{% include "_autoresearch_trigger.html" %}{% endif %}
-            {% if submission.sample_metadata and submission.sample_metadata.get('microscape_viz_url') %}
-            <p class="wf-step-desc muted">
-                Interactive amplicon results are live at
-                <a href="{{ submission.sample_metadata.microscape_viz_url }}" target="_blank">{{ submission.sample_metadata.microscape_viz_url }}</a>
-            </p>
-            {% endif %}
             {% endif %}
 
             {# What the run actually trimmed with, per assay, read back from its
