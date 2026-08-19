@@ -526,40 +526,17 @@ async def _public_user_id(db: AsyncSession):
 
 
 async def _run_assays(submissions, db: AsyncSession) -> dict:
-    """Assay + ASV facts per slug, read from each run's results archive.
+    """Assay + ASV facts per slug, as recorded when each run's results landed.
 
-    Cached under the submission's `sample_metadata["assay_facts"]`, because the
-    archive only changes when the run is rerun and that shows up as a new mtime.
-    A run with no archive yet costs one stat() and is left uncached, so it is
-    picked up as soon as its results land. The read itself is a subprocess, so it
-    goes to a thread rather than stalling the event loop for every other request.
+    A lookup, not a computation: the facts are written once by the results
+    pickup (see slurm.py), because a page that lists runs is a page anyone may
+    load and rendering it should not write to the database. A run whose facts
+    predate that — or that has not finished — reports nothing, and the columns
+    that need them stay blank. `scripts/omc-backfill-assay-facts.py` fills those
+    in for runs that completed before the pickup started recording it.
     """
-    from .microscape_deploy import assay_facts, results_archive_mtime
-
-    facts_by_slug, dirty = {}, False
-    for s in submissions:
-        meta = s.sample_metadata or {}
-        cached = meta.get("assay_facts") or {}
-        mtime = results_archive_mtime(s.slug)
-        if mtime is None or cached.get("mtime") == mtime:
-            facts_by_slug[s.slug] = cached
-            continue
-        facts = await asyncio.to_thread(assay_facts, s.slug)
-        if facts is None:
-            facts_by_slug[s.slug] = cached
-            continue
-        meta = dict(meta)
-        meta["assay_facts"] = facts
-        s.sample_metadata = meta
-        attributes.flag_modified(s, "sample_metadata")
-        facts_by_slug[s.slug] = facts
-        dirty = True
-    if dirty:
-        # Filling the cache is the only write these read-only pages make, and it
-        # is derived data — /public does it for an anonymous visitor too.
-        await db.commit()
-    return facts_by_slug
-
+    return {s.slug: (s.sample_metadata or {}).get("assay_facts") or {}
+            for s in submissions}
 
 def _assay_label(assays) -> str:
     """A run's target as a short phrase — "16S rRNA V4", or every target it hit

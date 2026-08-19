@@ -1095,6 +1095,24 @@ async def poll_all_running_jobs(db_session) -> list:
                         logger.warning("Submission %s transferred but empty — marked FAILED", sub.slug)
                         completed.append(sub.slug)
                         continue
+                # What the run produced — which assays its samples were
+                # trimmed as, and how many ASVs came out — read once, here,
+                # where the archive has just landed. It does not change again
+                # unless the run is redone, and reading it on the pages that
+                # list the run would mean a page view writing to the database.
+                try:
+                    from .microscape_deploy import assay_facts
+                    from sqlalchemy.orm import attributes as _attrs
+                    facts = await asyncio.to_thread(assay_facts, sub.slug)
+                    if facts is not None:
+                        meta = dict(sub.sample_metadata or {})
+                        meta["assay_facts"] = facts
+                        sub.sample_metadata = meta
+                        _attrs.flag_modified(sub, "sample_metadata")
+                except Exception:
+                    # A run is still finished whether or not this could be read.
+                    logger.exception("Submission %s: assay facts unreadable", sub.slug)
+
                 # Deploy the amplicon viz site to microscape.app (once).
                 if sub.pipeline == PipelineType.ILLUMINA_AMPLICON:
                     meta = dict(sub.sample_metadata or {})
