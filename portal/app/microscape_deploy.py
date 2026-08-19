@@ -209,6 +209,40 @@ def _read_primer_fasta(path: Path) -> dict[str, str]:
 
 # The only members `assay_facts` needs. Together a few kB, so the extraction
 # costs about as much as opening the archive at all.
+# What the pipeline quotes assay coordinates against, and what a placement there
+# establishes. Which organism supplied the reference is an implementation detail
+# of the measurement: a placement on E. coli says the assay targets bacteria, not
+# that anyone expects E. coli in the sample.
+_REFERENCE_GENE = {
+    "ecoli_16S": ("bacterial", "16S rRNA"),
+    "yeast_18S": ("eukaryotic", "18S rRNA"),
+}
+
+_IUPAC = set("ACGTRYSWKMBDHVN")
+
+
+def _looks_like_sequence(text: str) -> bool:
+    """A primer detected from the reads has no name, so its sequence stands in."""
+    t = (text or "").upper()
+    return len(t) >= 14 and set(t) <= _IUPAC
+
+
+def _describe_placement(place: str) -> tuple[str, str]:
+    """`ecoli_16S@534-786` as (gene, span) a reader can use.
+
+    A run older than the naming work has no gene recorded but does have this, and
+    it says the same thing: the assay is bacterial 16S, running 534 to 786. Left
+    as-is when the reference is one this does not know.
+    """
+    if not place or "@" not in place:
+        return "", ""
+    ref, _, span = place.partition("@")
+    domain, gene = _REFERENCE_GENE.get(ref, ("", ""))
+    if not gene:
+        return "", span
+    return f"{domain} {gene}", f"{domain} {gene.split()[0]} {span}" if span else ""
+
+
 _ASSAY_MEMBERS = ("trimmed/primer_assignment.tsv", "primers", "viz/renorm_stats.json")
 
 
@@ -278,8 +312,15 @@ def assay_facts(slug: str) -> dict | None:
                     g = groups.setdefault(key, {
                         "gene": key[0], "region": key[1], "set": key[2],
                         "lineage": (row.get("assay_gene_lineage") or "").strip(),
-                        "fwd_name": fwd_name, "fwd": fwd_seqs.get(fwd_name, ""),
-                        "rev_name": rev_name, "rev": rev_seqs.get(rev_name, ""),
+                        # A supplied primer is named and the fasta says what
+                        # the name stands for; a detected one has only its
+                        # sequence, which is then both.
+                        "fwd_name": fwd_name,
+                        "fwd": fwd_seqs.get(fwd_name) or (
+                            fwd_name if _looks_like_sequence(fwd_name) else ""),
+                        "rev_name": rev_name,
+                        "rev": rev_seqs.get(rev_name) or (
+                            rev_name if _looks_like_sequence(rev_name) else ""),
                         "samples": 0, "_matched": [],
                     })
                     g["samples"] += 1
@@ -290,6 +331,20 @@ def assay_facts(slug: str) -> dict | None:
 
         assays = []
         for g in sorted(groups.values(), key=lambda g: -g["samples"]):
+            # Where the run recorded no gene, its placement carries the same
+            # fact. Runs older than the naming work have only the placement.
+            if not g["gene"] and g["set"]:
+                g["gene"], g["span"] = _describe_placement(g["set"])
+            else:
+                g.setdefault("span", "")
+            # What to call it, in the words the viz uses for the same run: an
+            # assay with nothing but a sequence was inferred from the reads
+            # rather than unidentifiable, and saying so is the difference
+            # between a fact and a shrug.
+            g["heading"] = g["gene"] or (
+                "inferred primers"
+                if _looks_like_sequence(g["fwd_name"]) or _looks_like_sequence(g["rev_name"])
+                else "unidentified assay")
             matched = g.pop("_matched")
             # The median, because one sample that matched badly says less about
             # the assay than where the middle of the run sits.

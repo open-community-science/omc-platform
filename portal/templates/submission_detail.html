@@ -628,8 +628,8 @@
                 <div class="wf-details-body">
                     {% for a in assays %}
                     <h4 class="wf-section-label">
-                        {{ a.gene or 'Unidentified assay' }}{% if a.region %} · {{ a.region }}{% endif %}
-                        {%- if a['set'] %} · {{ a['set'] }}{% endif %}
+                        {{ a.heading or a.gene or 'unidentified assay' }}{% if a.region %} · {{ a.region }}{% endif %}
+                        {%- if a.span %} · {{ a.span }}{% elif a['set'] %} · {{ a['set'] }}{% endif %}
                         {%- if a.lineage %} <span class="muted">· {{ a.lineage }}</span>{% endif %}
                     </h4>
                     <dl class="wf-meta-grid">
