@@ -698,11 +698,16 @@ async def submission_offline_bundle(
         "portal_url": f"{settings.portal_public_url.rstrip('/')}/submissions/{submission.slug}",
     }
 
-    # The app every deployed run is wearing, if a refresh has published one.
-    # Falling back to the archive's own bundle means an old run downloads as the
-    # app it shipped with, which cannot read its data from a file:// page.
-    bundle = Path(settings.viz_bundle_dir)
-    site_source = bundle if (bundle / "index.html").exists() else None
+    # The app this run's own pipeline is published with, if a refresh has left
+    # one. Falling back to the archive's bundle means an old run downloads as
+    # the app it shipped with, which cannot read its data from a file:// page —
+    # but that beats handing back another pipeline's app, which cannot read the
+    # data at all.
+    site_source = None
+    if submission.pipeline:
+        bundle = Path(settings.viz_bundle_dir) / submission.pipeline.value
+        if (bundle / "index.html").exists():
+            site_source = bundle
 
     site_dir = _extract_site(slug, site_source=site_source, run_info=run_info)
     if site_dir is None:

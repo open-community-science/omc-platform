@@ -7,9 +7,10 @@ wrong shape for a change that is purely presentational — a mobile layout, a
 default marker size — where the data is fine and only the app that draws it has
 moved on.
 
-The app is built once from the pipeline image at a given commit, then paired with
-each run's own viz/ data and redeployed. Nothing is recomputed and no archive is
-rewritten: the published site is replaced, the results are untouched.
+Each pipeline has its own app, so the bundle is built from the image belonging to
+the run's own pipeline — once per pipeline, however many runs use it — and paired
+with each run's viz/ data. Nothing is recomputed and no archive is rewritten: the
+published site is replaced, the results are untouched.
 
 Usage:
   omc-refresh-sites.py --commit latest --dry-run
@@ -34,17 +35,25 @@ from app.database import (async_session, Submission, SubmissionStatus,       # n
                           PipelineType, User)
 from app.microscape_deploy import deploy_submission                          # noqa: E402
 
-IMAGE = "ghcr.io/rec3141/danaseq-illumina-amplicon"
+# Which image carries which pipeline's viz. A pipeline absent from here has no
+# app to rebuild, and its runs are left alone rather than handed someone else's:
+# an app deployed over a run it cannot read replaces a working site with a blank
+# one, and looks from the outside like the run lost its data.
+VIZ_IMAGE = {
+    PipelineType.ILLUMINA_AMPLICON: "ghcr.io/rec3141/danaseq-illumina-amplicon",
+    PipelineType.NANOPORE_MAG: "ghcr.io/rec3141/danaseq-mag-analysis",
+    PipelineType.ILLUMINA_MAG: "ghcr.io/rec3141/danaseq-mag-analysis",
+}
 
 
-def build_dist(commit: str, keep: Path | None = None) -> tuple[Path, str]:
-    """Build the viz bundle inside the pipeline image; return (dist, built sha).
+def build_dist(image: str, commit: str, keep: Path | None = None) -> tuple[Path, str]:
+    """Build the viz bundle inside a pipeline image; return (dist, built sha).
 
     The image ships /pipeline/viz with node_modules already installed, so this
     needs no network beyond the pull and produces exactly the app that commit
     would have produced.
     """
-    tag = f"{IMAGE}:{commit}"
+    tag = f"{image}:{commit}"
     print(f"[INFO] pulling {tag}")
     subprocess.run(["docker", "pull", "-q", tag], check=True, timeout=1800)
 
@@ -70,16 +79,17 @@ def build_dist(commit: str, keep: Path | None = None) -> tuple[Path, str]:
     return out, sha
 
 
-def _publish_bundle(dist: Path, sha: str) -> None:
+def _publish_bundle(pipeline: PipelineType, dist: Path, sha: str) -> None:
     """Leave the built bundle where the offline download can find it.
 
     Every deployed run is wearing this app, so a download built from a run's own
-    archive would hand back a different — usually older — one. Replaced whole
+    archive would hand back a different — usually older — one. Kept per pipeline,
+    since the run being downloaded decides which app can read it. Replaced whole
     via a rename, so a request landing mid-refresh sees one bundle or the other
     and never half of each.
     """
     from app.config import get_settings
-    target = Path(get_settings().viz_bundle_dir)
+    target = Path(get_settings().viz_bundle_dir) / pipeline.value
     staging = target.with_name(target.name + ".incoming")
     previous = target.with_name(target.name + ".previous")
     try:
@@ -111,13 +121,13 @@ async def main() -> int:
     a = ap.parse_args()
 
     async with async_session() as db:
-        # The bundle this builds is the amplicon viz, which knows only how to
-        # read an amplicon run's viz/ payload. Handed a MAG run it publishes an
-        # app that finds nothing, over the top of whatever that run had before.
+        # Only pipelines whose viz this can rebuild. Handed a run it has no app
+        # for, it would publish one that finds nothing over the top of whatever
+        # that run had before.
         q = select(Submission).where(
             Submission.deleted_at.is_(None),
             Submission.status == SubmissionStatus.RESULTS_READY,
-            Submission.pipeline == PipelineType.ILLUMINA_AMPLICON,
+            Submission.pipeline.in_(list(VIZ_IMAGE)),
         ).order_by(Submission.created_at.desc())
         if a.slugs:
             q = q.where(Submission.slug.in_(a.slugs))
@@ -130,24 +140,42 @@ async def main() -> int:
         if a.slugs:
             asked = set(a.slugs) - {x.slug for x in subs}
             if asked:
-                print(f"[WARN] not amplicon runs, skipped: {' '.join(sorted(asked))}")
+                print(f"[WARN] no viz to rebuild for: {' '.join(sorted(asked))}")
 
     if a.only_deployed:
         subs = [s for s in subs if (s.sample_metadata or {}).get("microscape_viz_url")]
     if a.limit:
         subs = subs[:a.limit]
 
-    print(f"[INFO] {len(subs)} run(s) to refresh")
+    by_pipeline = {}
+    for s in subs:
+        by_pipeline.setdefault(s.pipeline, []).append(s)
+
+    print(f"[INFO] {len(subs)} run(s) to refresh: "
+          + ", ".join(f"{p.value} {len(v)}" for p, v in sorted(
+              by_pipeline.items(), key=lambda kv: kv[0].value)))
     if a.dry_run:
         for s in subs:
             has = "deployed" if (s.sample_metadata or {}).get("microscape_viz_url") else "not deployed"
-            print(f"  would refresh {s.slug}  {s.bioproject_accession}  ({has})")
+            print(f"  would refresh {s.slug}  {s.pipeline.value}  {s.bioproject_accession}  ({has})")
         return 0
     if not subs:
         return 0
 
-    dist, sha = build_dist(a.commit)
-    _publish_bundle(dist, sha)
+    # One build per pipeline, not per run. A pipeline whose image will not build
+    # loses its own runs and no others — the rest of the refresh still lands.
+    dists = {}
+    for pipeline in sorted(by_pipeline, key=lambda p: p.value):
+        try:
+            dist, sha = build_dist(VIZ_IMAGE[pipeline], a.commit)
+        except Exception as exc:
+            print(f"[WARN] {pipeline.value}: no bundle ({type(exc).__name__}: {exc}) "
+                  f"— skipping its {len(by_pipeline[pipeline])} run(s)")
+            continue
+        _publish_bundle(pipeline, dist, sha)
+        dists[pipeline] = (dist, sha)
+
+    subs = [s for s in subs if s.pipeline in dists]
     ok = failed = 0
     try:
         async with async_session() as db:
@@ -155,6 +183,7 @@ async def main() -> int:
                 sub = (await db.execute(
                     select(Submission).where(Submission.slug == s.slug))).scalar_one()
                 user = await db.get(User, sub.user_id)
+                dist, sha = dists[sub.pipeline]
                 try:
                     url = await deploy_submission(sub, user, site_source=dist)
                 except Exception as exc:
@@ -175,7 +204,8 @@ async def main() -> int:
                     failed += 1
                     print(f"  {sub.slug}: no url returned")
     finally:
-        shutil.rmtree(dist, ignore_errors=True)
+        for dist, _ in dists.values():
+            shutil.rmtree(dist, ignore_errors=True)
 
     print(f"\n[INFO] refreshed {ok}, failed {failed}")
     return 0 if failed == 0 else 1
