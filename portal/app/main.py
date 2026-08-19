@@ -573,6 +573,11 @@ def _dashboard_extras(submissions, assays=None):
             "error": (s.error_message or "").strip(),
             "assay": _assay_label(facts.get("assays")),
             "asvs": facts.get("n_asvs") or 0,
+            "reads": facts.get("reads") or 0,
+            # Gigabase pairs. A run's size in bases is what says whether a study
+            # is a pilot or a survey, which the read count alone does not: one
+            # study's read is 150 bases and another's is 300.
+            "gbp": round((facts.get("bases") or 0) / 1e9, 2),
         }
     return extras
 

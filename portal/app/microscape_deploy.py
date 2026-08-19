@@ -243,8 +243,38 @@ def _describe_placement(place: str) -> tuple[str, str]:
     return f"{domain} {gene}", f"{domain} {gene.split()[0]} {span}" if span else ""
 
 
-_ASSAY_MEMBERS = ("trimmed/primer_assignment.tsv", "primers", "viz/renorm_stats.json")
+_ASSAY_MEMBERS = ("trimmed/primer_assignment.tsv", "primers",
+                  "viz/renorm_stats.json", "viz/samples.json")
 
+
+def _count(value) -> int:
+    """A count from the archive, which records some of them as text."""
+    try:
+        return int(float(str(value).replace(",", "").strip() or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _sequencing_totals(path: Path) -> dict:
+    """Reads and bases submitted for the run, summed over its samples.
+
+    From what the archive was given rather than what survived it: the size of a
+    study is what was sequenced, and a filter discarding most of it is a fact
+    about the run rather than a smaller study.
+    """
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    rows = data if isinstance(data, list) else data.get("samples") or []
+    reads = sum(_count(r.get("read_count")) for r in rows)
+    bases = sum(_count(r.get("base_count")) for r in rows)
+    # read_count comes from the archive's own metadata and is absent for reads
+    # nobody deposited; what reached the ASV table is then the only figure there is.
+    if not reads:
+        reads = sum(_count(r.get("total_reads")) for r in rows)
+    return {"reads": reads, "bases": bases, "samples": len(rows)}
 
 def assay_facts(slug: str) -> dict | None:
     """Which assays this run's samples were actually assigned to, and its ASV total.
@@ -360,7 +390,8 @@ def assay_facts(slug: str) -> dict | None:
             except (ValueError, AttributeError, TypeError):
                 n_asvs = None
 
-        return {"mtime": mtime, "assays": assays, "n_asvs": n_asvs}
+        totals = _sequencing_totals(tmp / "viz" / "samples.json")
+        return {"mtime": mtime, "assays": assays, "n_asvs": n_asvs, **totals}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

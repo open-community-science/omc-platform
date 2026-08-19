@@ -102,8 +102,8 @@
                     <th data-key="status"   class="sortable">Status</th>
                     <th data-key="runs"     class="sortable num">Runs</th>
                     <th data-key="asvs"     class="sortable num">ASVs</th>
-                    <th data-key="cluster"  class="sortable">Cluster</th>
-                    <th data-key="build"    class="sortable">Build</th>
+                    <th data-key="reads"    class="sortable num">Reads</th>
+                    <th data-key="gbp"      class="sortable num">Gbp</th>
                     <th data-key="created"  class="sortable">Created</th>
                     <th>Results</th>
                     {% if not readonly %}<th class="t-actions"><span class="sr-only">Actions</span></th>{% endif %}
@@ -122,8 +122,8 @@
                     data-runs="{{ x.get('runs') or 0 }}"
                     data-asvs="{{ x.get('asvs') or 0 }}"
                     data-assay="{{ x.get('assay') or '' }}"
-                    data-cluster="{{ x.get('cluster') or '' }}"
-                    data-build="{{ x.get('build') or '' }}">
+                    data-reads="{{ x.get('reads') or 0 }}"
+                    data-gbp="{{ x.get('gbp') or 0 }}">
                     <td class="t-title">
                         <a href="/submissions/{{ sub.slug }}">{{ sub.title or 'Untitled' }}</a>
                         <span class="t-slug">{{ sub.slug }}</span>
@@ -140,13 +140,10 @@
                     </td>
                     <td class="num">{{ x.get('runs') or '—' }}</td>
                     <td class="num">{% if x.get('asvs') %}{{ "{:,}".format(x.get('asvs')) }}{% else %}—{% endif %}</td>
-                    <td>{{ x.get('cluster') or '—' }}</td>
-                    <td class="t-build">
-                        {%- if x.get('build_url') -%}
-                        <a href="{{ x.get('build_url') }}" target="_blank" rel="noopener"
-                           title="The commit this run was built from">{{ x.get('build') }}</a>
-                        {%- else -%}—{%- endif -%}
-                    </td>
+                    {# Reads and bases as submitted, not as they survived the
+                       pipeline: the size of a study is what was sequenced. #}
+                    <td class="num">{% if x.get('reads') %}{{ "{:,}".format(x.get('reads')) }}{% else %}—{% endif %}</td>
+                    <td class="num">{% if x.get('gbp') %}{{ "%.2f"|format(x.get('gbp')) }}{% else %}—{% endif %}</td>
                     <td>{{ sub.created_at.strftime('%Y-%m-%d') }}</td>
                     <td>
                         {% if x.get('viz') %}<a href="{{ x.get('viz') }}" target="_blank" rel="noopener">viz ↗</a>{% else %}—{% endif %}
@@ -231,7 +228,7 @@
     // Which column the table is ordered by. The dropdown orders the cards; a
     // table is read down a column, so it is ordered by clicking one.
     let tableKey = 'created', tableDir = -1;
-    const NUMERIC = new Set(['runs', 'asvs']);
+    const NUMERIC = new Set(['runs', 'asvs', 'reads', 'gbp']);
 
     function matches(el, q, st, pl) {
         const matchQ = !q
