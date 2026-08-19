@@ -7,6 +7,53 @@ set -euo pipefail
 # (IdentityFile ~/.ssh/arbutus.pem). Override with OMC_DEPLOY_REMOTE if needed.
 REMOTE="${OMC_DEPLOY_REMOTE:-arbutus}"
 DEST="/opt/omc-platform"
+DEPLOY_REF="${OMC_DEPLOY_REF:-origin/main}"
+
+# rsync ships the working tree, not HEAD, so a stale or dirty checkout will
+# silently revert whatever landed on the branch since you last pulled. That has
+# already happened once: a deploy from an out-of-date tree took the dashboard
+# list styling and a landing-page CTA back off production for half an hour.
+# Refuse to deploy unless the tree is exactly $DEPLOY_REF.
+if [ "${OMC_DEPLOY_FORCE:-0}" = "1" ]; then
+    echo "--- OMC_DEPLOY_FORCE=1: skipping the up-to-date check ---"
+else
+    echo "--- Checking the tree matches ${DEPLOY_REF} ---"
+    git rev-parse --git-dir >/dev/null 2>&1 || {
+        echo "ERROR: not a git repository — cannot verify what would be deployed." >&2
+        echo "       Set OMC_DEPLOY_FORCE=1 to deploy anyway." >&2
+        exit 1
+    }
+    remote_name="${DEPLOY_REF%%/*}"
+    git fetch --quiet "$remote_name" || {
+        echo "ERROR: could not fetch ${remote_name}; refusing to deploy blind." >&2
+        echo "       Set OMC_DEPLOY_FORCE=1 to deploy anyway." >&2
+        exit 1
+    }
+
+    dirty="$(git status --porcelain)"
+    if [ -n "$dirty" ]; then
+        echo "ERROR: working tree has uncommitted changes:" >&2
+        printf '%s\n' "$dirty" | sed 's/^/         /' >&2
+        echo "       Commit or stash them, or set OMC_DEPLOY_FORCE=1 to deploy as-is." >&2
+        exit 1
+    fi
+
+    head_sha="$(git rev-parse HEAD)"
+    ref_sha="$(git rev-parse "$DEPLOY_REF")"
+    if [ "$head_sha" != "$ref_sha" ]; then
+        echo "ERROR: HEAD is not ${DEPLOY_REF}." >&2
+        echo "         HEAD          $(git rev-parse --short=8 HEAD)  $(git log -1 --format=%s HEAD)" >&2
+        echo "         ${DEPLOY_REF}   $(git rev-parse --short=8 "$DEPLOY_REF")  $(git log -1 --format=%s "$DEPLOY_REF")" >&2
+        behind="$(git rev-list --count "HEAD..${DEPLOY_REF}")"
+        ahead="$(git rev-list --count "${DEPLOY_REF}..HEAD")"
+        echo "       ${behind} commit(s) behind, ${ahead} ahead." >&2
+        [ "$behind" -gt 0 ] && echo "       Deploying now would revert those ${behind} commit(s) on the server." >&2
+        echo "       Run: git checkout main && git pull --ff-only" >&2
+        echo "       Or set OMC_DEPLOY_FORCE=1 to deploy this tree anyway." >&2
+        exit 1
+    fi
+    echo "    OK — $(git rev-parse --short=8 HEAD) matches ${DEPLOY_REF}"
+fi
 
 echo "--- Syncing code ---"
 rsync -az --delete \
