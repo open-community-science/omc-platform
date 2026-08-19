@@ -745,6 +745,12 @@
         </div>
 
         {# ── Step 3: Author Interview & Manuscript ── #}
+        {# Steps 3 to 5 are the authoring workflow: interviewing the author,
+           reviewing what they wrote, publishing it. A reader who does not own
+           the run takes no part in any of it, and the copy is addressed to
+           someone who does — "your results", "your manuscript". Shown to the
+           owner; for everyone else the page ends with the results. #}
+        {% if can_edit %}
         {% set step3_available = has_accession %}
         {% set step3_current = s == 'drafting' %}
         {% set step3_done = s in ['review', 'published'] or has_manuscript or has_draft %}
@@ -876,6 +882,7 @@
             </div>
             {% endif %}
         </div>
+        {% endif %}
 
     </div>
 
