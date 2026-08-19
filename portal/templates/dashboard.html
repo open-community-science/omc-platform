@@ -96,7 +96,6 @@
             <thead>
                 <tr>
                     <th data-key="status"   class="sortable">Status</th>
-                    <th data-key="accession" class="sortable">Accession</th>
                     <th data-key="title"    class="sortable">Title</th>
                     <th data-key="runs"     class="sortable num">Runs</th>
                     <th data-key="gbp"      class="sortable num">Gbp</th>
@@ -127,10 +126,16 @@
                         <span class="status-badge status-{{ sub.status.value }}">{{ sub.status.value|status_label }}</span>
                         {% if x.get('error') %}<span class="t-err" title="{{ x.get('error') }}">!</span>{% endif %}
                     </td>
-                    <td>{{ sub.bioproject_accession or '—' }}</td>
+                    {# The accession names the study and the slug names the run;
+                       with reruns the two are not interchangeable, so both sit
+                       under the title rather than the accession taking a column
+                       of its own. Still searchable through data-accession. #}
                     <td class="t-title">
                         <a href="/submissions/{{ sub.slug }}">{{ sub.title or 'Untitled' }}</a>
-                        <span class="t-slug">{{ sub.slug }}</span>
+                        <span class="t-slug">
+                            {%- if sub.bioproject_accession %}{{ sub.bioproject_accession }} &middot; {% endif -%}
+                            {{ sub.slug }}
+                        </span>
                     </td>
                     <td class="num">{{ x.get('runs') or '—' }}</td>
                     {# Reads and bases as submitted, not as they survived the
