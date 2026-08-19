@@ -1631,11 +1631,21 @@ a.dchip.done:hover { background: rgba(34,197,94,.24); }
 .view-btn + .view-btn { border-left: 1px solid var(--color-border); }
 .view-btn.is-on { background: var(--color-primary); color: #fff; }
 
+/* Eleven columns do not fit a narrow window, and a plain overflow gives no sign
+   that anything is off to the right. The two radial gradients are painted
+   against the viewport (`scroll`) while the two linear ones are painted against
+   the content (`local`), so each shadow is covered exactly when that end is
+   reached: a shadow shows only while there is something past it. */
 .submissions-table-wrap {
     overflow-x: auto;
-    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 0.5rem;
+    background:
+        linear-gradient(to right, var(--color-surface), transparent) left center / 2.5rem 100% no-repeat local,
+        linear-gradient(to left, var(--color-surface), transparent) right center / 2.5rem 100% no-repeat local,
+        radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.22), transparent) left center / 1rem 100% no-repeat scroll,
+        radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.22), transparent) right center / 1rem 100% no-repeat scroll,
+        var(--color-surface);
 }
 
 .submissions-table {
@@ -1683,6 +1693,10 @@ a.dchip.done:hover { background: rgba(34,197,94,.24); }
 }
 
 .submissions-table .t-build { font-family: var(--font-mono); font-size: 0.8125rem; }
+
+/* A study that mixes targets names all of them, which is longer than a column
+   wants to be; it wraps rather than widening the table for every other row. */
+.submissions-table .t-target { white-space: normal; max-width: 14rem; }
 
 .submissions-table .t-err {
     display: inline-block;
