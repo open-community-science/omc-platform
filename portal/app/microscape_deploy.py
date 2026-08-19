@@ -244,15 +244,19 @@ def _extract_site(slug: str, site_source: Path | None = None,
         return None
     site_dir = index.parent
 
-    # Stage the viz payload as the site's data/. The amplicon pipeline writes
-    # its JSONs straight into viz/; the MAG pipelines nest them under viz/data/.
-    # Both flatten to the same place, since the SPA fetches ./data/<name>.
+    # Stage the viz payload as the site's data/, which is where every SPA fetches
+    # from. The amplicon pipeline writes its JSONs straight into viz/; the MAG
+    # pipelines put them in viz/data/ and keep other things — a build tree, the
+    # site they shipped with — alongside. So the payload is viz/data when that
+    # exists and viz itself otherwise, and either way only the files directly in
+    # it: recursing pulls a whole node_modules into data/ one file at a time.
     viz_dir = tmp / "viz"
+    payload = viz_dir / "data" if (viz_dir / "data").is_dir() else viz_dir
     staged = 0
-    if viz_dir.is_dir():
+    if payload.is_dir():
         data_dir = site_dir / "data"
         data_dir.mkdir(exist_ok=True)
-        for f in viz_dir.rglob("*"):
+        for f in payload.iterdir():
             if f.is_file():
                 shutil.copy2(f, data_dir / f.name)
                 staged += 1
