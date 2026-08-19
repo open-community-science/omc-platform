@@ -698,7 +698,13 @@ async def submission_offline_bundle(
         "portal_url": f"{settings.portal_public_url.rstrip('/')}/submissions/{submission.slug}",
     }
 
-    site_dir = _extract_site(slug, run_info=run_info)
+    # The app every deployed run is wearing, if a refresh has published one.
+    # Falling back to the archive's own bundle means an old run downloads as the
+    # app it shipped with, which cannot read its data from a file:// page.
+    bundle = Path(settings.viz_bundle_dir)
+    site_source = bundle if (bundle / "index.html").exists() else None
+
+    site_dir = _extract_site(slug, site_source=site_source, run_info=run_info)
     if site_dir is None:
         raise HTTPException(status_code=404, detail="no published site for this run")
     try:

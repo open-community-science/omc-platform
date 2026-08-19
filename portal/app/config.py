@@ -118,6 +118,11 @@ class Settings(BaseSettings):
     # entirely, so a link from it back to the run has to be absolute and cannot
     # be worked out from the request that built it.
     portal_public_url: str = "https://microbial.opencommunity.science"
+    # The viz bundle omc-refresh-sites.py last published, which is the app every
+    # deployed run is wearing. The offline download pairs it with a run's data,
+    # so a run built months ago downloads as the page people are looking at
+    # rather than the one its archive happens to contain.
+    viz_bundle_dir: str = "/data/viz-bundle/current"
     pipeline_repo_url: str = "https://github.com/rec3141/danaSeq"
     pipeline_base: str = "/home/rec3141/GENICE/danaSeq"
     pipeline_nanopore_assembly: str = "/home/rec3141/GENICE/danaSeq/nanopore_assembly"

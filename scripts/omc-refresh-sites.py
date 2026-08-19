@@ -70,6 +70,33 @@ def build_dist(commit: str, keep: Path | None = None) -> tuple[Path, str]:
     return out, sha
 
 
+def _publish_bundle(dist: Path, sha: str) -> None:
+    """Leave the built bundle where the offline download can find it.
+
+    Every deployed run is wearing this app, so a download built from a run's own
+    archive would hand back a different — usually older — one. Replaced whole
+    via a rename, so a request landing mid-refresh sees one bundle or the other
+    and never half of each.
+    """
+    from app.config import get_settings
+    target = Path(get_settings().viz_bundle_dir)
+    staging = target.with_name(target.name + ".incoming")
+    previous = target.with_name(target.name + ".previous")
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(staging, ignore_errors=True)
+        shutil.copytree(dist, staging)
+        (staging / "BUNDLE_SHA").write_text(f"{sha}\n")
+        shutil.rmtree(previous, ignore_errors=True)
+        if target.exists():
+            target.rename(previous)
+        staging.rename(target)
+        shutil.rmtree(previous, ignore_errors=True)
+        print(f"[INFO] published viz bundle to {target}")
+    except Exception as exc:
+        print(f"[WARN] could not publish viz bundle to {target}: {exc}")
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -120,6 +147,7 @@ async def main() -> int:
         return 0
 
     dist, sha = build_dist(a.commit)
+    _publish_bundle(dist, sha)
     ok = failed = 0
     try:
         async with async_session() as db:
