@@ -19,6 +19,10 @@
 {% set pipeline_done = s in ['results_ready', 'drafting', 'review', 'published'] %}
 {% set pipeline_running = s in ['submitted', 'queued', 'running', 'processing'] %}
 {% set interview_prs = (submission.interview_data or {}).get('_review_prs', []) %}
+{# `can_edit` (from the route) is true only for the run's owner. Every route that
+   changes a run — and every page that opens one for editing — is scoped to the
+   owner, so a viewer reading a public-account run, logged in or not, gets a 404
+   from any of them. Controls that would 404 are not rendered at all. #}
 
 {# The AI Session launcher lives inside the workflow steps (2: explore results,
    3: interview & manuscript) rather than the page header, so it appears where
@@ -28,7 +32,7 @@
    cluster. Editable up to the moment a cluster claims the run — after that the
    data and the job live there. Unpinned runs go to the active cluster. #}
 {% macro cluster_picker() %}
-{% if is_admin(user) %}
+{% if is_admin(user) and can_edit %}
 {% set known = clusters | map(attribute='name') | list %}
 <div class="wf-edit-row" style="border-bottom: none;">
     <label class="wf-edit-label" for="cluster-select">HPC cluster</label>
@@ -57,6 +61,7 @@
     {# ── Header ── #}
     <div class="submission-header">
         <div>
+            {% if can_edit %}
             <h1 class="editable-title" id="title-display" onclick="startEditTitle()">
                 <span class="title-text">{{ submission.title or 'Untitled Submission' }}</span>
                 <span class="edit-hint">edit</span>
@@ -68,6 +73,9 @@
                 <button class="btn btn-primary btn-sm" onclick="saveTitle()">Save</button>
                 <button class="btn btn-secondary btn-sm" onclick="cancelEditTitle()">Cancel</button>
             </div>
+            {% else %}
+            <h1>{{ submission.title or 'Untitled Submission' }}</h1>
+            {% endif %}
             <p class="submission-header-meta">
                 {% if has_accession %}
                 <a href="https://www.ncbi.nlm.nih.gov/bioproject/{{ submission.bioproject_accession }}" target="_blank" class="mono">{{ submission.bioproject_accession }}</a>
@@ -101,14 +109,18 @@
       <span class="dchip pending">Pipeline</span>
       {% endif %}
       {# Manuscript #}
-      {% if has_draft %}
+      {% if has_draft and can_edit %}
       <a class="dchip done" href="/submissions/{{ submission.slug }}/manuscript">✓ Manuscript</a>
+      {% elif has_draft %}
+      <span class="dchip done">✓ Manuscript</span>
       {% else %}
       <span class="dchip pending">Manuscript</span>
       {% endif %}
       {# Autoresearch #}
-      {% if has_autoresearch %}
+      {% if has_autoresearch and can_edit %}
       <a class="dchip done" href="/autoresearch/{{ submission.slug }}/findings">✓ Autoresearch · {{ n_ar_claims }} claim{{ '' if n_ar_claims == 1 else 's' }}</a>
+      {% elif has_autoresearch %}
+      <span class="dchip done">✓ Autoresearch · {{ n_ar_claims }} claim{{ '' if n_ar_claims == 1 else 's' }}</span>
       {% elif has_pipeline_results %}
       <span class="dchip pending">Autoresearch</span>
       {% endif %}
@@ -156,7 +168,10 @@
                 {% endif %}
             </div>
 
-            {% if needs_accession %}
+            {% if needs_accession and not can_edit %}
+            <p class="wf-step-desc">No data is linked to this run yet.</p>
+
+            {% elif needs_accession %}
             <p class="wf-step-desc">Enter any NCBI accession to get started. We'll resolve it to a BioProject and load the metadata.</p>
             <div class="wf-accession-entry">
                 <div class="form-group" style="margin-bottom: 0;">
@@ -180,8 +195,9 @@
                 <div class="wf-edit-field" id="accession-display">
                     <span class="mono">{{ submission.bioproject_accession }}</span>
                     {% if submission.sra_accession %}<span class="text-muted">(entered as {{ submission.sra_accession }})</span>{% endif %}
-                    <button class="btn-inline-edit" onclick="startEditAccession()">change</button>
+                    {% if can_edit %}<button class="btn-inline-edit" onclick="startEditAccession()">change</button>{% endif %}
                 </div>
+                {% if can_edit %}
                 <div class="wf-edit-field" id="accession-form" style="display:none;">
                     <input type="text" id="accession-input" value="{{ submission.sra_accession or submission.bioproject_accession }}"
                            placeholder="e.g., PRJNA123456" class="inline-edit-input"
@@ -190,6 +206,7 @@
                     <button class="btn btn-secondary btn-sm" onclick="cancelEditAccession()">Cancel</button>
                     <span id="accession-status" class="inline-status"></span>
                 </div>
+                {% endif %}
             </div>
 
             {% if has_accession %}
@@ -234,7 +251,7 @@
 
 
 
-            {% if submission.sample_metadata and submission.sample_metadata.get('breakdown') %}
+            {% if can_edit and submission.sample_metadata and submission.sample_metadata.get('breakdown') %}
             <div class="wf-data-selection">
                 <h3 class="wf-section-label">Data Type</h3>
                 <p class="wf-step-desc">Select which data types to include. Types must share the same strategy, source, and layout.</p>
@@ -404,6 +421,9 @@
             </div>
 
             {% if s == 'draft' and has_accession %}
+            {% if not can_edit %}
+            <p class="wf-step-desc">Set up but not yet submitted to Alliance Canada HPC.</p>
+            {% else %}
             <p class="wf-step-desc">Select a pipeline and submit to Alliance Canada HPC for processing.</p>
 
             <div class="wf-edit-row" style="border-bottom: none;">
@@ -421,6 +441,7 @@
             </div>
             {{ cluster_picker() }}
             <div id="pipeline-info" class="pipeline-info-box"></div>
+            {% endif %}
 
             {# Amplicon primers live here, under the pipeline selector, so the box
                only appears once the amplicon pipeline is actually the selection —
@@ -465,7 +486,7 @@
                     <p class="section-hint">No primers set. If you leave these blank, we'll try to identify them from the read data (matching a primer database, then inferring from the read 5′ ends) and use the best guess automatically.</p>
                     {% endif %}
 
-                    {% if submission.status.value in ['draft', 'submitted', 'queued'] %}
+                    {% if can_edit and submission.status.value in ['draft', 'submitted', 'queued'] %}
                     <form action="/submissions/{{ submission.slug }}/primers" method="POST" class="primer-form">
                         {# Reusable set-picker options, cloned by addPrimerRow(). #}
                         {% macro primer_picker() %}
@@ -530,11 +551,13 @@
             </details>
             {% endif %}
 
+            {% if can_edit %}
             <div class="wf-step-actions">
                 <form action="/submissions/{{ submission.slug }}/submit" method="POST" style="display:inline;">
                     <button type="submit" class="btn btn-primary" id="hpc-submit-btn">Submit to HPC</button>
                 </form>
             </div>
+            {% endif %}
 
             {% elif s == 'draft' and not has_accession %}
             <p class="wf-step-desc">Link your data in Step 1 first, then choose a pipeline.</p>
@@ -577,23 +600,58 @@
                    class="btn btn-secondary"
                    title="The full interactive page plus its data, to keep and open offline">Download for offline use</a>
                 {% endif %}
+                {% if can_edit %}
                 <form action="/sessions/{{ submission.slug }}/launch" method="POST" style="display:inline;">
                     <button type="submit" class="btn btn-secondary">
                         {% if has_interview %}Open AI Session{% else %}Start AI Session{% endif %}
                     </button>
                 </form>
+                {% endif %}
             </div>
             {# Claim-grounded autoresearch (issue #29). Belongs with pipeline analysis —
                it explores the pipeline results. Renders nothing unless
                settings.autoresearch_enabled; reuses the page subId / showStatus /
                showPersistentStatus globals. #}
-            {% include "_autoresearch_trigger.html" %}
+            {% if can_edit %}{% include "_autoresearch_trigger.html" %}{% endif %}
             {% if submission.sample_metadata and submission.sample_metadata.get('microscape_viz_url') %}
             <p class="wf-step-desc muted">
                 Interactive amplicon results are live at
                 <a href="{{ submission.sample_metadata.microscape_viz_url }}" target="_blank">{{ submission.sample_metadata.microscape_viz_url }}</a>
             </p>
             {% endif %}
+            {% endif %}
+
+            {# What the run actually trimmed with, per assay, read back from its
+               own results. The "Amplicon primers" box above is what was asked
+               for before the run; on a study that mixes targets, or one whose
+               primers were detected per sample, those are not the same thing.
+               Empty for a pipeline that removes no primers. #}
+            {% if assays %}
+            <details class="wf-details" open>
+                <summary>Assays and primers used</summary>
+                <div class="wf-details-body">
+                    {% for a in assays %}
+                    <h4 class="wf-section-label">
+                        {{ a.gene or 'Unidentified assay' }}{% if a.region %} · {{ a.region }}{% endif %}
+                        {%- if a['set'] %} · {{ a['set'] }}{% endif %}
+                        {%- if a.lineage %} <span class="muted">· {{ a.lineage }}</span>{% endif %}
+                    </h4>
+                    <dl class="wf-meta-grid">
+                        <dt>Forward</dt>
+                        <dd><strong>{{ a.fwd_name }}</strong>{% if a.fwd %} <code>{{ a.fwd }}</code>{% endif %}</dd>
+                        <dt>Reverse</dt>
+                        <dd><strong>{{ a.rev_name }}</strong>{% if a.rev %} <code>{{ a.rev }}</code>{% endif %}</dd>
+                        <dt>Samples</dt>
+                        <dd>{{ a.samples }}{% if a.match_fraction is not none %}
+                            <span class="muted">· {{ (a.match_fraction * 100) | round(1) }}% of reads matched, median across samples</span>
+                            {% endif %}</dd>
+                    </dl>
+                    {% endfor %}
+                    {% if n_asvs %}
+                    <p class="section-hint">{{ "{:,}".format(n_asvs) }} ASVs across the run.</p>
+                    {% endif %}
+                </div>
+            </details>
             {% endif %}
 
             {% if pipeline_versions or submission.image_revision %}
@@ -707,7 +765,7 @@
                 The AI research assistant will guide you through reviewing your results, creating figures, and drafting your manuscript.
             </p>
 
-            {% if step3_state != 'locked' %}
+            {% if step3_state != 'locked' and can_edit %}
             <div class="wf-step-actions">
                 {# Interactive route: the AI session guides the interview + drafting. #}
                 <form action="/sessions/{{ submission.slug }}/launch" method="POST" style="display:inline;">
@@ -761,15 +819,21 @@
             </p>
 
             {% if step4_state != 'locked' %}
+            {# Running reviews is the owner's; the pull requests they open are
+               public on GitHub, so the link stands for any viewer. #}
+            {% if can_edit or submission.github_repo %}
             <div class="wf-step-actions">
+                {% if can_edit %}
                 <button class="btn {% if step4_current %}btn-primary{% elif step4_available %}btn-secondary{% endif %}" onclick="runReviews()">
                     {% if interview_prs %}Re-run AI Reviews{% else %}Run AI Reviews{% endif %}
                 </button>
+                {% endif %}
 
                 {% if submission.github_repo %}
                 <a href="{{ submission.github_repo }}/pulls" target="_blank" class="btn btn-secondary">View PRs on GitHub</a>
                 {% endif %}
             </div>
+            {% endif %}
 
             {% if interview_prs %}
             <div class="wf-review-prs">
@@ -1100,7 +1164,7 @@ async function saveTargetCluster() {
 }
 
 /* ── Data selection (draft only) ── */
-{% if submission.status.value == 'draft' and submission.sample_metadata and submission.sample_metadata.get('breakdown') %}
+{% if can_edit and submission.status.value == 'draft' and submission.sample_metadata and submission.sample_metadata.get('breakdown') %}
 const breakdownData = {{ submission.sample_metadata.breakdown | tojson }};
 const sampleRecords = {{ (submission.sample_metadata.get('sample_records', []) or []) | tojson }};
 const selectedRunsData = {{ (submission.selected_runs or []) | tojson }};

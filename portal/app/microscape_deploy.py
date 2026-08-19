@@ -13,10 +13,12 @@ Flow (portal-side, after results transfer):
 """
 from __future__ import annotations
 
+import csv
 import io
 import json
 import logging
 import shutil
+import statistics
 import subprocess
 import tarfile
 import tempfile
@@ -162,6 +164,148 @@ def diagnose_empty_run(slug: str) -> str:
                 f"came out of the quality filter empty."
             )
         return generic
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def results_archive_mtime(slug: str) -> float | None:
+    """When the run's results archive was last written, or None if there is none.
+
+    A rerun replaces the archive whole, so this is what says that anything read
+    out of it has to be read again. Cheap enough to ask on every page render.
+    """
+    try:
+        return _results_sqsh(slug).stat().st_mtime
+    except OSError:
+        return None
+
+
+def _read_primer_fasta(path: Path) -> dict[str, str]:
+    """name -> sequence for one of the pipeline's small primer FASTAs.
+
+    A name carrying two different sequences is dropped rather than guessed at:
+    the assignment table refers to primers by name only, so there would be
+    nothing left to tell the two apart. `inferred` is the name that repeats,
+    because a de-novo primer has no published name to carry.
+    """
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return {}
+    records: list[list[str]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(">"):
+            records.append([line[1:].split()[0] if line[1:].split() else "", ""])
+        elif records:
+            records[-1][1] += line.upper()
+    by_name: dict[str, set[str]] = {}
+    for name, seq in records:
+        by_name.setdefault(name, set()).add(seq)
+    return {n: next(iter(seqs)) for n, seqs in by_name.items() if len(seqs) == 1}
+
+
+# The only members `assay_facts` needs. Together a few kB, so the extraction
+# costs about as much as opening the archive at all.
+_ASSAY_MEMBERS = ("trimmed/primer_assignment.tsv", "primers", "viz/renorm_stats.json")
+
+
+def assay_facts(slug: str) -> dict | None:
+    """Which assays this run's samples were actually assigned to, and its ASV total.
+
+    Read from the results archive rather than the deployed viz site: the archive
+    is the run's own record, it is where the portal already reads every other
+    result fact from, and it is the only copy that carries primer *sequences* —
+    the deployed `samples.json` names the primers but not the strings cutadapt
+    was given.
+
+      * `trimmed/primer_assignment.tsv` — one row per sample, naming the assay it
+        was trimmed as (gene, region, forward and reverse primer names).
+      * `primers/fwd.fa`, `primers/rev.fa` — what those names stand for.
+      * `viz/renorm_stats.json` — partitions every ASV in the run by lineage
+        group, so its counts sum to the run's ASV total.
+
+    Returns None when there is no archive to read, so a caller can tell "not yet"
+    from `{"assays": [], ...}` — an archive that holds none of this, which is
+    every pipeline that does not remove primers.
+    """
+    sqsh = _results_sqsh(slug)
+    try:
+        mtime = sqsh.stat().st_mtime
+    except OSError:
+        return None
+    tmp = Path(tempfile.mkdtemp(prefix=f"omc-assay-{slug}-"))
+    try:
+        try:
+            subprocess.run(
+                ["unsquashfs", "-f", "-d", str(tmp), str(sqsh), *_ASSAY_MEMBERS],
+                check=True, capture_output=True, timeout=120,
+            )
+        except (subprocess.SubprocessError, FileNotFoundError) as exc:
+            logger.warning("assay facts: cannot read %s: %s", sqsh, exc)
+            return None
+
+        fwd_seqs = _read_primer_fasta(tmp / "primers" / "fwd.fa")
+        rev_seqs = _read_primer_fasta(tmp / "primers" / "rev.fa")
+
+        # One row per sample; a mixed-target study has several distinct assays in
+        # it, so rows are grouped and counted rather than read one by one.
+        groups: dict[tuple, dict] = {}
+        table = tmp / "trimmed" / "primer_assignment.tsv"
+        if table.exists():
+            with open(table, newline="", errors="replace") as fh:
+                for row in csv.DictReader(fh, delimiter="\t"):
+                    # Keyed the way the viz keys it, so the two surfaces of one
+                    # run cannot disagree about how many assays it has. Where the
+                    # amplicon is placed, the placement is the identity and the
+                    # primers are left out of it: reads that arrived pre-trimmed
+                    # have a consensus of amplicon in that field, which differs
+                    # between samples of one assay and splits it into as many
+                    # sets as it has variants. PRJNA779070 has three and shows
+                    # six when keyed on the primers (danaSeq #53).
+                    place = (row.get("assay_set") or "").strip()
+                    key = (
+                        (row.get("assay_gene") or "").strip(),
+                        (row.get("assay_region") or "").strip(),
+                        place,
+                        "" if place else (row.get("assay_primer_fwd") or "").strip(),
+                        "" if place else (row.get("assay_primer_rev") or "").strip(),
+                    )
+                    fwd_name = (row.get("assay_primer_fwd") or "").strip()
+                    rev_name = (row.get("assay_primer_rev") or "").strip()
+                    g = groups.setdefault(key, {
+                        "gene": key[0], "region": key[1], "set": key[2],
+                        "lineage": (row.get("assay_gene_lineage") or "").strip(),
+                        "fwd_name": fwd_name, "fwd": fwd_seqs.get(fwd_name, ""),
+                        "rev_name": rev_name, "rev": rev_seqs.get(rev_name, ""),
+                        "samples": 0, "_matched": [],
+                    })
+                    g["samples"] += 1
+                    try:
+                        g["_matched"].append(float(row["assay_match_fraction"]))
+                    except (KeyError, TypeError, ValueError):
+                        pass
+
+        assays = []
+        for g in sorted(groups.values(), key=lambda g: -g["samples"]):
+            matched = g.pop("_matched")
+            # The median, because one sample that matched badly says less about
+            # the assay than where the middle of the run sits.
+            g["match_fraction"] = round(statistics.median(matched), 4) if matched else None
+            assays.append(g)
+
+        n_asvs = None
+        stats = tmp / "viz" / "renorm_stats.json"
+        if stats.exists():
+            try:
+                groups_json = json.loads(stats.read_text())
+                n_asvs = sum(int(v.get("n_asvs") or 0) for v in groups_json.values())
+            except (ValueError, AttributeError, TypeError):
+                n_asvs = None
+
+        return {"mtime": mtime, "assays": assays, "n_asvs": n_asvs}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

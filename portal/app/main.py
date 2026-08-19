@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import attributes
 from contextlib import asynccontextmanager
 from pathlib import Path
 import asyncio
@@ -143,30 +144,11 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         if key.startswith(f"ena-{user.id}-")
     }
 
-    # Per-run figures the card view has no room for and the list view is for.
-    # Keyed by slug rather than folded into the model, so the cards are untouched.
-    extras = {}
-    for s in submissions:
-        meta = s.sample_metadata or {}
-        runs = sum(len(r.get("run_accessions") or []) for r in (s.selected_runs or []))
-        # image_revision is "<image>=<sha>"; the sha is the half worth showing,
-        # and it is what says which build produced a result.
-        rev = (s.image_revision or "").split("=")[-1]
-        # A bare image name with no "=" is not a revision; only a real sha links.
-        sha = rev if rev and rev != str(s.image_revision) else ""
-        extras[s.slug] = {
-            "runs": runs or (meta.get("num_sra_runs") or 0),
-            "viz": meta.get("microscape_viz_url") or "",
-            "cluster": s.target_cluster or "",
-            "build": sha[:7],
-            "build_url": f"{settings.pipeline_repo_url}/commit/{sha}" if sha else "",
-            "error": (s.error_message or "").strip(),
-        }
-
     return templates.TemplateResponse(
         "dashboard.html",
         {"request": request, "user": user, "submissions": submissions,
-         "extras": extras, "ena_sessions": ena_sessions},
+         "extras": _dashboard_extras(submissions, await _run_assays(submissions, db)),
+         "ena_sessions": ena_sessions},
     )
 
 
@@ -543,14 +525,68 @@ async def _public_user_id(db: AsyncSession):
     return _PUBLIC_UID
 
 
-def _dashboard_extras(submissions):
+async def _run_assays(submissions, db: AsyncSession) -> dict:
+    """Assay + ASV facts per slug, read from each run's results archive.
+
+    Cached under the submission's `sample_metadata["assay_facts"]`, because the
+    archive only changes when the run is rerun and that shows up as a new mtime.
+    A run with no archive yet costs one stat() and is left uncached, so it is
+    picked up as soon as its results land. The read itself is a subprocess, so it
+    goes to a thread rather than stalling the event loop for every other request.
+    """
+    from .microscape_deploy import assay_facts, results_archive_mtime
+
+    facts_by_slug, dirty = {}, False
+    for s in submissions:
+        meta = s.sample_metadata or {}
+        cached = meta.get("assay_facts") or {}
+        mtime = results_archive_mtime(s.slug)
+        if mtime is None or cached.get("mtime") == mtime:
+            facts_by_slug[s.slug] = cached
+            continue
+        facts = await asyncio.to_thread(assay_facts, s.slug)
+        if facts is None:
+            facts_by_slug[s.slug] = cached
+            continue
+        meta = dict(meta)
+        meta["assay_facts"] = facts
+        s.sample_metadata = meta
+        attributes.flag_modified(s, "sample_metadata")
+        facts_by_slug[s.slug] = facts
+        dirty = True
+    if dirty:
+        # Filling the cache is the only write these read-only pages make, and it
+        # is derived data — /public does it for an anonymous visitor too.
+        await db.commit()
+    return facts_by_slug
+
+
+def _assay_label(assays) -> str:
+    """A run's target as a short phrase — "16S rRNA V4", or every target it hit
+    when the study mixes them. Empty when the pipeline recorded no assay, which
+    is every pipeline that does not remove primers.
+    """
+    parts = []
+    for a in assays or []:
+        name = " ".join(x for x in (a.get("gene"), a.get("region")) if x)
+        if name and name not in parts:
+            parts.append(name)
+    return " + ".join(parts)
+
+
+def _dashboard_extras(submissions, assays=None):
     """Per-run figures for the list view. Shared by the dashboard and /public."""
+    assays = assays or {}
     extras = {}
     for s in submissions:
         meta = s.sample_metadata or {}
         runs = sum(len(r.get("run_accessions") or []) for r in (s.selected_runs or []))
+        # image_revision is "<image>=<sha>"; the sha is the half worth showing,
+        # and it is what says which build produced a result.
         rev = (s.image_revision or "").split("=")[-1]
+        # A bare image name with no "=" is not a revision; only a real sha links.
         sha = rev if rev and rev != str(s.image_revision) else ""
+        facts = assays.get(s.slug) or {}
         extras[s.slug] = {
             "runs": runs or (meta.get("num_sra_runs") or 0),
             "viz": meta.get("microscape_viz_url") or "",
@@ -558,6 +594,8 @@ def _dashboard_extras(submissions):
             "build": sha[:7],
             "build_url": f"{settings.pipeline_repo_url}/commit/{sha}" if sha else "",
             "error": (s.error_message or "").strip(),
+            "assay": _assay_label(facts.get("assays")),
+            "asvs": facts.get("n_asvs") or 0,
         }
     return extras
 
@@ -576,7 +614,8 @@ async def public_runs(request: Request, db: AsyncSession = Depends(get_db)):
     return templates.TemplateResponse(
         "dashboard.html",
         {"request": request, "user": await get_current_user(request, db),
-         "submissions": submissions, "extras": _dashboard_extras(submissions),
+         "submissions": submissions,
+         "extras": _dashboard_extras(submissions, await _run_assays(submissions, db)),
          "ena_sessions": {}, "readonly": True,
          "heading": "Public runs"},
     )
@@ -639,11 +678,20 @@ async def submission_detail(
     from .staging import get_cluster_status
     cluster_info = get_cluster_status()
 
+    # What the pipeline actually did, once there are results to read it from.
+    facts = (await _run_assays([submission], db)).get(submission.slug) or {}
+
     return templates.TemplateResponse(
         "submission_detail.html",
         {"request": request, "user": user, "submission": submission,
          "pipeline_versions": pipeline_versions, "known_primers": known_primers,
          "clusters": cluster_info["clusters"], "active_cluster": cluster_info["active"],
+         "assays": facts.get("assays") or [], "n_asvs": facts.get("n_asvs"),
+         # Every route that changes a run is scoped to its owner, so a viewer who
+         # is not the owner — anonymous, or logged in reading a public-account run
+         # — can look but not touch. The page hides what they cannot use rather
+         # than offering controls that 404.
+         "can_edit": bool(user and submission.user_id == user.id),
          # settings is needed by the autoresearch trigger partial (Step 3) to gate
          # itself on settings.autoresearch_enabled.
          "settings": settings},
