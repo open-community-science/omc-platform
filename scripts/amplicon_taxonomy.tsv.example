@@ -18,3 +18,6 @@
 # name	path	ranks
 silva	silva_db/SILVA_138.2_SSURef_NR99.fasta	Domain,Phylum,Class,Order,Family,Genus
 pr2	pr2_db/pr2_version_5.1.1_SSU_dada2.fasta	Domain,Supergroup,Division,Subdivision,Class,Order,Family,Genus,Species
+# SILVA 132 predates the 2021 ICNP renaming, so it says Proteobacteria where
+# 138.2 says Pseudomonadota. Kept for comparison against work that used it.
+silva132	silva_db/silva_nr_v132_train_set.fa	Domain,Phylum,Class,Order,Family,Genus
