@@ -505,6 +505,15 @@ def _extract_site(slug: str, site_source: Path | None = None,
     if not staged:
         logger.warning("no viz/ data in results for %s — site will render empty", slug)
 
+    # What is actually there, so the page can ask for it directly. The loader
+    # otherwise probes for a gzipped copy of everything and falls back, which
+    # costs a 404 per file on every load — nine of them on a run predating the
+    # provenance and manifest files, which are simply absent (danaSeq #28).
+    if staged:
+        names = sorted(f.name for f in data_dir.iterdir() if f.is_file())
+        with open(data_dir / "index.json", "w") as fh:
+            json.dump(names, fh)
+
     if run_info:
         # What the study is called and which BioProject it came from are OMC's
         # to know: the pipeline is handed a directory of reads and never learns
