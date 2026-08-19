@@ -1,0 +1,20 @@
+# Taxonomy references this cluster provides, read at run time by the amplicon
+# job (see _amplicon_ref_db_prelude in portal/app/slurm.py). Install as
+# ${OMC_DB_DIR}/amplicon_taxonomy.tsv.
+#
+# Tab-separated: name, path, ranks.
+#   name   what the run and the viz call this reference
+#   path   absolute, or relative to ${OMC_DB_DIR}
+#   ranks  the rank names this reference uses, comma-separated; blank for the
+#          pipeline's defaults. They belong here because they are a property of
+#          the reference file, and differ between releases — PR2 5.x inserted
+#          Subdivision, which 4.x did not have.
+#
+# Order matters. The first row is the primary reference: renormalization and the
+# ASV-level labels come from it, and the others are carried alongside. A row
+# whose file is not present is skipped with a warning, so this file can list
+# everything the site curates and each cluster contributes what it holds.
+#
+# name	path	ranks
+silva	silva_db/SILVA_138.2_SSURef_NR99.fasta	Domain,Phylum,Class,Order,Family,Genus
+pr2	pr2_db/pr2_version_5.1.1_SSU_dada2.fasta	Domain,Supergroup,Division,Subdivision,Class,Order,Family,Genus,Species

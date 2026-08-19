@@ -134,11 +134,19 @@ class Settings(BaseSettings):
     # Its path is not a setting: slurm.py resolves it under ${OMC_GENICE} like
     # every other component, so one script works on any cluster. A setting here
     # was never read, and disagreed with the path actually used.
-    # amplicon taxonomy reference DB(s), format "name:path:Level1,Level2,...".
-    # REQUIRED for output: the taxonomy → renormalize → BUILD_VIZ branch (which
-    # produces the viz/ folder) is gated on --ref_databases. SILVA SSU covers
-    # 16S + 18S; ITS would need UNITE. `{db}` is substituted with the executing
-    # cluster's ${OMC_DB_DIR} at run time so this is portable across clusters.
+    # Fallback taxonomy reference for a cluster with no registry of its own.
+    #
+    # What a cluster actually has is read at run time from
+    # ${OMC_DB_DIR}/amplicon_taxonomy.tsv (see _amplicon_ref_db_prelude), so
+    # adding PR2 or UNITE is a row on the cluster rather than an edit here. This
+    # is only what a cluster falls back to, in the format that file also uses:
+    # "name:path:Level1,Level2,...", `;`-separated, `{db}` standing in for the
+    # cluster's ${OMC_DB_DIR}.
+    #
+    # Something must resolve: the taxonomy → renormalize → BUILD_VIZ branch that
+    # produces viz/ is gated on --ref_databases, so a run with no reference
+    # produces no site. The first name listed is the primary — it is the one
+    # renormalization and the ASV-level labels come from.
     amplicon_ref_databases: str = (
         "silva:{db}/silva_db/SILVA_138.2_SSURef_NR99.fasta"
         ":Domain,Phylum,Class,Order,Family,Genus"

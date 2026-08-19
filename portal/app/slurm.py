@@ -265,18 +265,16 @@ done
         if submission.pre_trimmed:
             primer_args += ' \\\n    --skip_primer_removal true'
         meta_prelude, meta_args = _amplicon_metadata_prelude(submission)
-        # Taxonomy DB gates the taxonomy → BUILD_VIZ branch that produces viz/.
-        ref_dbs = settings.amplicon_ref_databases.replace("{db}", "${OMC_DB_DIR}")
-        ref_arg = f' \\\n    --ref_databases "{ref_dbs}"' if ref_dbs else ""
-        # Bind the reference DB dir(s) into the container so paths resolve.
-        ref_binds = ""
-        for entry in (ref_dbs.split(";") if ref_dbs else []):
-            parts = entry.split(":")
-            if len(parts) >= 2 and parts[1].strip():
-                import os as _os
-                d = _os.path.dirname(parts[1].strip())
-                if d:
-                    ref_binds += f',"{d}:{d}:ro"'
+        # Which reference databases exist is a property of the cluster, not of
+        # this code: they are curated there, and a cluster that has PR2 and one
+        # that does not must run the same script. So the list is resolved at run
+        # time from a registry the cluster keeps, and the setting below is only
+        # the fallback for a cluster that keeps none.
+        ref_prelude = _amplicon_ref_db_prelude(settings.amplicon_ref_databases)
+        ref_arg = ' \\\n    --ref_databases "${OMC_REF_DBS}"'
+        # One bind for the whole database directory: which paths inside it are
+        # needed is not known until the registry has been read.
+        ref_binds = ',"${OMC_DB_DIR}:${OMC_DB_DIR}:ro"'
         return f"""echo ">>> Illumina amplicon analysis"
 mkdir -p "${{WORK_DIR}}"
 # Match the pipeline's resources to what SLURM actually granted. Its defaults
@@ -284,7 +282,7 @@ mkdir -p "${{WORK_DIR}}"
 # Denoising gets 75% of the job's memory so concurrent Nextflow tasks still fit.
 OMC_CPUS="${{SLURM_CPUS_PER_TASK:-8}}"
 OMC_DENOISE_MEM=$(( ${{OMC_MEM_GB:-16}} * 3 / 4 ))
-{primer_prelude}{meta_prelude}"${{OMC_APPTAINER}}" run \\
+{primer_prelude}{meta_prelude}{ref_prelude}"${{OMC_APPTAINER}}" run \\
     --env CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
     --env SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \\
     --env REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \\
@@ -319,6 +317,52 @@ OMC_DENOISE_MEM=$(( ${{OMC_MEM_GB:-16}} * 3 / 4 ))
         f"Pipeline '{pipeline.value}' is not yet available for HPC submission."
     )
 
+
+# Registry of taxonomy references a cluster provides, read at run time.
+_REF_DB_REGISTRY = "amplicon_taxonomy.tsv"
+
+# Resolves --ref_databases from the registry, with the portal's default as the
+# fallback. `%(default)s` is the only substitution.
+_REF_DB_SHELL = r'''# Reference databases: whatever this cluster says it has.
+OMC_REF_DBS=""
+_omc_reg="${OMC_DB_DIR}/%(registry)s"
+if [ -f "${_omc_reg}" ]; then
+    while IFS=$'\t' read -r _n _p _r || [ -n "${_n}" ]; do
+        case "${_n}" in ""|"#"*) continue ;; esac
+        case "${_p}" in /*) ;; *) _p="${OMC_DB_DIR}/${_p}" ;; esac
+        if [ ! -f "${_p}" ]; then
+            echo "WARN: taxonomy reference ${_n} declared but missing at ${_p} - skipped"
+            continue
+        fi
+        OMC_REF_DBS="${OMC_REF_DBS:+${OMC_REF_DBS};}${_n}:${_p}${_r:+:${_r}}"
+    done < "${_omc_reg}"
+else
+    echo "NOTE: no ${_omc_reg} - falling back to the portal default reference"
+fi
+if [ -z "${OMC_REF_DBS}" ]; then
+    OMC_REF_DBS="%(default)s"
+fi
+echo "Reference databases: ${OMC_REF_DBS}"
+'''
+
+
+def _amplicon_ref_db_prelude(fallback: str) -> str:
+    """Shell that resolves --ref_databases from the cluster's own registry.
+
+    The registry is a TSV in ${OMC_DB_DIR}: name, path (absolute, or relative to
+    that directory), and the rank names the reference uses, comma-separated. A
+    blank rank field means the pipeline's defaults. Comments and blank lines are
+    ignored, and a row whose file is not there is skipped with a warning — which
+    is what lets one script run on a cluster that has PR2 and one that does not.
+
+    Adding a reference is then a row on the cluster rather than a deploy here,
+    and the ranks travel with the reference that defines them instead of being
+    restated in code that cannot check them.
+    """
+    return _REF_DB_SHELL % {
+        "registry": _REF_DB_REGISTRY,
+        "default": fallback.replace("{db}", "${OMC_DB_DIR}"),
+    }
 
 # Memory tiers (GB) available on fir; the OOM-retry in omc-pickup.sh walks up
 # these when a job is OOM-killed.
