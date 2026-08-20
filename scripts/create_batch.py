@@ -31,7 +31,8 @@ sys.path.insert(0, str(PORTAL))
 os.chdir(PORTAL)
 
 from sqlalchemy import select                                   # noqa: E402
-from app.database import async_session, Submission, SubmissionStatus, PipelineType  # noqa: E402
+from app.database import async_session, Submission, SubmissionStatus, PipelineType, User  # noqa: E402
+from app.config import settings                                                 # noqa: E402
 from app.sra_metadata import resolve_to_bioproject, fetch_sample_metadata           # noqa: E402
 from app.submissions import _auto_pipeline, _launch_download                        # noqa: E402
 from sqlalchemy.orm import attributes                                               # noqa: E402
@@ -108,9 +109,26 @@ async def main() -> None:
     ap.add_argument("--accessions", nargs="*", default=[])
     ap.add_argument("--submit", nargs="*", default=[])
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--user-id", type=int, default=1,
-                    help="owning user (default 1)")
+    ap.add_argument("--user-id", type=int, default=None,
+                    help="owning user (default: the public account, so the runs "
+                         "appear on /public)")
     a = ap.parse_args()
+
+    # This script exists to run public BioProjects, and /public lists exactly the
+    # submissions the public account owns. Defaulting to any other account
+    # produces runs that complete, deploy their viz, and appear on no page an
+    # anonymous visitor can reach.
+    if a.user_id is None:
+        async with async_session() as db:
+            row = await db.execute(
+                select(User).where(User.github_login == settings.public_user_login))
+            u = row.scalar_one_or_none()
+        if u is None:
+            print(f"no {settings.public_user_login!r} account exists — pass "
+                  f"--user-id to say who should own these", file=sys.stderr)
+            return
+        a.user_id = u.id
+        print(f"owner: {settings.public_user_login} (user {u.id})")
 
     if a.accessions:
         print(f"resolving {len(a.accessions)} accession(s):")
