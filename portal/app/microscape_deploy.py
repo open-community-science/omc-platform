@@ -269,13 +269,28 @@ def _sequencing_totals(path: Path) -> dict:
     except (OSError, ValueError):
         return {}
     rows = data if isinstance(data, list) else data.get("samples") or []
-    reads = sum(_count(r.get("read_count")) for r in rows)
-    bases = sum(_count(r.get("base_count")) for r in rows)
-    # read_count comes from the archive's own metadata and is absent for reads
-    # nobody deposited; what reached the ASV table is then the only figure there is.
-    if not reads:
-        reads = sum(_count(r.get("total_reads")) for r in rows)
-    return {"reads": reads, "bases": bases, "samples": len(rows)}
+
+    def summed(field):
+        """(total, rows carrying it) — a total is only a total if every row has one."""
+        have = [r for r in rows if r.get(field) is not None]
+        return sum(_count(r.get(field)) for r in have), len(have)
+
+    # read_count and base_count come from the archive's own metadata, and are
+    # absent for reads nobody deposited. Summing what happens to be there gives a
+    # number that looks like the run's size and is not: PRJNA599410 carries
+    # read_count on 2 of its 337 samples, and their 24,354 reads were reported as
+    # the whole study against the 5,644,657 it processed. A partial sum is worse
+    # than the smaller question answered completely, so it is used only when
+    # every sample carries it, and what reached the ASV table is used otherwise.
+    reads, have_reads = summed("read_count")
+    bases, have_bases = summed("base_count")
+    basis = "deposited"
+    if have_reads < len(rows):
+        reads, basis = summed("total_reads")[0], "processed"
+        if have_bases < len(rows):
+            bases = 0
+    return {"reads": reads, "bases": bases, "samples": len(rows),
+            "reads_basis": basis}
 
 def assay_facts(slug: str) -> dict | None:
     """Which assays this run's samples were actually assigned to, and its ASV total.
@@ -362,12 +377,19 @@ def assay_facts(slug: str) -> dict | None:
 
         assays = []
         for g in sorted(groups.values(), key=lambda g: -g["samples"]):
-            # Where the run recorded no gene, its placement carries the same
-            # fact. Runs older than the naming work have only the placement.
-            if not g["gene"] and g["set"]:
-                g["gene"], g["span"] = _describe_placement(g["set"])
-            else:
-                g.setdefault("span", "")
+            # The placement says two things — which gene, and which stretch of
+            # it — and they are needed separately. The gene is only taken from it
+            # when the run recorded none, but the span is the only source of the
+            # coordinates whether or not the gene was named, and without it the
+            # page falls back to printing the placement key itself:
+            # "ecoli_16S@969-1406", which names a reference sequence at a reader
+            # who wants a region.
+            placed_gene, placed_span = (
+                _describe_placement(g["set"]) if g["set"] else ("", ""))
+            if not g["gene"]:
+                g["gene"] = placed_gene
+            if not g.get("span"):
+                g["span"] = placed_span
             # What to call it, in the words the viz uses for the same run: an
             # assay with nothing but a sequence was inferred from the reads
             # rather than unidentifiable, and saying so is the difference
@@ -505,6 +527,20 @@ def _extract_site(slug: str, site_source: Path | None = None,
     if not staged:
         logger.warning("no viz/ data in results for %s — site will render empty", slug)
 
+    if run_info:
+        # What the study is called and which BioProject it came from are OMC's
+        # to know: the pipeline is handed a directory of reads and never learns
+        # the accession. Written at deploy so the page can say whose data this
+        # is without the viewer going back to the portal to find out.
+        #
+        # Before the index below, which lists the directory as it finds it. A
+        # file written after the index is a file the page never asks for, and
+        # the run then has no title, no accession and no registration date on a
+        # tab whose whole subject is where the data came from.
+        (site_dir / "data").mkdir(exist_ok=True)
+        with open(site_dir / "data" / "run_info.json", "w") as fh:
+            json.dump(run_info, fh, indent=2)
+
     # What is actually there, so the page can ask for it directly. The loader
     # otherwise probes for a gzipped copy of everything and falls back, which
     # costs a 404 per file on every load — nine of them on a run predating the
@@ -513,15 +549,6 @@ def _extract_site(slug: str, site_source: Path | None = None,
         names = sorted(f.name for f in data_dir.iterdir() if f.is_file())
         with open(data_dir / "index.json", "w") as fh:
             json.dump(names, fh)
-
-    if run_info:
-        # What the study is called and which BioProject it came from are OMC's
-        # to know: the pipeline is handed a directory of reads and never learns
-        # the accession. Written at deploy so the page can say whose data this
-        # is without the viewer going back to the portal to find out.
-        (site_dir / "data").mkdir(exist_ok=True)
-        with open(site_dir / "data" / "run_info.json", "w") as fh:
-            json.dump(run_info, fh, indent=2)
     return site_dir
 
 

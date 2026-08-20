@@ -629,7 +629,11 @@
                     {% for a in assays %}
                     <h4 class="wf-section-label">
                         {{ a.heading or a.gene or 'unidentified assay' }}{% if a.region %} · {{ a.region }}{% endif %}
-                        {%- if a.span %} · {{ a.span }}{% elif a['set'] %} · {{ a['set'] }}{% endif %}
+                        {# No fallback to a['set']: it is the placement key, and a
+                           reader shown "ecoli_16S@969-1406" learns the name of a
+                           reference sequence rather than the region. Where it can
+                           be read, it is read into a.span above. #}
+                        {%- if a.span %} · {{ a.span }}{% endif %}
                         {%- if a.lineage %} <span class="muted">· {{ a.lineage }}</span>{% endif %}
                     </h4>
                     <dl class="wf-meta-grid">
