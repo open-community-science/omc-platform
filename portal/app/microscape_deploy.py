@@ -213,7 +213,11 @@ def _read_primer_fasta(path: Path) -> dict[str, str]:
 # establishes. Which organism supplied the reference is an implementation detail
 # of the measurement: a placement on E. coli says the assay targets bacteria, not
 # that anyone expects E. coli in the sample.
+# The ecoli_/yeast_ keys are what runs before the references were renamed
+# recorded, and their archives are not rewritten, so both spellings resolve.
 _REFERENCE_GENE = {
+    "bacteria_ssu": ("bacterial", "16S rRNA"),
+    "eukaryota_ssu": ("eukaryotic", "18S rRNA"),
     "ecoli_16S": ("bacterial", "16S rRNA"),
     "yeast_18S": ("eukaryotic", "18S rRNA"),
 }
@@ -228,7 +232,7 @@ def _looks_like_sequence(text: str) -> bool:
 
 
 def _describe_placement(place: str) -> tuple[str, str]:
-    """`ecoli_16S@534-786` as (gene, span) a reader can use.
+    """`bacteria_ssu@534-786` as (gene, span) a reader can use.
 
     A run older than the naming work has no gene recorded but does have this, and
     it says the same thing: the assay is bacterial 16S, running 534 to 786. Left
