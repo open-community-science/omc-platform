@@ -54,7 +54,8 @@
             <div class="submission-info">
                 <h3><a href="/submissions/{{ sub.slug }}">{{ sub.title or 'Untitled' }}</a></h3>
                 <p class="accession">{{ sub.slug }}{% if sub.bioproject_accession %} &middot; {{ sub.bioproject_accession }}{% endif %}{% if sub.pipeline %} &middot; {{ sub.pipeline.value }}{% endif %}</p>
-                <p class="date">Created {{ sub.created_at.strftime('%Y-%m-%d') }}</p>
+                <p class="date">Created {{ sub.created_at.strftime('%Y-%m-%d') }}
+                    <span class="muted">{{ sub.created_at.strftime('%H:%M') }}</span></p>
                 {# ── progress chips: what's been done, at a glance ── #}
                 {% set d = sub.interview_data or {} %}
                 {% set cs = sub.status.value %}
@@ -160,7 +161,11 @@
                             <a href="{{ x.get('viz') }}" target="_blank" rel="noopener">results ↗</a>
                         {%- else -%}—{%- endif -%}
                     </td>
-                    <td>{{ sub.created_at.strftime('%Y-%m-%d') }}</td>
+                    {# Time as well as date: a batch is submitted in one run of a
+                       script, and which of twenty went first is the difference
+                       between two attempts at the same BioProject. #}
+                    <td class="nowrap">{{ sub.created_at.strftime('%Y-%m-%d') }}
+                        <span class="muted">{{ sub.created_at.strftime('%H:%M') }}</span></td>
                     {% if not readonly %}
                     <td class="t-actions">
                         <form action="/submissions/{{ sub.slug }}/delete" method="POST" class="delete-form"

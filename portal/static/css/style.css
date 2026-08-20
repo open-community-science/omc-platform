@@ -1476,6 +1476,7 @@ body {
 }
 
 .muted { color: var(--color-text-muted); }
+.nowrap { white-space: nowrap; }
 
 /* Pipeline × stage matrix */
 .matrix .matrix-col { text-align: center; }

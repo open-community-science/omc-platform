@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import io
+import gzip
 import json
 import logging
 import shutil
@@ -249,6 +250,7 @@ def _describe_placement(place: str) -> tuple[str, str]:
 
 _ASSAY_MEMBERS = ("trimmed/primer_assignment.tsv", "primers",
                   "viz/renorm_stats.json", "viz/samples.json",
+                  "viz/asvs.json", "viz/asvs.json.gz",
                   "viz/data/overview.json")
 
 
@@ -416,6 +418,26 @@ def assay_facts(slug: str) -> dict | None:
                 n_asvs = sum(int(v.get("n_asvs") or 0) for v in groups_json.values())
             except (ValueError, AttributeError, TypeError):
                 n_asvs = None
+        # Renormalisation partitions ASVs by rRNA lineage — chloroplast,
+        # mitochondria, prokaryote — so a run that is not a ribosomal assay
+        # produces {} and sums to nothing. It still has ASVs; the table is the
+        # count. Without this a COI or nifH run reports 0 ASVs beside a link to
+        # the several thousand it found. taxonomy.json is no use as a second
+        # opinion here — it is empty for the same reason.
+        if not n_asvs:
+            for name, opener in (("asvs.json", open),
+                                 ("asvs.json.gz", gzip.open)):
+                path = tmp / "viz" / name
+                if not path.exists():
+                    continue
+                try:
+                    with opener(path, "rt") as fh:
+                        rows = json.load(fh)
+                    if isinstance(rows, list):
+                        n_asvs = len(rows)
+                        break
+                except (OSError, ValueError, TypeError):
+                    pass
 
         totals = _sequencing_totals(tmp / "viz" / "samples.json")
         # What a MAG run produced, counted the way that pipeline counts it. Its
