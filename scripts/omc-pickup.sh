@@ -137,6 +137,11 @@ echo "$(now) heartbeat ${OMC_CLUSTER}: active=${IS_ACTIVE} routing=${CLUSTER_ROU
 OMC_SIF_REFRESH="${OMC_SIF_REFRESH:-true}"
 OMC_SIF_REGISTRY="${OMC_SIF_REGISTRY:-ghcr.io}"
 OMC_SIF_OWNER="${OMC_SIF_OWNER:-rec3141}"
+# Where CI records the digest it promoted. Pinning to that, rather than to
+# whatever :latest happens to resolve to, is what makes a refresh reproducible.
+OMC_SIF_DEPLOY_URL="${OMC_SIF_DEPLOY_URL:-https://raw.githubusercontent.com/rec3141/danaSeq/main/deploy}"
+# Previous images kept per component, for rollback.
+OMC_SIF_KEEP="${OMC_SIF_KEEP:-2}"
 
 _ghcr_digest() {  # $1=repo (owner/name); echoes the :latest manifest digest
     local repo="$1" tok
@@ -156,6 +161,22 @@ _ghcr_digest() {  # $1=repo (owner/name); echoes the :latest manifest digest
       | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest:[[:space:]]*//p' | head -1
 }
 
+_pinned_digest() {  # $1=image (danaseq-<component>); echoes the promoted digest
+    curl -sf --max-time 20 "${OMC_SIF_DEPLOY_URL}/${1}.json" 2>/dev/null \
+      | jq -r '.digest // empty' 2>/dev/null
+}
+
+_want_digest() {  # $1=image $2=repo; the digest this cluster should be running
+    local d
+    d=$(_pinned_digest "$1")
+    if [ -n "$d" ]; then printf '%s pinned' "$d"; return 0; fi
+    # No deploy record (older danaSeq, or raw.githubusercontent unreachable).
+    # Fall back to :latest so a cluster is never stranded by this file alone.
+    d=$(_ghcr_digest "$2") || return 1
+    [ -n "$d" ] || return 1
+    printf '%s latest' "$d"
+}
+
 if [ "$OMC_SIF_REFRESH" = "true" ] && command -v "$OMC_APPTAINER" >/dev/null 2>&1; then
     # Keep the layer cache off $HOME — it is small on some clusters and this
     # unpacks gigabytes.
@@ -167,31 +188,64 @@ if [ "$OMC_SIF_REFRESH" = "true" ] && command -v "$OMC_APPTAINER" >/dev/null 2>&
     for _sif in "${OMC_GENICE}"/danaSeq/*/.danaseq-*.sif; do
         _img=$(basename "$_sif" .sif); _img=${_img#.}          # danaseq-<component>
         _repo="${OMC_SIF_OWNER}/${_img}"
-        _remote=$(_ghcr_digest "$_repo") || continue
-        [ -n "$_remote" ] || continue
-        [ "$_remote" = "$(cat "${_sif}.digest" 2>/dev/null)" ] && continue
+        _dir=$(dirname "$_sif")
+        _store="${_dir}/.sif-store"
 
-        echo "$(now) image ${_img}: registry moved to ${_remote:0:19}… — pulling"
-        # Pull beside it and swap: a job starting mid-pull must never open a
-        # half-written SIF, and one already running keeps its open inode.
-        # Keep the pull's own words. Discarding them turned "mksquashfs was
-        # killed, the job has too little memory" into "pull FAILED", and that
-        # cost four days and 1,451 identical log lines before anyone could see
-        # what was wrong. Still non-fatal — the cycle carries on either way.
-        _pullerr=$(mktemp)
-        if "${OMC_APPTAINER}" pull --force "${_sif}.new" "docker://${OMC_SIF_REGISTRY}/${_repo}:latest" >"$_pullerr" 2>&1 \
-           && [ -s "${_sif}.new" ]; then
-            _was=$("${OMC_APPTAINER}" exec "$_sif" printenv DANASEQ_GIT_SHA 2>/dev/null | tr -d '\r\n')
-            _now=$("${OMC_APPTAINER}" exec "${_sif}.new" printenv DANASEQ_GIT_SHA 2>/dev/null | tr -d '\r\n')
-            mv -f "${_sif}.new" "$_sif" && echo "$_remote" > "${_sif}.digest"
-            echo "$(now) image ${_img}: ${_was:-unknown} -> ${_now:-unknown}"
-        else
-            rm -f "${_sif}.new"
-            echo "$(now) image ${_img}: pull FAILED — keeping the image in place"
-            # The last few lines carry the reason; the rest is progress chatter.
-            sed -e 's/^/    /' "$_pullerr" | tail -5
-        fi
-        rm -f "$_pullerr"
+        # Up to three goes: the target can move while a ~14-minute pull runs, and
+        # on 2026-09-22 it did — the pull that started at 13:31 was superseded at
+        # 13:33 and the cluster sat on the wrong image until the next cycle.
+        # Pinning by digest means the pull is never *wrong*, only behind, so this
+        # just closes the gap sooner.
+        for _try in 1 2 3; do
+            read -r _want _src <<<"$(_want_digest "$_img" "$_repo")" || break
+            [ -n "$_want" ] || break
+            [ "$_want" = "$(cat "${_sif}.digest" 2>/dev/null)" ] && break
+
+            echo "$(now) image ${_img}: want ${_want:0:19}… (${_src}) — pulling"
+            mkdir -p "$_store"
+            _short=${_want#sha256:}; _short=${_short:0:16}
+            _dest="${_store}/${_img}-${_short}.sif"
+
+            # Pull BY DIGEST, not by tag: a digest is immutable, so what lands is
+            # exactly what was asked for even if :latest moves mid-pull.
+            # Keep the pull's own words. Discarding them turned "mksquashfs was
+            # killed, the job has too little memory" into "pull FAILED", and that
+            # cost four days and 1,451 identical log lines before anyone could see
+            # what was wrong. Still non-fatal — the cycle carries on either way.
+            _pullerr=$(mktemp)
+            if "${OMC_APPTAINER}" pull --force "${_dest}.tmp" \
+                 "docker://${OMC_SIF_REGISTRY}/${_repo}@${_want}" >"$_pullerr" 2>&1 \
+               && [ -s "${_dest}.tmp" ]; then
+                _was=$("${OMC_APPTAINER}" exec "$_sif" printenv DANASEQ_GIT_SHA 2>/dev/null | tr -d '\r\n')
+                mv -f "${_dest}.tmp" "$_dest"
+                # Flip the name to the new image. A job already running holds its
+                # own inode, so replacing the directory entry cannot disturb it,
+                # and the previous images stay in .sif-store for rollback.
+                ln -sfn "$(basename "$_store")/$(basename "$_dest")" "$_sif"
+                echo "$_want" > "${_sif}.digest"
+                _now=$("${OMC_APPTAINER}" exec "$_sif" printenv DANASEQ_GIT_SHA 2>/dev/null | tr -d '\r\n')
+                # Read the labels rather than the git SHA alone: the SHA names the
+                # source commit, not the base it was built over, and an image with
+                # a new SHA over an old base is the exact thing that shipped stock
+                # Flye twice. Labels come from the ARG that does the install, so
+                # they cannot disagree with what is inside.
+                _lbl=$("${OMC_APPTAINER}" inspect --json "$_sif" 2>/dev/null \
+                       | jq -r '.data.attributes.labels["danaseq.flye.commit"] // empty' 2>/dev/null)
+                echo "$(now) image ${_img}: ${_was:-unknown} -> ${_now:-unknown}${_lbl:+ (flye ${_lbl})}"
+
+                # Prune old images, newest first, keeping OMC_SIF_KEEP.
+                ls -1t "${_store}/${_img}-"*.sif 2>/dev/null | tail -n +$((OMC_SIF_KEEP + 1)) \
+                  | while read -r _old; do [ "$_old" = "$(readlink -f "$_sif")" ] || rm -f "$_old"; done
+            else
+                rm -f "${_dest}.tmp"
+                echo "$(now) image ${_img}: pull FAILED — keeping the image in place"
+                # The last few lines carry the reason; the rest is progress chatter.
+                sed -e 's/^/    /' "$_pullerr" | tail -5
+                rm -f "$_pullerr"
+                break
+            fi
+            rm -f "$_pullerr"
+        done
     done
     shopt -u nullglob
 fi
