@@ -131,9 +131,10 @@ class Settings(BaseSettings):
     # first 10,000 reads, which on 2026-09-23 switched a whole co-assembly to
     # nano-hq on the strength of one barcode. Submissions carry no chemistry or
     # basecaller metadata, so this is a deliberate portal-wide choice.
-    # nano-raw is the safe direction for unknown or mixed data: on high-quality
-    # reads it costs some efficiency, whereas nano-hq on older raw reads loses
-    # overlaps. Use nano-hq only if everything submitted is R10/SUP.
+    # Flye's criterion is error rate: nano-hq for Guppy5+/Dorado SUP reads under
+    # ~5% error, nano-raw for older reads up to ~20%. nano-raw is the safe
+    # default for unknown submissions: on high-quality reads it costs some
+    # efficiency, whereas nano-hq on older raw reads loses overlaps.
     nanopore_read_type: str = "nano-raw"
     pipeline_illumina_assembly: str = "/home/rec3141/GENICE/danaSeq/illumina_assembly"
     pipeline_mag_analysis: str = "/home/rec3141/GENICE/danaSeq/mag_analysis"
