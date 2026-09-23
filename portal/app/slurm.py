@@ -202,7 +202,8 @@ def _build_pipeline_cmd(submission: Submission) -> str:
 echo ">>> Step 1/2: nanopore assembly"
 "{nano}/run-nanopore-assembly.sh" --container \\
     --input "${{INPUT_DIR}}/fastq" \\
-    --outdir "$ASM"
+    --outdir "$ASM" \\
+    --read_type "{settings.nanopore_read_type}"
 echo ">>> Step 2/2: MAG analysis"
 "{mag}/run-mag-analysis.sh" --container \\
     --assembly "$ASM/assembly/assembly.fasta" \\

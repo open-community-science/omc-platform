@@ -126,6 +126,15 @@ class Settings(BaseSettings):
     pipeline_repo_url: str = "https://github.com/rec3141/danaSeq"
     pipeline_base: str = "/home/rec3141/GENICE/danaSeq"
     pipeline_nanopore_assembly: str = "/home/rec3141/GENICE/danaSeq/nanopore_assembly"
+    # Flye read mode for portal nanopore co-assemblies: nano-raw, nano-hq or
+    # nano-corr. danaSeq requires it (362c9c4) rather than guessing from the
+    # first 10,000 reads, which on 2026-09-23 switched a whole co-assembly to
+    # nano-hq on the strength of one barcode. Submissions carry no chemistry or
+    # basecaller metadata, so this is a deliberate portal-wide choice.
+    # nano-raw is the safe direction for unknown or mixed data: on high-quality
+    # reads it costs some efficiency, whereas nano-hq on older raw reads loses
+    # overlaps. Use nano-hq only if everything submitted is R10/SUP.
+    nanopore_read_type: str = "nano-raw"
     pipeline_illumina_assembly: str = "/home/rec3141/GENICE/danaSeq/illumina_assembly"
     pipeline_mag_analysis: str = "/home/rec3141/GENICE/danaSeq/mag_analysis"
     # The amplicon stage ships as a self-contained SIF (pipeline code baked into
