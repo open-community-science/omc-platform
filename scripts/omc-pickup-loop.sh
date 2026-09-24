@@ -4,10 +4,10 @@
 #SBATCH --time=7-00:00:00
 #SBATCH --cpus-per-task=1
 # 1G is right for a polling loop and wrong for one that occasionally builds a
-# SIF. `singularity pull` converts the OCI layers with mksquashfs, which peaks at
-# ~2.75 GB for the amplicon image; under a 1G cgroup it was killed mid-build every
-# cycle for four days while the log said only "pull FAILED".
-#SBATCH --mem=6G
+# SIF: `singularity pull` converts the OCI layers with mksquashfs, whose peak
+# grows with the image. 16G covers the 6.5 GB mag-analysis image on grex's
+# SingularityCE, which is killed at 6G.
+#SBATCH --mem=16G
 #SBATCH --output=/home/rec3141/scratch/omc-pickup.log
 #SBATCH --error=/home/rec3141/scratch/omc-pickup.log
 
