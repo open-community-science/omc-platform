@@ -193,6 +193,11 @@ _pinned_digest() {  # $1=image (danaseq-<component>); echoes the promoted digest
       | jq -r '.digest // empty' 2>/dev/null
 }
 
+_pinned_sif() {  # $1=image; echoes "<oras ref> <sha256>" when CI published a SIF
+    curl -sf --max-time 20 "${OMC_SIF_DEPLOY_URL}/${1}.json" 2>/dev/null \
+      | jq -r 'if (.sif // "") != "" and (.sif_sha256 // "") != "" then "\(.sif) \(.sif_sha256)" else empty end' 2>/dev/null
+}
+
 _want_digest() {  # $1=image $2=repo; the digest this cluster should be running
     local d
     d=$(_pinned_digest "$1")
@@ -241,7 +246,21 @@ if [ "$OMC_SIF_REFRESH" = "true" ] && command -v "$OMC_APPTAINER" >/dev/null 2>&
             # what was wrong. Still non-fatal — the cycle carries on either way.
             # On shared storage: in job mode the pull writes it from another node.
             _pullerr=$(mktemp -p "${OMC_SCRATCH}" .sif-pull.XXXXXX)
-            if _sif_pull "${_dest}.tmp" "docker://${OMC_SIF_REGISTRY}/${_repo}@${_want}" "$_pullerr" \
+            # A SIF that CI already built is a plain download (no mksquashfs
+            # here), checked against the recorded sha256. Only when there is
+            # none, or it fails, is the image converted on this cluster.
+            _got=false
+            if [ "$_src" = "pinned" ] && read -r _sifref _sifsha <<<"$(_pinned_sif "$_img")" && [ -n "$_sifref" ]; then
+                if "${OMC_APPTAINER}" pull --force "${_dest}.tmp" "$_sifref" >"$_pullerr" 2>&1 \
+                   && [ "$(sha256sum "${_dest}.tmp" | cut -d' ' -f1)" = "$_sifsha" ]; then
+                    _got=true
+                    echo "$(now) image ${_img}: downloaded prebuilt SIF ${_sifref##*:} (sha256 ok)"
+                else
+                    echo "$(now) image ${_img}: prebuilt SIF failed or checksum mismatch — converting the image instead"
+                    rm -f "${_dest}.tmp"
+                fi
+            fi
+            if { $_got || _sif_pull "${_dest}.tmp" "docker://${OMC_SIF_REGISTRY}/${_repo}@${_want}" "$_pullerr"; } \
                && [ -s "${_dest}.tmp" ]; then
                 _was=$("${OMC_APPTAINER}" exec "$_sif" printenv DANASEQ_GIT_SHA 2>/dev/null | tr -d '\r\n')
                 mv -f "${_dest}.tmp" "$_dest"
