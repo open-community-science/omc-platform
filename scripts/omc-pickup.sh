@@ -142,6 +142,33 @@ OMC_SIF_OWNER="${OMC_SIF_OWNER:-rec3141}"
 OMC_SIF_DEPLOY_URL="${OMC_SIF_DEPLOY_URL:-https://raw.githubusercontent.com/rec3141/danaSeq/main/deploy}"
 # Previous images kept per component, for rollback.
 OMC_SIF_KEEP="${OMC_SIF_KEEP:-2}"
+# Where a SIF gets built. "inline" pulls inside this loop's own job. "job" runs
+# each pull as a short Slurm job of its own and waits for it: mksquashfs sizes
+# its caches from the node's physical memory, not the job's limit, so on some
+# clusters a large image is killed inside the loop's small allocation (grex,
+# SingularityCE 4.4, where pull cannot pass mksquashfs options). The burst job
+# holds the memory for one pull instead of the loop holding it for a week.
+OMC_SIF_PULL_MODE="${OMC_SIF_PULL_MODE:-inline}"
+OMC_SIF_PULL_MEM="${OMC_SIF_PULL_MEM:-64G}"
+OMC_SIF_PULL_CPUS="${OMC_SIF_PULL_CPUS:-4}"
+OMC_SIF_PULL_TIME="${OMC_SIF_PULL_TIME:-02:00:00}"
+OMC_SIF_PULL_PARTITION="${OMC_SIF_PULL_PARTITION:-}"
+
+_sif_pull() {  # $1=destination .sif  $2=docker:// ref  $3=file for the pull's own output
+    if [ "$OMC_SIF_PULL_MODE" = "job" ] && command -v sbatch >/dev/null 2>&1; then
+        local part=()
+        [ -n "$OMC_SIF_PULL_PARTITION" ] && part=(--partition="$OMC_SIF_PULL_PARTITION")
+        # --wait returns the job's exit code; --export=ALL carries the cache
+        # and tmp settings above into it.
+        sbatch "${SBATCH_ACCT[@]}" "${part[@]}" --wait --quiet --export=ALL \
+            --job-name=omc-sif-pull --mem="$OMC_SIF_PULL_MEM" \
+            --cpus-per-task="$OMC_SIF_PULL_CPUS" --time="$OMC_SIF_PULL_TIME" \
+            --output="$3" \
+            --wrap="$(printf '%q ' "$OMC_APPTAINER" pull --force "$1" "$2")"
+    else
+        "$OMC_APPTAINER" pull --force "$1" "$2" >"$3" 2>&1
+    fi
+}
 
 _ghcr_digest() {  # $1=repo (owner/name); echoes the :latest manifest digest
     local repo="$1" tok
@@ -164,6 +191,11 @@ _ghcr_digest() {  # $1=repo (owner/name); echoes the :latest manifest digest
 _pinned_digest() {  # $1=image (danaseq-<component>); echoes the promoted digest
     curl -sf --max-time 20 "${OMC_SIF_DEPLOY_URL}/${1}.json" 2>/dev/null \
       | jq -r '.digest // empty' 2>/dev/null
+}
+
+_pinned_sif() {  # $1=image; echoes "<oras ref> <sha256>" when CI published a SIF
+    curl -sf --max-time 20 "${OMC_SIF_DEPLOY_URL}/${1}.json" 2>/dev/null \
+      | jq -r 'if (.sif // "") != "" and (.sif_sha256 // "") != "" then "\(.sif) \(.sif_sha256)" else empty end' 2>/dev/null
 }
 
 _want_digest() {  # $1=image $2=repo; the digest this cluster should be running
@@ -212,9 +244,23 @@ if [ "$OMC_SIF_REFRESH" = "true" ] && command -v "$OMC_APPTAINER" >/dev/null 2>&
             # killed, the job has too little memory" into "pull FAILED", and that
             # cost four days and 1,451 identical log lines before anyone could see
             # what was wrong. Still non-fatal — the cycle carries on either way.
-            _pullerr=$(mktemp)
-            if "${OMC_APPTAINER}" pull --force "${_dest}.tmp" \
-                 "docker://${OMC_SIF_REGISTRY}/${_repo}@${_want}" >"$_pullerr" 2>&1 \
+            # On shared storage: in job mode the pull writes it from another node.
+            _pullerr=$(mktemp -p "${OMC_SCRATCH}" .sif-pull.XXXXXX)
+            # A SIF that CI already built is a plain download (no mksquashfs
+            # here), checked against the recorded sha256. Only when there is
+            # none, or it fails, is the image converted on this cluster.
+            _got=false
+            if [ "$_src" = "pinned" ] && read -r _sifref _sifsha <<<"$(_pinned_sif "$_img")" && [ -n "$_sifref" ]; then
+                if "${OMC_APPTAINER}" pull --force "${_dest}.tmp" "$_sifref" >"$_pullerr" 2>&1 \
+                   && [ "$(sha256sum "${_dest}.tmp" | cut -d' ' -f1)" = "$_sifsha" ]; then
+                    _got=true
+                    echo "$(now) image ${_img}: downloaded prebuilt SIF ${_sifref##*:} (sha256 ok)"
+                else
+                    echo "$(now) image ${_img}: prebuilt SIF failed or checksum mismatch — converting the image instead"
+                    rm -f "${_dest}.tmp"
+                fi
+            fi
+            if { $_got || _sif_pull "${_dest}.tmp" "docker://${OMC_SIF_REGISTRY}/${_repo}@${_want}" "$_pullerr"; } \
                && [ -s "${_dest}.tmp" ]; then
                 _was=$("${OMC_APPTAINER}" exec "$_sif" printenv DANASEQ_GIT_SHA 2>/dev/null | tr -d '\r\n')
                 mv -f "${_dest}.tmp" "$_dest"
