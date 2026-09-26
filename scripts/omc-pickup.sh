@@ -119,6 +119,73 @@ if [ -n "$HB_RESP" ]; then
 fi
 echo "$(now) heartbeat ${OMC_CLUSTER}: active=${IS_ACTIVE} routing=${CLUSTER_ROUTING} (running=$HB_RUN pending=$HB_PEND)"
 
+# ── Keep the checkouts current ───────────────────────────────────────────
+# The pipelines run inside the images refreshed below, but the launcher that
+# starts each one — danaSeq's run-*.sh, which picks the SIF, builds the bind
+# mounts and turns Nextflow's exit into the job's — runs on the host from the
+# danaSeq checkout. Refreshing the images alone leaves that half on whatever was
+# last pulled by hand, so a launcher fix never reaches the cluster. The same
+# holds for this script: omc-platform is refreshed too, and the loop runs the
+# new omc-pickup.sh from the next cycle (omc-pickup-loop.sh itself only from
+# the next loop job).
+#
+# Fast-forward only, and only on the tracked branch. Git refuses a merge that
+# would overwrite a local edit, so an edited checkout is left alone and the
+# refusal logged; a checkout on another branch, or with local commits, is never
+# moved. A job already running keeps the script it started with: git replaces
+# files rather than rewriting them, so bash's open file is not disturbed.
+#
+# Set OMC_CODE_REFRESH=false to pin a cluster to what it has — for the same
+# reason as OMC_SIF_REFRESH below, while a batch is in flight.
+OMC_CODE_REFRESH="${OMC_CODE_REFRESH:-true}"
+OMC_CODE_BRANCH="${OMC_CODE_BRANCH:-main}"
+# Checkouts under OMC_GENICE to refresh.
+OMC_CODE_REPOS="${OMC_CODE_REPOS:-danaSeq omc-platform}"
+
+_code_refresh() {  # $1=checkout dir
+    local repo="$1" name head want br out state
+    name=$(basename "$repo")
+    git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || return 0
+    br=$(git -C "$repo" symbolic-ref --short -q HEAD)
+    [ "$br" = "$OMC_CODE_BRANCH" ] || return 0
+    # One small request per cycle; fetch only when the remote has moved.
+    want=$(timeout 60 git -C "$repo" ls-remote origin "refs/heads/${OMC_CODE_BRANCH}" 2>/dev/null | cut -f1)
+    [ -n "$want" ] || return 0
+    head=$(git -C "$repo" rev-parse HEAD)
+    [ "$want" = "$head" ] && return 0
+
+    # A refusal repeats every cycle until someone clears it, so it is retried
+    # every cycle but logged once per upstream commit.
+    state="${OMC_SCRATCH}/.omc-code-refresh.${name}"
+    _code_refused() {  # $1=message $2=git's own words (optional)
+        [ "$(cat "$state" 2>/dev/null)" = "$want" ] && return 0
+        echo "$(now) code ${name}: $1"
+        [ -n "${2:-}" ] && printf '%s\n' "$2" | sed -e 's/^/    /' | head -8
+        echo "$want" > "$state"
+    }
+
+    if ! timeout 300 git -C "$repo" fetch --quiet origin "$OMC_CODE_BRANCH" 2>/dev/null; then
+        echo "$(now) code ${name}: fetch FAILED — keeping ${head:0:7}"
+        return 0
+    fi
+    if ! git -C "$repo" merge-base --is-ancestor HEAD FETCH_HEAD; then
+        _code_refused "${OMC_CODE_BRANCH} has local commits not on origin — not updating ${head:0:7}"
+        return 0
+    fi
+    if out=$(git -C "$repo" merge --ff-only --quiet FETCH_HEAD 2>&1); then
+        echo "$(now) code ${name}: ${head:0:7} -> $(git -C "$repo" rev-parse --short HEAD)"
+        rm -f "$state"
+    else
+        _code_refused "update to ${want:0:7} refused — keeping ${head:0:7}" "$out"
+    fi
+}
+
+if [ "$OMC_CODE_REFRESH" = "true" ] && command -v git >/dev/null 2>&1; then
+    for _repo in $OMC_CODE_REPOS; do
+        _code_refresh "${OMC_GENICE}/${_repo}"
+    done
+fi
+
 # ── Keep the container images current ────────────────────────────────────
 # danaSeq images are rebuilt on push to main and republished as :latest, so a
 # cluster that never re-pulls runs whatever it happened to fetch once. That is
