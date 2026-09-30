@@ -33,6 +33,7 @@ class _Sub:
     sample_metadata = {}
     interview_data = {}
     primers = {}
+    pre_trimmed = False
     slurm_job_id = None
 
     def __init__(self, pipeline):
