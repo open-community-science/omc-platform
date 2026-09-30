@@ -209,6 +209,12 @@ OMC_SIF_OWNER="${OMC_SIF_OWNER:-rec3141}"
 OMC_SIF_DEPLOY_URL="${OMC_SIF_DEPLOY_URL:-https://raw.githubusercontent.com/rec3141/danaSeq/main/deploy}"
 # Previous images kept per component, for rollback.
 OMC_SIF_KEEP="${OMC_SIF_KEEP:-2}"
+# GPU variants. danaSeq publishes some components a second time with CUDA
+# PyTorch (danaseq-mag-analysis-gpu). With "auto" such an image is added
+# beside its CPU one when this cluster has GPU nodes and CI has a deploy
+# record for it; after that it refreshes like any other. A cluster without
+# GPUs never downloads it. true/false force it on or off.
+OMC_SIF_GPU="${OMC_SIF_GPU:-auto}"
 # Where a SIF gets built. "inline" pulls inside this loop's own job. "job" runs
 # each pull as a short Slurm job of its own and waits for it: mksquashfs sizes
 # its caches from the node's physical memory, not the job's limit, so on some
@@ -284,6 +290,23 @@ if [ "$OMC_SIF_REFRESH" = "true" ] && command -v "$OMC_APPTAINER" >/dev/null 2>&
     mkdir -p "$SINGULARITY_CACHEDIR" 2>/dev/null
 
     shopt -s nullglob
+
+    # Add missing GPU variants as a link to nothing: the loop below sees a SIF
+    # with no digest and pulls it, and until then the launcher finds no file
+    # and runs on the CPU image.
+    if [ "$OMC_SIF_GPU" = true ] \
+       || { [ "$OMC_SIF_GPU" = auto ] && sinfo -h -o %G 2>/dev/null | grep -q gpu; }; then
+        for _sif in "${OMC_GENICE}"/danaSeq/*/.danaseq-*.sif; do
+            case "$_sif" in *-gpu.sif) continue ;; esac
+            _gpu="${_sif%.sif}-gpu.sif"
+            { [ -e "$_gpu" ] || [ -L "$_gpu" ]; } && continue
+            _img=$(basename "$_gpu" .sif); _img=${_img#.}
+            [ -n "$(_pinned_digest "$_img")" ] || continue
+            echo "$(now) image ${_img}: this cluster has GPUs and CI publishes it — adding it"
+            ln -s .sif-store/pending "$_gpu"
+        done
+    fi
+
     for _sif in "${OMC_GENICE}"/danaSeq/*/.danaseq-*.sif; do
         _img=$(basename "$_sif" .sif); _img=${_img#.}          # danaseq-<component>
         _repo="${OMC_SIF_OWNER}/${_img}"
@@ -346,8 +369,12 @@ if [ "$OMC_SIF_REFRESH" = "true" ] && command -v "$OMC_APPTAINER" >/dev/null 2>&
                        | jq -r '.data.attributes.labels["danaseq.flye.commit"] // empty' 2>/dev/null)
                 echo "$(now) image ${_img}: ${_was:-unknown} -> ${_now:-unknown}${_lbl:+ (flye ${_lbl})}"
 
-                # Prune old images, newest first, keeping OMC_SIF_KEEP.
-                ls -1t "${_store}/${_img}-"*.sif 2>/dev/null | tail -n +$((OMC_SIF_KEEP + 1)) \
+                # Prune old images, newest first, keeping OMC_SIF_KEEP. Match the
+                # 16-hex digest suffix exactly: a looser "${_img}-*" also matches
+                # another component's files (danaseq-mag-analysis-gpu-*).
+                _hex='[0-9a-f]'
+                ls -1t "${_store}/${_img}-"$_hex$_hex$_hex$_hex$_hex$_hex$_hex$_hex$_hex$_hex$_hex$_hex$_hex$_hex$_hex$_hex.sif 2>/dev/null \
+                  | tail -n +$((OMC_SIF_KEEP + 1)) \
                   | while read -r _old; do [ "$_old" = "$(readlink -f "$_sif")" ] || rm -f "$_old"; done
             else
                 rm -f "${_dest}.tmp"
