@@ -103,9 +103,40 @@ IS_ACTIVE=true
 CLUSTER_ROUTING=false
 HB_RUN=$(squeue -h -u "$USER" -t RUNNING -o '%j' 2>/dev/null | grep -cvE '^omc-pickup')
 HB_PEND=$(squeue -h -u "$USER" -t PENDING -o '%j' 2>/dev/null | grep -cvE '^omc-pickup')
+# Optional site health check (OMC_HEALTH_CHECK in cluster.env): an executable
+# that prints one "ALERT ..." line per problem and nothing when healthy, given
+# the time of its previous run as $1. It runs at most every
+# OMC_HEALTH_INTERVAL seconds; changed alerts are logged here, and the latest
+# set rides in the heartbeat note, which the portal's admin page shows.
+HB_NOTE=""
+if [ -n "${OMC_HEALTH_CHECK:-}" ]; then
+    _hdir="$HOME/.cache/omc"; mkdir -p "$_hdir"
+    _hlast="$_hdir/health.last"; _hout="$_hdir/health.out"
+    _hnow=$(date +%s)
+    _hprev=$(stat -c %Y "$_hlast" 2>/dev/null || echo $((_hnow - 7200)))
+    if [ ! -x "$OMC_HEALTH_CHECK" ]; then
+        HB_NOTE="health check not executable: $OMC_HEALTH_CHECK"
+    elif [ ! -f "$_hlast" ] || [ $((_hnow - _hprev)) -ge "${OMC_HEALTH_INTERVAL:-1800}" ]; then
+        _hnew=$(timeout 300 "$OMC_HEALTH_CHECK" "$(date -d "@$_hprev" +%Y-%m-%dT%H:%M)" 2>&1 | grep '^ALERT' || true)
+        if [ "$_hnew" != "$(cat "$_hout" 2>/dev/null)" ]; then
+            if [ -n "$_hnew" ]; then
+                echo "$_hnew" | sed "s/^/$(now) health: /"
+            else
+                echo "$(now) health: all clear"
+            fi
+        fi
+        printf '%s' "$_hnew" > "$_hout"
+        touch "$_hlast"
+    fi
+    if [ -z "$HB_NOTE" ] && [ -s "$_hout" ]; then
+        _hn=$(grep -c '^ALERT' "$_hout")
+        HB_NOTE="${_hn} alert(s): $(sed 's/^ALERT //' "$_hout" | head -3 | paste -sd ';' | cut -c1-300)"
+    fi
+fi
 HB_BODY=$(jq -nc --arg c "$OMC_CLUSTER" --arg h "$(hostname -s 2>/dev/null || echo '')" \
     --argjson r "${HB_RUN:-0}" --argjson p "${HB_PEND:-0}" --arg j "${SLURM_JOB_ID:-}" \
-    '{cluster:$c,hostname:$h,running:$r,pending:$p,loop_job:$j}' 2>/dev/null)
+    --arg n "$HB_NOTE" \
+    '{cluster:$c,hostname:$h,running:$r,pending:$p,loop_job:$j,note:$n}' 2>/dev/null)
 HB_RESP=$(curl -sf --max-time 20 -X POST "${STAGING_API}/cluster/heartbeat" \
     -H "$AUTH_HEADER" -H "Content-Type: application/json" --data-raw "$HB_BODY" 2>/dev/null)
 # NOTE: do NOT use jq's `.is_active // true` — `//` yields the RHS when the LHS is
