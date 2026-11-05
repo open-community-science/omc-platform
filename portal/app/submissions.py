@@ -131,28 +131,45 @@ async def _link_accessions(accs: list[str]) -> tuple[list[dict], list[str]]:
     return list(groups.values()), unresolved
 
 
-def _apply_group(submission: Submission, g: dict, raw_input: str | None = None) -> None:
-    """Point a draft submission at one BioProject group (metadata, title,
-    pipeline, pre-selected runs)."""
-    metadata = g["metadata"]
-    bp = g["bioproject"]
-    entered = [a for a in g["entered"] if a != bp]
-    submission.bioproject_accession = bp
+def _apply_projects(submission: Submission, groups: list[dict], raw_input: str | None = None) -> None:
+    """Point a draft submission at one or more BioProject groups from
+    _link_accessions: merged metadata, title, pipeline, pre-selected runs."""
+    from .sra_metadata import merge_project_metadata
+
+    accessions = [g["bioproject"] for g in groups]
+    metadata = merge_project_metadata([g["metadata"] for g in groups])
+    entered = [a for g in groups for a in g["entered"] if a not in accessions]
+    # Named runs pre-select. A project entered alongside named runs from another
+    # project keeps every run it has; otherwise "PRJNA1 SRR_from_PRJEB2" would
+    # silently drop all of PRJNA1 from the selection and the download.
+    runs: list[str] = []
+    if any(g["runs"] for g in groups):
+        for g in groups:
+            group_runs = g["runs"] or [
+                r for row in (g["metadata"].get("breakdown") or [])
+                for r in (row.get("run_accessions") or [])]
+            for r in group_runs:
+                if r not in runs:
+                    runs.append(r)
+
+    submission.bioproject_accession = accessions[0]
+    submission.bioproject_accessions = accessions
     submission.sra_accession = summarize(entered) or None
     submission.sample_metadata = metadata
     submission.title = (
-        metadata.get("study_title") or metadata.get("title") or f"Analysis of {bp}"
+        metadata.get("study_title") or metadata.get("title")
+        or f"Analysis of {', '.join(accessions)}"
     )
     breakdown = metadata.get("breakdown", []) or []
     interview_data = dict(submission.interview_data or {})
     interview_data.pop("_linked_siblings", None)
     if raw_input is not None:
         interview_data["_accession_input"] = raw_input
-    if g["runs"]:
-        wanted = set(g["runs"])
+    if runs:
+        wanted = set(runs)
         rows = [row for row in breakdown if wanted & set(row.get("run_accessions") or [])]
         submission.selected_runs = rows or None
-        interview_data["_selected_run_accessions"] = list(g["runs"])
+        interview_data["_selected_run_accessions"] = runs
         submission.pipeline = _auto_pipeline(rows or breakdown)
     else:
         # Project-level input: start with nothing selected, user picks data types.
@@ -160,9 +177,8 @@ def _apply_group(submission: Submission, g: dict, raw_input: str | None = None) 
         interview_data.pop("_selected_run_accessions", None)
         submission.pipeline = _auto_pipeline(breakdown)
     submission.interview_data = interview_data
-    attributes.flag_modified(submission, "interview_data")
-    attributes.flag_modified(submission, "sample_metadata")
-    attributes.flag_modified(submission, "selected_runs")
+    for col in ("interview_data", "sample_metadata", "selected_runs", "bioproject_accessions"):
+        attributes.flag_modified(submission, col)
 
 
 @router.post("/create")
@@ -566,27 +582,12 @@ async def update_submission(
             if not groups:
                 return JSONResponse({"error": "No accessions given"}, status_code=400)
 
-            # One submission covers one BioProject. The first project goes into
-            # this submission; every further project gets a draft of its own.
-            _apply_group(submission, groups[0], raw_input=raw.strip())
-            linked = [{"slug": submission.slug, "bioproject": groups[0]["bioproject"],
-                       "runs": len(groups[0]["runs"]), "current": True}]
-            for g in groups[1:]:
-                sibling = Submission(user_id=user.id, title="Untitled Submission",
-                                     status=SubmissionStatus.DRAFT)
-                db.add(sibling)
-                await db.flush()  # assign slug
-                _apply_group(sibling, g, raw_input=" ".join(g["entered"]))
-                linked.append({"slug": sibling.slug, "bioproject": g["bioproject"],
-                               "runs": len(g["runs"]), "title": sibling.title})
-            if len(linked) > 1:
-                interview_data = dict(submission.interview_data or {})
-                interview_data["_linked_siblings"] = linked[1:]
-                submission.interview_data = interview_data
-                attributes.flag_modified(submission, "interview_data")
+            _apply_projects(submission, groups, raw_input=raw.strip())
             await db.commit()
             return JSONResponse({"ok": True, "title": submission.title,
-                                 "pipeline": submission.pipeline.value, "linked": linked})
+                                 "pipeline": submission.pipeline.value,
+                                 "bioprojects": submission.bioprojects,
+                                 "preselected_runs": sum(len(g["runs"]) for g in groups)})
 
         if "selected_runs" in body:
             # Accept list of breakdown indices → store the actual row dicts
@@ -658,6 +659,7 @@ async def list_submissions(
         {
             "slug": s.slug,
             "bioproject_accession": s.bioproject_accession,
+            "bioproject_accessions": s.bioprojects,
             "sra_accession": s.sra_accession,
             "pipeline": s.pipeline.value,
             "title": s.title,

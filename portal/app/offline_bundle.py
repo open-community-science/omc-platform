@@ -39,7 +39,7 @@ _DATA_FILES = [
 _README = """\
 {title}
 
-BioProject {bioproject}{released}
+{bioproject_word} {bioproject}{released}
 Run {slug} — {portal_url}
 
 Open index.html in a browser. It is one self-contained file — the page, its code
@@ -147,6 +147,7 @@ def build_zip(site_dir: Path, run_info: dict | None = None) -> io.BytesIO:
         z.writestr(f"{slug}/README.txt", _README.format(
             title=info.get("title") or "dānaSeq amplicon analysis",
             bioproject=info.get("bioproject") or "(not recorded)",
+            bioproject_word="BioProjects" if len(info.get("bioprojects") or []) > 1 else "BioProject",
             released=f", released {released}" if released else "",
             slug=slug,
             portal_url=info.get("portal_url") or "(not recorded)",

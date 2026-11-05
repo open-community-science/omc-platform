@@ -65,3 +65,68 @@ def test_summarize():
     assert summarize(["SRR1"]) == "SRR1"
     s = summarize([f"SRR{n}" for n in range(1, 40)])
     assert s.endswith("more)") and len(s) <= 50
+
+
+# ── merge_project_metadata ──────────────────────────────────────────────────
+from app.sra_metadata import merge_project_metadata  # noqa: E402
+
+
+def _proj(acc, runs, strategy="AMPLICON", organism="soil metagenome"):
+    return {
+        "accession": acc, "title": f"Title {acc}", "description": f"Desc {acc}",
+        "organism": organism, "organization": "Org", "registration_date": "2020-01-01",
+        "num_sra_runs": len(runs), "num_samples": len(runs), "total_bases": 10 * len(runs),
+        "total_spots": len(runs),
+        "breakdown": [{"platform": "ILLUMINA", "instrument": "MiSeq", "strategy": strategy,
+                       "source": "METAGENOMIC", "layout": "PAIRED", "runs": len(runs),
+                       "samples": len(runs), "bases": 10 * len(runs), "spots": len(runs),
+                       "run_accessions": list(runs)}],
+        "sample_records": [{"run_accession": r, "study_accession": acc} for r in runs],
+    }
+
+
+def test_merge_single_passthrough():
+    m = merge_project_metadata([_proj("PRJNA1", ["SRR1", "SRR2"])])
+    assert m["accession"] == "PRJNA1" and m["accessions"] == ["PRJNA1"]
+    assert m["title"] == "Title PRJNA1" and len(m["projects"]) == 1
+
+
+def test_merge_two_projects_sums_breakdown_and_records():
+    m = merge_project_metadata([_proj("PRJNA1", ["SRR1", "SRR2"]),
+                                _proj("PRJEB2", ["ERR1"], organism="marine metagenome")])
+    assert m["accessions"] == ["PRJNA1", "PRJEB2"]
+    assert m["num_sra_runs"] == 3 and m["total_bases"] == 30
+    assert len(m["breakdown"]) == 1
+    assert m["breakdown"][0]["runs"] == 3
+    assert m["breakdown"][0]["run_accessions"] == ["SRR1", "SRR2", "ERR1"]
+    assert [r["run_accession"] for r in m["sample_records"]] == ["SRR1", "SRR2", "ERR1"]
+    assert m["organism"] == "soil metagenome, marine metagenome"
+    assert m["title"] == "Title PRJNA1; Title PRJEB2"
+    assert "[PRJEB2] Desc PRJEB2" in m["description"]
+
+
+def test_merge_keeps_distinct_breakdown_rows():
+    m = merge_project_metadata([_proj("PRJNA1", ["SRR1"]), _proj("PRJEB2", ["ERR1"], strategy="WGS")])
+    assert {b["strategy"] for b in m["breakdown"]} == {"AMPLICON", "WGS"}
+
+
+def test_merge_dedupes_runs_and_keeps_instrument_model():
+    m = merge_project_metadata([_proj("PRJNA1", ["SRR1", "SRR2"]), _proj("PRJEB2", ["SRR2", "ERR1"])])
+    assert m["breakdown"][0]["run_accessions"] == ["SRR1", "SRR2", "ERR1"]
+    assert m["instrument_model"] == "MiSeq"
+
+
+def test_apply_projects_keeps_project_level_runs_next_to_named_runs():
+    from app.submissions import _apply_projects
+    from app.database import Submission, SubmissionStatus
+    p1, p2 = _proj("PRJNA1", ["SRR1", "SRR2"]), _proj("PRJEB2", ["ERR1", "ERR2"])
+    groups = [
+        {"bioproject": "PRJNA1", "metadata": p1, "records": p1["sample_records"], "entered": ["PRJNA1"], "runs": []},
+        {"bioproject": "PRJEB2", "metadata": p2, "records": p2["sample_records"], "entered": ["ERR2"], "runs": ["ERR2"]},
+    ]
+    sub = Submission(user_id=1, title="t", status=SubmissionStatus.DRAFT)
+    _apply_projects(sub, groups, raw_input="PRJNA1 ERR2")
+    assert sub.bioprojects == ["PRJNA1", "PRJEB2"]
+    assert sub.interview_data["_selected_run_accessions"] == ["SRR1", "SRR2", "ERR2"]
+    assert sub.sra_accession == "ERR2"
+    assert sub.interview_data["_accession_input"] == "PRJNA1 ERR2"

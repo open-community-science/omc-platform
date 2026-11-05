@@ -27,6 +27,9 @@ class _Sub:
     """Minimal stand-in for a Submission the generator can render."""
     slug = "testslug"
     bioproject_accession = "PRJNA000000"
+    bioproject_accessions = ["PRJNA000000"]
+    bioprojects = ["PRJNA000000"]
+    bioproject_label = "PRJNA000000"
     sra_accession = None
     selected_runs = ["SRR0000001"]
     title = "test"

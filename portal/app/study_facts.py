@@ -99,9 +99,16 @@ def build_study_facts(submission) -> dict:
         for k, v in (getattr(submission, "sample_metadata", None) or {}).items()
     }
 
-    accession = getattr(submission, "bioproject_accession", None)
-    if accession:
-        facts.setdefault("accession", accession)
+    accessions = getattr(submission, "bioprojects", None) or []
+    if not accessions and getattr(submission, "bioproject_accession", None):
+        accessions = [submission.bioproject_accession]
+    if accessions:
+        facts.setdefault("accessions", list(accessions))
+        if len(accessions) > 1:
+            # Merged metadata carries the primary only; the prompt gets all of them.
+            facts["accession"] = ", ".join(accessions)
+        else:
+            facts.setdefault("accession", accessions[0])
 
     pipeline = getattr(submission, "pipeline", None)
     if pipeline is not None:

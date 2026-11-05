@@ -493,6 +493,19 @@ async def bioproject_dates(accession: str) -> dict:
         return {}
 
 
+async def bioprojects_dates(accessions: list[str]) -> dict:
+    """Span of release dates across several BioProjects: the earliest
+    first_public and the latest last_updated. Same shape as bioproject_dates."""
+    out: dict = {}
+    for acc in accessions or []:
+        d = await bioproject_dates(acc)
+        if d.get("first_public") and (not out.get("first_public") or d["first_public"] < out["first_public"]):
+            out["first_public"] = d["first_public"]
+        if d.get("last_updated") and (not out.get("last_updated") or d["last_updated"] > out["last_updated"]):
+            out["last_updated"] = d["last_updated"]
+    return out
+
+
 def _extract_site(slug: str, site_source: Path | None = None,
                   run_info: dict | None = None) -> Path | None:
     """unsquashfs the built site + its viz data from the results archive.
@@ -622,7 +635,7 @@ async def deploy_submission(submission, user, visibility: str = "public",
     meta = dict(submission.sample_metadata or {})
     dates = meta.get("bioproject_dates")
     if dates is None:
-        dates = await bioproject_dates(submission.bioproject_accession or "")
+        dates = await bioprojects_dates(submission.bioprojects)
         meta["bioproject_dates"] = dates
         submission.sample_metadata = meta
         attributes.flag_modified(submission, "sample_metadata")
@@ -632,7 +645,8 @@ async def deploy_submission(submission, user, visibility: str = "public",
         run_info={
             "slug": submission.slug,
             "title": submission.title or "",
-            "bioproject": submission.bioproject_accession or "",
+            "bioproject": submission.bioproject_label,
+            "bioprojects": submission.bioprojects,
             "registered": (dates or {}).get("first_public", ""),
             "updated": (dates or {}).get("last_updated", ""),
             "pipeline": submission.pipeline.value if submission.pipeline else "",

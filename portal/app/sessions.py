@@ -611,7 +611,7 @@ async def launch(
     # Full metadata — written to host as metadata.json and mounted into container
     metadata = {
         "slug": submission.slug,
-        "accession": submission.bioproject_accession,
+        "accession": submission.bioproject_label,
         "pipeline": submission.pipeline.value,
         "title": submission.title or "",
         "sample_metadata": submission.sample_metadata or {},
@@ -861,7 +861,7 @@ async def dev_launch(slug: str, request: Request):
         submission = result.scalar_one_or_none()
         if submission:
             metadata = {
-                "accession": submission.bioproject_accession,
+                "accession": submission.bioproject_label,
                 "pipeline": submission.pipeline.value,
                 "title": submission.title or "",
                 "sample_metadata": submission.sample_metadata or {},

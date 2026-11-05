@@ -164,7 +164,7 @@ async def run_autoresearch_stream(
     # Snapshot submission fields to locals before we leave the db-session scope.
     sub_slug = submission.slug
     sub_id = submission.id
-    sub_accession = submission.bioproject_accession
+    sub_accession = submission.bioproject_label
     sub_pipeline = submission.pipeline.value
     sub_title = submission.title or ""
     sub_study_meta = dict(submission.sample_metadata or {})

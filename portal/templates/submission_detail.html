@@ -78,7 +78,7 @@
             {% endif %}
             <p class="submission-header-meta">
                 {% if has_accession %}
-                <a href="https://www.ncbi.nlm.nih.gov/bioproject/{{ submission.bioproject_accession }}" target="_blank" class="mono">{{ submission.bioproject_accession }}</a>
+                {% for bp in submission.bioprojects %}<a href="https://www.ncbi.nlm.nih.gov/bioproject/{{ bp }}" target="_blank" class="mono">{{ bp }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
                 {% if submission.sra_accession %}
                     <span class="text-muted">(entered as {{ submission.sra_accession }})</span>
                 {% endif %}
@@ -94,7 +94,7 @@
     <div class="chip-row">
       {# Data #}
       {% if has_accession %}
-      <span class="dchip done" title="BioProject {{ submission.bioproject_accession }}">✓ Data</span>
+      <span class="dchip done" title="BioProject{% if submission.bioprojects | length > 1 %}s{% endif %} {{ submission.bioproject_label }}">✓ Data</span>
       {% else %}
       <span class="dchip pending">Data</span>
       {% endif %}
@@ -184,7 +184,7 @@
                                onkeydown="if(event.key==='Enter')saveAccession();">
                         <button class="btn btn-primary" onclick="saveAccession()" id="accession-save-btn">Search</button>
                     </div>
-                    <small>BioProject, SRA run, BioSample, sample, experiment or study accessions. Separate several with spaces or commas; write a range as <span class="mono">SRR100-SRR120</span> or <span class="mono">SRR100-120</span>. Runs and samples you name are pre-selected; accessions from more than one BioProject are split into one submission each.</small>
+                    <small>BioProject, SRA run, BioSample, sample, experiment or study accessions. Separate several with spaces or commas; write a range as <span class="mono">SRR100-SRR120</span> or <span class="mono">SRR100-120</span>. Runs and samples you name are pre-selected; several BioProjects are combined into this one submission.</small>
                     <span id="accession-status" class="inline-status"></span>
                 </div>
             </div>
@@ -195,13 +195,13 @@
             <div class="wf-edit-row">
                 <label class="wf-edit-label">Accession</label>
                 <div class="wf-edit-field" id="accession-display">
-                    <span class="mono">{{ submission.bioproject_accession }}</span>
+                    <span class="mono">{{ submission.bioproject_label }}</span>
                     {% if submission.sra_accession %}<span class="text-muted">(entered as {{ submission.sra_accession }})</span>{% endif %}
                     {% if can_edit %}<button class="btn-inline-edit" onclick="startEditAccession()">change</button>{% endif %}
                 </div>
                 {% if can_edit %}
                 <div class="wf-edit-field" id="accession-form" style="display:none;">
-                    <input type="text" id="accession-input" value="{{ _idata.get('_accession_input') or submission.sra_accession or submission.bioproject_accession }}"
+                    <input type="text" id="accession-input" value="{{ _idata.get('_accession_input') or submission.bioproject_label }}"
                            placeholder="e.g., PRJNA123456 or SRR100-SRR120" class="inline-edit-input"
                            onkeydown="if(event.key==='Enter')saveAccession(); if(event.key==='Escape')cancelEditAccession();">
                     <button class="btn btn-primary btn-sm" onclick="saveAccession()" id="accession-save-btn">Save</button>
@@ -210,19 +210,29 @@
                 </div>
                 {% endif %}
             </div>
-            {% set siblings = _idata.get('_linked_siblings') or [] %}
-            {% if siblings %}
-            <p class="wf-step-desc">
-                The accessions you entered span {{ siblings | length + 1 }} BioProjects. One submission covers one BioProject, so the others were created as separate drafts:
-                {% for sib in siblings %}<a href="/submissions/{{ sib.slug }}" class="mono">{{ sib.bioproject }}</a>{% if sib.runs %} ({{ sib.runs }} runs){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}.
-            </p>
-            {% endif %}
 
             {% if has_accession %}
             <details class="wf-details" open>
                 <summary>Project metadata</summary>
                 <div class="wf-details-body">
                     {% if submission.sample_metadata %}
+                    {% set _projects = submission.sample_metadata.get('projects') or [] %}
+                    {% if _projects | length > 1 %}
+                    <p class="wf-step-desc">This submission combines {{ _projects | length }} BioProjects; totals below are across all of them.</p>
+                    <table class="readonly-run-table" style="margin-bottom: 0.75rem;">
+                        <thead><tr><th>BioProject</th><th>Title</th><th>Organism</th><th class="num">SRA runs</th></tr></thead>
+                        <tbody>
+                        {% for pr in _projects %}
+                        <tr>
+                            <td><a href="https://www.ncbi.nlm.nih.gov/bioproject/{{ pr.accession }}" target="_blank" class="mono">{{ pr.accession }}</a></td>
+                            <td style="white-space: normal;">{{ pr.title }}</td>
+                            <td>{{ pr.organism }}</td>
+                            <td class="num">{{ pr.num_sra_runs }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% endif %}
                     <dl class="wf-meta-grid">
                         {% if submission.sample_metadata.get('title') %}
                         <dt>Project Title</dt>
@@ -327,6 +337,23 @@
             <details class="wf-details" open>
                 <summary>Project metadata</summary>
                 <div class="wf-details-body">
+                    {% set _projects = submission.sample_metadata.get('projects') or [] %}
+                    {% if _projects | length > 1 %}
+                    <p class="wf-step-desc">This submission combines {{ _projects | length }} BioProjects; totals below are across all of them.</p>
+                    <table class="readonly-run-table" style="margin-bottom: 0.75rem;">
+                        <thead><tr><th>BioProject</th><th>Title</th><th>Organism</th><th class="num">SRA runs</th></tr></thead>
+                        <tbody>
+                        {% for pr in _projects %}
+                        <tr>
+                            <td><a href="https://www.ncbi.nlm.nih.gov/bioproject/{{ pr.accession }}" target="_blank" class="mono">{{ pr.accession }}</a></td>
+                            <td style="white-space: normal;">{{ pr.title }}</td>
+                            <td>{{ pr.organism }}</td>
+                            <td class="num">{{ pr.num_sra_runs }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% endif %}
                     <dl class="wf-meta-grid">
                         {% if submission.sample_metadata.get('title') %}
                         <dt>Project Title</dt>
@@ -376,8 +403,10 @@
                     <div style="overflow-x: auto; max-height: 300px; overflow-y: auto;">
                     <table class="readonly-run-table">
                         <thead>
+                            {% set _multi = (submission.bioprojects | length) > 1 %}
                             <tr>
                                 <th>Run</th>
+                                {% if _multi %}<th>BioProject</th>{% endif %}
                                 <th>Sample</th>
                                 <th>Platform</th>
                                 <th>Date</th>
@@ -391,6 +420,7 @@
                             {% if rec.run_accession in sel_accessions %}
                             <tr>
                                 <td class="mono">{{ rec.run_accession }}</td>
+                                {% if _multi %}<td class="mono">{{ rec.get('study_accession', '') }}</td>{% endif %}
                                 <td>{{ rec.get('sample_alias') or rec.get('sample_title') or rec.get('experiment_title') or rec.get('library_name') or '' }}</td>
                                 <td>{{ rec.get('instrument_platform', '') }}</td>
                                 <td>{{ rec.get('collection_date', '') }}</td>
@@ -1151,11 +1181,9 @@ async function saveAccession() {
     btn.disabled = false;
 
     if (data.ok) {
-        const extra = (data.linked || []).filter(l => !l.current);
-        showStatus(extra.length
-            ? `Linked ${data.linked[0].bioproject}; ${extra.length} more submission${extra.length > 1 ? 's' : ''} created — reloading...`
-            : 'Accession updated — reloading...');
-        setTimeout(() => location.reload(), extra.length ? 1500 : 500);
+        const n = (data.bioprojects || []).length;
+        showStatus(n > 1 ? `Linked ${n} BioProjects — reloading...` : 'Accession updated — reloading...');
+        setTimeout(() => location.reload(), 500);
     } else {
         status.textContent = data.error || 'Failed to save';
         status.style.color = 'var(--color-error)';
@@ -1251,6 +1279,15 @@ const _labels = {
     base_count: 'Bases', read_count: 'Reads', nominal_length: 'Insert Size',
 };
 
+// With several BioProjects merged into one submission, the project a run
+// belongs to is worth a column; with one it is the same on every row.
+const _multiProject = new Set(sampleRecords.map(r => r.study_accession).filter(Boolean)).size > 1;
+if (_multiProject) {
+    _hideKeys.delete('study_accession');
+    _priorityKeys.splice(1, 0, 'study_accession');
+    _labels.study_accession = 'BioProject';
+}
+
 // Build columns dynamically from actual data
 function buildRunColumns(runs) {
     // Collect all keys that have at least one meaningful value
@@ -1286,7 +1323,7 @@ let runColumns = [];
 let viewMode = 'basic'; // 'basic' or 'full'
 
 const _basicKeys = new Set([
-    'run_accession', 'sample_alias', 'sample_title', 'experiment_title', 'library_name',
+    'run_accession', 'study_accession', 'sample_alias', 'sample_title', 'experiment_title', 'library_name',
     'instrument_platform', 'library_strategy',
     'collection_date', 'country', 'host', 'scientific_name',
     'base_count', 'read_count',

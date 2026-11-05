@@ -504,7 +504,7 @@ def get_sample_records_json():
 
     # Fields the AI needs for sample selection and interview
     KEEP_FIELDS = {
-        "run_accession", "sample_accession", "sample_alias", "sample_title",
+        "run_accession", "sample_accession", "study_accession", "sample_alias", "sample_title",
         "scientific_name", "organism", "host", "collection_date", "country",
         "geo_loc_name", "lat_lon", "environment_biome", "environment_feature",
         "environment_material", "depth", "altitude", "temperature",

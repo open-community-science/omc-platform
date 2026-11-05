@@ -157,7 +157,7 @@ async def main() -> int:
     if a.dry_run:
         for s in subs:
             has = "deployed" if (s.sample_metadata or {}).get("microscape_viz_url") else "not deployed"
-            print(f"  would refresh {s.slug}  {s.pipeline.value}  {s.bioproject_accession}  ({has})")
+            print(f"  would refresh {s.slug}  {s.pipeline.value}  {s.bioproject_label}  ({has})")
         return 0
     if not subs:
         return 0
