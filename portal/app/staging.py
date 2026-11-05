@@ -144,6 +144,8 @@ async def download_file(slug: str, file_path: str, authorization: str = Header(d
     slug_dir = Path(settings.local_download_path) / slug
     if not slug_dir.exists():
         raise HTTPException(404, "Slug not found")
+    if _is_cancelled(slug_dir):
+        raise HTTPException(410, f"{slug} was cancelled; its staged files are gone")
 
     target = (slug_dir / file_path).resolve()
     # Prevent path traversal

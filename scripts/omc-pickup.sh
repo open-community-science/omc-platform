@@ -603,9 +603,16 @@ echo "$READY_JSON" | jq -c '.ready_runs[]' 2>/dev/null | while IFS= read -r slug
     OUTPUT_DIR="${OMC_RESULTS}/${SLUG}"
     mkdir -p "${INPUT_DIR}/fastq" "${OUTPUT_DIR}"
 
-    # Download each ready run
+    # Download each ready run. The run list is a snapshot from the start of
+    # the cycle; a submission cancelled meanwhile has had its files removed on
+    # arbutus, so a 404/410 means "gone", not "retry" — retrying it three times
+    # with 30 s sleeps per file once pinned this loop for two hours on a
+    # cancelled 3,900-run submission while a real job waited.
+    SLUG_GONE=false
     echo "$slug_entry" | jq -c '.runs[]' | while IFS= read -r run_entry; do
         ACC=$(echo "$run_entry" | jq -r '.accession')
+        [ "$SLUG_GONE" = "true" ] && continue
+        [ -f "$HOME/.cache/omc/cancelled/$SLUG" ] && { SLUG_GONE=true; continue; }
 
         # Skip if we already have this run
         if [ -f "${INPUT_DIR}/.fetched-${ACC}" ]; then
@@ -618,20 +625,26 @@ echo "$READY_JSON" | jq -c '.ready_runs[]' 2>/dev/null | while IFS= read -r slug
         # Download each file for this run (one at a time, with retry)
         DOWNLOAD_OK=true
         for FNAME in $(echo "$run_entry" | jq -r '.files[]'); do
+            [ "$SLUG_GONE" = "true" ] && { DOWNLOAD_OK=false; break; }
             echo "  Downloading $FNAME..."
             DL_OK=false
             for attempt in 1 2 3; do
-                curl -f --max-time 7200 --retry 2 --retry-delay 10 \
-                    -H "$AUTH_HEADER" \
+                HTTP_CODE=$(curl -s --max-time 7200 --retry 2 --retry-delay 10 \
+                    -H "$AUTH_HEADER" -w '%{http_code}' \
                     "${STAGING_API}/${SLUG}/download/fastq/${FNAME}" \
-                    -o "${INPUT_DIR}/fastq/${FNAME}" 2>/dev/null
-                if [ $? -eq 0 ] && [ -s "${INPUT_DIR}/fastq/${FNAME}" ]; then
+                    -o "${INPUT_DIR}/fastq/${FNAME}" 2>/dev/null)
+                if [ "$HTTP_CODE" = "200" ] && [ -s "${INPUT_DIR}/fastq/${FNAME}" ]; then
                     DL_OK=true
                     echo "  Downloaded: $(du -h "${INPUT_DIR}/fastq/${FNAME}" | cut -f1)"
                     break
                 fi
-                echo "  Attempt $attempt failed, retrying in 30s..."
                 rm -f "${INPUT_DIR}/fastq/${FNAME}"
+                if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "410" ]; then
+                    echo "  $FNAME is gone on arbutus (HTTP $HTTP_CODE) — $SLUG was cancelled or cleaned up; skipping the rest of it"
+                    SLUG_GONE=true
+                    break
+                fi
+                echo "  Attempt $attempt failed (HTTP ${HTTP_CODE:-none}), retrying in 30s..."
                 sleep 30
             done
             if [ "$DL_OK" != "true" ]; then
