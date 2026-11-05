@@ -273,14 +273,31 @@
                 .run-table tr.selected:hover { background: var(--color-selected-hover, #d0e0fd); }
                 .run-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
                 .run-table input[type="checkbox"] { cursor: pointer; }
-                .run-table-controls { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+                .run-table-controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
+                .run-search { flex: 1 1 220px; min-width: 180px; max-width: 360px; padding: 5px 8px 5px 28px; font-size: 0.85rem; border: 1px solid var(--color-border, #ddd); border-radius: 6px; background: var(--color-bg, #fff) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") no-repeat 8px center; }
+                .run-search:focus { outline: none; border-color: var(--color-primary, #2563eb); box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15); }
+                .run-col-toggle { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--color-text-muted, #64748b); white-space: nowrap; }
+                .run-col-toggle .seg { display: inline-flex; border: 1px solid var(--color-border, #ddd); border-radius: 6px; overflow: hidden; }
+                .run-col-toggle .seg button { border: 0; background: transparent; padding: 4px 10px; font-size: 0.8rem; cursor: pointer; color: var(--color-text-muted, #64748b); }
+                .run-col-toggle .seg button + button { border-left: 1px solid var(--color-border, #ddd); }
+                .run-col-toggle .seg button.active { background: var(--color-primary, #2563eb); color: #fff; }
+                .run-col-toggle .seg button:not(.active):hover { background: var(--color-hover, #f0f0f0); }
+                .run-table-empty { padding: 1rem; font-size: 0.85rem; color: var(--color-text-muted, #64748b); text-align: center; }
                 .run-table-wrapper { max-height: 400px; overflow-y: auto; }
             </style>
             <div class="wf-data-selection" id="run-selector-section" style="display:none;">
                 <h3 class="wf-section-label">Run Selection</h3>
-                <p class="wf-step-desc">Select individual runs to include. Click column headers to sort.</p>
+                <p class="wf-step-desc">Select individual runs to include. Click column headers to sort; type to search across all columns.</p>
                 <div class="run-table-controls">
-                    <button class="btn btn-sm btn-secondary" id="view-toggle-btn" onclick="toggleViewMode()">Basic</button>
+                    <input type="search" class="run-search" id="run-search" placeholder="Search runs (accession, sample, location, …)"
+                           aria-label="Search runs" autocomplete="off" oninput="setRunSearch(this.value)">
+                    <span class="run-col-toggle" title="Choose how many metadata columns to show in the table. Selection is unaffected.">
+                        Columns:
+                        <span class="seg" role="group" aria-label="Table columns">
+                            <button type="button" id="view-basic-btn" class="active" onclick="setViewMode('basic')" title="Show the essential columns only">Essential</button>
+                            <button type="button" id="view-full-btn" onclick="setViewMode('full')" title="Show every metadata column that has data">All</button>
+                        </span>
+                    </span>
                     <span id="run-selection-summary" class="selection-summary"></span>
                 </div>
                 <div class="run-table-wrapper">
@@ -288,6 +305,7 @@
                         <thead><tr id="run-table-head"></tr></thead>
                         <tbody id="run-table-body"></tbody>
                     </table>
+                    <div class="run-table-empty" id="run-table-empty" style="display:none;"></div>
                 </div>
             </div>
             {% endif %}
@@ -1264,10 +1282,31 @@ const _basicKeys = new Set([
     'base_count', 'read_count',
 ]);
 
-function toggleViewMode() {
-    viewMode = viewMode === 'basic' ? 'full' : 'basic';
-    document.getElementById('view-toggle-btn').textContent = viewMode === 'basic' ? 'Basic' : 'Full';
+function setViewMode(mode) {
+    viewMode = mode === 'full' ? 'full' : 'basic';
+    document.getElementById('view-basic-btn').classList.toggle('active', viewMode === 'basic');
+    document.getElementById('view-full-btn').classList.toggle('active', viewMode === 'full');
     renderRunTable();
+}
+
+// Free-text search across every column (not only the visible ones).
+let runSearch = '';
+function setRunSearch(value) {
+    runSearch = (value || '').trim().toLowerCase();
+    renderRunTable();
+}
+function runMatchesSearch(r) {
+    if (!runSearch) return true;
+    const terms = runSearch.split(/\s+/).filter(Boolean);
+    const hay = Object.entries(r)
+        .filter(([k]) => !_hideKeys.has(k))
+        .map(([, v]) => String(v ?? '').toLowerCase())
+        .join(' \u0000 ');
+    return terms.every(t => hay.includes(t));
+}
+// Runs that pass both the data-type filter and the search box.
+function getVisibleRuns() {
+    return getFilteredRuns().filter(runMatchesSearch);
 }
 
 (function initSelection() {
@@ -1387,15 +1426,21 @@ function renderRunTable() {
     const body = document.getElementById('run-table-body');
     if (!section || !head || !body) return;
 
-    const runs = getFilteredRuns();
-    if (!runs.length) {
+    const allRuns = getFilteredRuns();
+    if (!allRuns.length) {
         section.style.display = 'none';
         return;
     }
     section.style.display = '';
+    const runs = allRuns.filter(runMatchesSearch);
+    const emptyEl = document.getElementById('run-table-empty');
+    if (emptyEl) {
+        emptyEl.style.display = runs.length ? 'none' : '';
+        if (!runs.length) emptyEl.textContent = `No runs match "${runSearch}".`;
+    }
 
-    // Build columns from actual data, filtered by view mode
-    const allCols = buildRunColumns(runs);
+    // Build columns from actual data (all runs, so columns don't jump while searching), filtered by view mode
+    const allCols = buildRunColumns(allRuns);
     runColumns = viewMode === 'basic' ? allCols.filter(c => _basicKeys.has(c.key)) : allCols;
 
     // Sort
@@ -1422,8 +1467,8 @@ function renderRunTable() {
     }
 
     // Header
-    let hhtml = '<th><input type="checkbox" onchange="toggleAllRunCheckbox(this)" ' +
-        (sorted.every(r => selectedRuns.has(r.run_accession)) ? 'checked' : '') + '></th>';
+    let hhtml = '<th><input type="checkbox" onchange="toggleAllRunCheckbox(this)" title="Select or clear all runs currently shown" ' +
+        (sorted.length && sorted.every(r => selectedRuns.has(r.run_accession)) ? 'checked' : '') + '></th>';
     for (const col of runColumns) {
         const arrow = sortCol === col.key ? (sortAsc ? '▲' : '▼') : '↕';
         const cls = sortCol === col.key ? 'sorted' : '';
@@ -1451,7 +1496,7 @@ function renderRunTable() {
     }
     body.innerHTML = bhtml;
 
-    updateRunSummary(sorted);
+    updateRunSummary(allRuns, sorted);
 }
 
 function sortRunTable(col) {
@@ -1468,7 +1513,7 @@ function toggleRun(acc, event) {
 }
 
 function toggleAllRunCheckbox(checkbox) {
-    const runs = getFilteredRuns();
+    const runs = getVisibleRuns();
     if (checkbox.checked) {
         for (const r of runs) selectedRuns.add(r.run_accession);
     } else {
@@ -1479,25 +1524,30 @@ function toggleAllRunCheckbox(checkbox) {
 }
 
 function selectAllRuns() {
-    for (const r of getFilteredRuns()) selectedRuns.add(r.run_accession);
+    for (const r of getVisibleRuns()) selectedRuns.add(r.run_accession);
     renderRunTable();
     saveSelection();
 }
 
 function deselectAllRuns() {
-    for (const r of getFilteredRuns()) selectedRuns.delete(r.run_accession);
+    for (const r of getVisibleRuns()) selectedRuns.delete(r.run_accession);
     renderRunTable();
     saveSelection();
 }
 
-function updateRunSummary(runs) {
+function updateRunSummary(runs, shown) {
     const el = document.getElementById('run-selection-summary');
     if (!el) return;
     const selCount = runs.filter(r => selectedRuns.has(r.run_accession)).length;
     const totalBases = runs.filter(r => selectedRuns.has(r.run_accession))
         .reduce((a, r) => a + (Number(r.base_count) || 0), 0);
-    el.textContent = `${selCount} of ${runs.length} runs selected` +
+    let text = `${selCount} of ${runs.length} runs selected` +
         (totalBases > 0 ? ` · ${fmtBases(totalBases)}` : '');
+    if (runSearch && shown) {
+        const shownSel = shown.filter(r => selectedRuns.has(r.run_accession)).length;
+        text += ` · showing ${shown.length} matching (${shownSel} selected)`;
+    }
+    el.textContent = text;
 }
 
 /* ── Save selection ── */
