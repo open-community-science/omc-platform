@@ -333,23 +333,45 @@ def _descendants(pid: int) -> list[int]:
     return order
 
 
+def _pids_with_env(name: str, value: str) -> list[int]:
+    """PIDs whose environment has name=value (Linux /proc; same-user only)."""
+    found: list[int] = []
+    needle = f"{name}={value}".encode()
+    for entry in Path("/proc").glob("[0-9]*"):
+        try:
+            env = (entry / "environ").read_bytes()
+        except OSError:
+            continue
+        if needle in env.split(b"\0"):
+            found.append(int(entry.name))
+    return found
+
+
 def _kill_download(slug_dir: Path) -> int:
     """Kill the download.sh the worker launched for this slug, with its
-    xargs/prefetch/fasterq-dump children. Returns the number of PIDs signalled."""
+    xargs/prefetch/fasterq-dump children. Returns the number of PIDs signalled.
+
+    Three ways to find them, because none alone is enough: the wrapper's
+    children by lineage (misses an xargs orphaned by an earlier partial kill —
+    its command line never names the slug), anything naming the staging dir on
+    its command line (prefetch, fasterq-dump), and anything whose environment
+    carries LOCAL_DIR=<slug dir>, which the wrapper exports to every child.
+    """
     script = str(slug_dir / "download.sh")
+    pids: list[int] = []
     try:
         out = subprocess.run(["pgrep", "-f", f"bash {script}"], capture_output=True, text=True).stdout
-    except OSError:
-        return 0
-    pids: list[int] = []
-    for root in (int(x) for x in out.split() if x.isdigit()):
-        pids.extend(_descendants(root))
-    # prefetch/fasterq-dump name the staging dir on their command line too.
-    try:
-        out = subprocess.run(["pgrep", "-f", str(slug_dir) + "/"], capture_output=True, text=True).stdout
-        pids.extend(int(x) for x in out.split() if x.isdigit() and int(x) != os.getpid())
+        for root in (int(x) for x in out.split() if x.isdigit()):
+            pids.extend(_descendants(root))
     except OSError:
         pass
+    try:
+        out = subprocess.run(["pgrep", "-f", str(slug_dir) + "/"], capture_output=True, text=True).stdout
+        pids.extend(int(x) for x in out.split() if x.isdigit())
+    except OSError:
+        pass
+    for pid in _pids_with_env("LOCAL_DIR", str(slug_dir)):
+        pids.extend(_descendants(pid))
     seen: list[int] = []
     for pid in pids:
         if pid in seen or pid == os.getpid():

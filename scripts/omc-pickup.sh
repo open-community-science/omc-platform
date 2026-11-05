@@ -595,6 +595,7 @@ fi
 # Process each slug's ready runs
 echo "$READY_JSON" | jq -c '.ready_runs[]' 2>/dev/null | while IFS= read -r slug_entry; do
     SLUG=$(echo "$slug_entry" | jq -r '.slug')
+    [ -f "$HOME/.cache/omc/cancelled/$SLUG" ] && continue   # cancelled earlier
     ALL_DONE=$(echo "$slug_entry" | jq -r '.all_done')
     HAS_PIPELINE=$(echo "$slug_entry" | jq -r '.has_pipeline')
 

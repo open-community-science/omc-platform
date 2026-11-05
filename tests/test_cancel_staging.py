@@ -43,3 +43,16 @@ def test_cancel_without_staging_dir_still_marks(staging):
     st, root = staging
     st.cancel_staging("nodir123")
     assert (root / "nodir123" / st.CANCELLED_MARKER).exists()
+
+
+@pytest.mark.skipif(not Path("/proc").exists(), reason="needs Linux /proc")
+def test_cancel_kills_orphan_found_by_environment(staging):
+    st, root = staging
+    d = root / "orphan01"; d.mkdir()
+    # No download.sh alive, nothing names the dir on a command line: only the
+    # environment links the process to the slug, like an orphaned xargs.
+    proc = subprocess.Popen(["sleep", "299"], env={**os.environ, "LOCAL_DIR": str(d)})
+    time.sleep(0.3)
+    res = st.cancel_staging("orphan01")
+    proc.wait(timeout=10)
+    assert res["killed"] >= 1 and proc.returncode != 0
