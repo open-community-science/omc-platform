@@ -179,12 +179,12 @@
                 <div class="form-group" style="margin-bottom: 0;">
                     <div style="display: flex; gap: 0.5rem;">
                         <input type="text" id="accession-input"
-                               placeholder="e.g., PRJNA123456, SRR12345678, or SAMN12345678"
+                               placeholder="e.g., PRJNA123456 · SRR12345678 SRR12345679 · SAMN100-SAMN120"
                                class="inline-edit-input" style="flex:1; width:auto;"
                                onkeydown="if(event.key==='Enter')saveAccession();">
                         <button class="btn btn-primary" onclick="saveAccession()" id="accession-save-btn">Search</button>
                     </div>
-                    <small>Enter a BioProject, SRA run, BioSample, or experiment accession</small>
+                    <small>BioProject, SRA run, BioSample, sample, experiment or study accessions. Separate several with spaces or commas; write a range as <span class="mono">SRR100-SRR120</span> or <span class="mono">SRR100-120</span>. Runs and samples you name are pre-selected; accessions from more than one BioProject are split into one submission each.</small>
                     <span id="accession-status" class="inline-status"></span>
                 </div>
             </div>
@@ -201,8 +201,8 @@
                 </div>
                 {% if can_edit %}
                 <div class="wf-edit-field" id="accession-form" style="display:none;">
-                    <input type="text" id="accession-input" value="{{ submission.sra_accession or submission.bioproject_accession }}"
-                           placeholder="e.g., PRJNA123456" class="inline-edit-input"
+                    <input type="text" id="accession-input" value="{{ _idata.get('_accession_input') or submission.sra_accession or submission.bioproject_accession }}"
+                           placeholder="e.g., PRJNA123456 or SRR100-SRR120" class="inline-edit-input"
                            onkeydown="if(event.key==='Enter')saveAccession(); if(event.key==='Escape')cancelEditAccession();">
                     <button class="btn btn-primary btn-sm" onclick="saveAccession()" id="accession-save-btn">Save</button>
                     <button class="btn btn-secondary btn-sm" onclick="cancelEditAccession()">Cancel</button>
@@ -210,6 +210,13 @@
                 </div>
                 {% endif %}
             </div>
+            {% set siblings = _idata.get('_linked_siblings') or [] %}
+            {% if siblings %}
+            <p class="wf-step-desc">
+                The accessions you entered span {{ siblings | length + 1 }} BioProjects. One submission covers one BioProject, so the others were created as separate drafts:
+                {% for sib in siblings %}<a href="/submissions/{{ sib.slug }}" class="mono">{{ sib.bioproject }}</a>{% if sib.runs %} ({{ sib.runs }} runs){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}.
+            </p>
+            {% endif %}
 
             {% if has_accession %}
             <details class="wf-details" open>
@@ -1144,8 +1151,11 @@ async function saveAccession() {
     btn.disabled = false;
 
     if (data.ok) {
-        showStatus('Accession updated — reloading...');
-        setTimeout(() => location.reload(), 500);
+        const extra = (data.linked || []).filter(l => !l.current);
+        showStatus(extra.length
+            ? `Linked ${data.linked[0].bioproject}; ${extra.length} more submission${extra.length > 1 ? 's' : ''} created — reloading...`
+            : 'Accession updated — reloading...');
+        setTimeout(() => location.reload(), extra.length ? 1500 : 500);
     } else {
         status.textContent = data.error || 'Failed to save';
         status.style.color = 'var(--color-error)';

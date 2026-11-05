@@ -12,6 +12,7 @@ from .database import get_db, Submission, User, SubmissionStatus, PipelineType
 from .auth import require_user
 from .slurm import submit_local_download_job, write_cluster_marker
 from .sra_metadata import fetch_sra_metadata, resolve_to_bioproject
+from .accessions import AccessionError, RESOLVABLE, kind_of, parse_accessions, summarize
 
 router = APIRouter(prefix="/submissions", tags=["submissions"])
 settings = get_settings()
@@ -54,6 +55,114 @@ def _auto_pipeline(breakdown: list) -> PipelineType:
             return PipelineType.NANOPORE_MAG
         return PipelineType.ILLUMINA_MAG
     return PipelineType.NANOPORE_MAG
+
+
+# ── Linking accessions to BioProjects ────────────────────────────────────────
+
+# ENA read_run columns that carry an accession a user might have typed.
+_RECORD_ACC_FIELDS = (
+    "run_accession", "experiment_accession", "sample_accession",
+    "secondary_sample_accession", "study_accession", "secondary_study_accession",
+)
+
+
+def _runs_matching(acc: str, records: list[dict]) -> list[str]:
+    """Run accessions in `records` that belong to `acc` (a run, experiment,
+    sample, BioSample, study or project accession)."""
+    return [r["run_accession"] for r in records
+            if r.get("run_accession")
+            and any(str(r.get(f, "")).upper() == acc for f in _RECORD_ACC_FIELDS)]
+
+
+async def _link_accessions(accs: list[str]) -> tuple[list[dict], list[str]]:
+    """Group a flat list of accessions by the BioProject each belongs to.
+
+    Returns (groups, unresolved). Each group is
+      {"bioproject", "metadata", "records", "entered": [accs], "runs": [run accs]}
+    in order of first appearance. `runs` is empty when only project-level
+    accessions were given (the user then picks runs in the table); otherwise it
+    is the runs the entered accessions name, which get pre-selected.
+
+    Resolving every run or sample against NCBI one by one is slow, so after the
+    first lookup of a project the rest are matched against its ENA records, and
+    only the ones not found there go back to NCBI.
+    """
+    from .sra_metadata import fetch_sample_metadata
+
+    groups: dict[str, dict] = {}
+    unresolved: list[str] = []
+
+    async def add_group(bp: str, metadata: dict) -> dict:
+        records = await fetch_sample_metadata(bp) or []
+        if records:
+            metadata["sample_records"] = records
+        groups[bp] = {"bioproject": bp, "metadata": metadata, "records": records,
+                      "entered": [], "runs": []}
+        return groups[bp]
+
+    def remember(g: dict, acc: str, runs: list[str]) -> None:
+        g["entered"].append(acc)
+        for r in runs:
+            if r not in g["runs"]:
+                g["runs"].append(r)
+
+    for acc in accs:
+        kind = kind_of(acc)
+        if kind == "project" and acc in groups:
+            remember(groups[acc], acc, [])
+            continue
+        if kind != "project":
+            hit = next(((g, runs) for g in groups.values()
+                        if (runs := _runs_matching(acc, g["records"]))), None)
+            if hit:
+                remember(hit[0], acc, hit[1])
+                continue
+        if not acc.startswith(RESOLVABLE):
+            unresolved.append(acc)
+            continue
+        metadata = await resolve_to_bioproject(acc)
+        if "error" in metadata or not metadata.get("accession"):
+            unresolved.append(acc)
+            continue
+        bp = metadata["accession"]
+        g = groups.get(bp) or await add_group(bp, metadata)
+        remember(g, acc, [] if kind == "project" else _runs_matching(acc, g["records"]))
+
+    return list(groups.values()), unresolved
+
+
+def _apply_group(submission: Submission, g: dict, raw_input: str | None = None) -> None:
+    """Point a draft submission at one BioProject group (metadata, title,
+    pipeline, pre-selected runs)."""
+    metadata = g["metadata"]
+    bp = g["bioproject"]
+    entered = [a for a in g["entered"] if a != bp]
+    submission.bioproject_accession = bp
+    submission.sra_accession = summarize(entered) or None
+    submission.sample_metadata = metadata
+    submission.title = (
+        metadata.get("study_title") or metadata.get("title") or f"Analysis of {bp}"
+    )
+    breakdown = metadata.get("breakdown", []) or []
+    interview_data = dict(submission.interview_data or {})
+    interview_data.pop("_linked_siblings", None)
+    if raw_input is not None:
+        interview_data["_accession_input"] = raw_input
+    if g["runs"]:
+        wanted = set(g["runs"])
+        rows = [row for row in breakdown if wanted & set(row.get("run_accessions") or [])]
+        submission.selected_runs = rows or None
+        interview_data["_selected_run_accessions"] = list(g["runs"])
+        submission.pipeline = _auto_pipeline(rows or breakdown)
+    else:
+        # Project-level input: start with nothing selected, user picks data types.
+        submission.selected_runs = None
+        interview_data.pop("_selected_run_accessions", None)
+        submission.pipeline = _auto_pipeline(breakdown)
+    submission.interview_data = interview_data
+    attributes.flag_modified(submission, "interview_data")
+    attributes.flag_modified(submission, "sample_metadata")
+    attributes.flag_modified(submission, "selected_runs")
 
 
 @router.post("/create")
@@ -443,38 +552,41 @@ async def update_submission(
                 return JSONResponse({"error": "Invalid pipeline"}, status_code=400)
 
         if "sra_accession" in body:
-            accession = body["sra_accession"].strip().upper()
-            if not accession.startswith(("SRR", "ERR", "DRR", "SRX", "SRP", "ERS", "PRJNA", "PRJEB", "PRJDB", "SAMN", "SAME", "SAMD", "SAMEA")):
-                return JSONResponse({"error": "Invalid accession format"}, status_code=400)
+            raw = str(body["sra_accession"] or "")
+            try:
+                accs = parse_accessions(raw)
+            except AccessionError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=400)
 
-            project_metadata = await resolve_to_bioproject(accession)
-            bioproject_acc = project_metadata.get("accession", accession)
+            groups, unresolved = await _link_accessions(accs)
+            if unresolved:
+                shown = ", ".join(unresolved[:10]) + (" …" if len(unresolved) > 10 else "")
+                return JSONResponse(
+                    {"error": f"Could not resolve to a BioProject: {shown}"}, status_code=400)
+            if not groups:
+                return JSONResponse({"error": "No accessions given"}, status_code=400)
 
-            submission.bioproject_accession = bioproject_acc
-            submission.sra_accession = accession if accession != bioproject_acc else None
-
-            # Fetch per-sample MIxS/MIMARKS metadata from EBI/ENA
-            from .sra_metadata import fetch_sample_metadata
-            sample_records = await fetch_sample_metadata(bioproject_acc)
-            if sample_records:
-                project_metadata["sample_records"] = sample_records
-
-            submission.sample_metadata = project_metadata
-
-            # Auto-update title from metadata
-            new_title = (
-                project_metadata.get("study_title")
-                or project_metadata.get("title")
-                or f"Analysis of {bioproject_acc}"
-            )
-            submission.title = new_title
-
-            # Start with nothing selected — user picks data types
-            submission.selected_runs = None
-
-            # Auto-pick pipeline from full breakdown (user can change later)
-            breakdown = project_metadata.get("breakdown", [])
-            submission.pipeline = _auto_pipeline(breakdown)
+            # One submission covers one BioProject. The first project goes into
+            # this submission; every further project gets a draft of its own.
+            _apply_group(submission, groups[0], raw_input=raw.strip())
+            linked = [{"slug": submission.slug, "bioproject": groups[0]["bioproject"],
+                       "runs": len(groups[0]["runs"]), "current": True}]
+            for g in groups[1:]:
+                sibling = Submission(user_id=user.id, title="Untitled Submission",
+                                     status=SubmissionStatus.DRAFT)
+                db.add(sibling)
+                await db.flush()  # assign slug
+                _apply_group(sibling, g, raw_input=" ".join(g["entered"]))
+                linked.append({"slug": sibling.slug, "bioproject": g["bioproject"],
+                               "runs": len(g["runs"]), "title": sibling.title})
+            if len(linked) > 1:
+                interview_data = dict(submission.interview_data or {})
+                interview_data["_linked_siblings"] = linked[1:]
+                submission.interview_data = interview_data
+                attributes.flag_modified(submission, "interview_data")
+            await db.commit()
+            return JSONResponse({"ok": True, "title": submission.title,
+                                 "pipeline": submission.pipeline.value, "linked": linked})
 
         if "selected_runs" in body:
             # Accept list of breakdown indices → store the actual row dicts
