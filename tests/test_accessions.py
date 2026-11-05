@@ -108,3 +108,25 @@ def test_merge_two_projects_sums_breakdown_and_records():
 def test_merge_keeps_distinct_breakdown_rows():
     m = merge_project_metadata([_proj("PRJNA1", ["SRR1"]), _proj("PRJEB2", ["ERR1"], strategy="WGS")])
     assert {b["strategy"] for b in m["breakdown"]} == {"AMPLICON", "WGS"}
+
+
+def test_merge_dedupes_runs_and_keeps_instrument_model():
+    m = merge_project_metadata([_proj("PRJNA1", ["SRR1", "SRR2"]), _proj("PRJEB2", ["SRR2", "ERR1"])])
+    assert m["breakdown"][0]["run_accessions"] == ["SRR1", "SRR2", "ERR1"]
+    assert m["instrument_model"] == "MiSeq"
+
+
+def test_apply_projects_keeps_project_level_runs_next_to_named_runs():
+    from app.submissions import _apply_projects
+    from app.database import Submission, SubmissionStatus
+    p1, p2 = _proj("PRJNA1", ["SRR1", "SRR2"]), _proj("PRJEB2", ["ERR1", "ERR2"])
+    groups = [
+        {"bioproject": "PRJNA1", "metadata": p1, "records": p1["sample_records"], "entered": ["PRJNA1"], "runs": []},
+        {"bioproject": "PRJEB2", "metadata": p2, "records": p2["sample_records"], "entered": ["ERR2"], "runs": ["ERR2"]},
+    ]
+    sub = Submission(user_id=1, title="t", status=SubmissionStatus.DRAFT)
+    _apply_projects(sub, groups, raw_input="PRJNA1 ERR2")
+    assert sub.bioprojects == ["PRJNA1", "PRJEB2"]
+    assert sub.interview_data["_selected_run_accessions"] == ["SRR1", "SRR2", "ERR2"]
+    assert sub.sra_accession == "ERR2"
+    assert sub.interview_data["_accession_input"] == "PRJNA1 ERR2"

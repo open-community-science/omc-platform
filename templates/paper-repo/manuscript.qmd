@@ -27,7 +27,7 @@ citation:
 
 ### Data Acquisition
 
-Sequence data were obtained from the NCBI Sequence Read Archive under accession {{sra_accession}}.
+Sequence data were obtained from the NCBI Sequence Read Archive under {{sra_accession_noun}} {{sra_accession}}.
 
 ### Analysis Pipeline
 
@@ -45,7 +45,7 @@ Analysis was performed using the `{{pipeline}}` pipeline through the Open Microb
 
 ## Data Availability
 
-All sequence data are available from the NCBI SRA under accession [{{sra_accession}}](https://www.ncbi.nlm.nih.gov/sra/{{sra_accession}}). Analysis code, results, and interactive figures are available in this repository. This paper was generated using the [Open Microbial Community](https://opencommunity.science) platform.
+All sequence data are available from the NCBI SRA under {{sra_accession_noun}} {{sra_accession_links}}. Analysis code, results, and interactive figures are available in this repository. This paper was generated using the [Open Microbial Community](https://opencommunity.science) platform.
 
 ## References {.unnumbered}
 

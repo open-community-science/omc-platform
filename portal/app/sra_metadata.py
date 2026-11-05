@@ -807,7 +807,9 @@ def merge_project_metadata(projects: list[dict]) -> dict:
             cur["samples"] += int(row.get("samples") or 0)
             cur["bases"] += int(row.get("bases") or 0)
             cur["spots"] += int(row.get("spots") or 0)
-            cur["run_accessions"].extend(row.get("run_accessions") or [])
+            for r in row.get("run_accessions") or []:
+                if r not in cur["run_accessions"]:
+                    cur["run_accessions"].append(r)
     breakdown = sorted(rows.values(), key=lambda r: r["runs"], reverse=True)
 
     def _union(field: str) -> str:
@@ -850,6 +852,7 @@ def merge_project_metadata(projects: list[dict]) -> dict:
         "platform": ", ".join(sorted({b["platform"] for b in breakdown if b["platform"]})),
         "library_source": ", ".join(sorted({b["source"] for b in breakdown if b["source"]})),
         "library_layout": ", ".join(sorted({b["layout"] for b in breakdown if b["layout"]})),
+        "instrument_model": ", ".join(sorted({b["instrument"] for b in breakdown if b["instrument"]})),
     }
     if records:
         merged["sample_records"] = records

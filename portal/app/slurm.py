@@ -106,6 +106,7 @@ def _amplicon_metadata_prelude(submission: Submission) -> tuple[str, str]:
     cols = [
         ("sample_name", "run_accession"),
         ("sample_accession", "sample_accession"),
+        ("study_accession", "study_accession"),  # which BioProject, for merged submissions
         ("library_name", "library_name"),
         ("description", "description"),
         ("experiment_title", "experiment_title"),
@@ -406,7 +407,7 @@ def _build_pipeline_script(submission: Submission, attempt: int = 0) -> str:
     # path; a cluster overriding OMC_SCRATCH shares the Alliance /home/<user>/scratch
     # layout, so this resolves there too.
     output_dir = f"{settings.results_path}/{submission.slug}"
-    accession = submission.bioproject_label
+    accession = getattr(submission, "bioproject_label", None) or submission.bioproject_accession
     mem_gb = _estimate_mem_gb(submission, attempt)
 
     # Pipeline-specific run command (assembly->mag chain, or amplicon SIF)
@@ -623,9 +624,10 @@ def _build_local_download_wrapper(submission: Submission) -> str:
     and submit the pipeline — no SSH required.
     """
     local_dir = f"{settings.local_download_path}/{submission.slug}"
-    accession = submission.bioproject_label
+    projects = list(getattr(submission, "bioprojects", None) or [submission.bioproject_accession])
+    accession = ", ".join(p for p in projects if p)
     # Shell-quoted esearch queries, one per BioProject, for the no-selection fallback.
-    project_queries = " ".join(f'"{a}"' for a in submission.bioprojects)
+    project_queries = " ".join(f'"{a}"' for a in projects if a)
 
     # Extract run accessions — prefer individual selections from run selector,
     # fall back to all runs from selected type groups

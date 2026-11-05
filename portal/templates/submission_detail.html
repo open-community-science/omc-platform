@@ -201,7 +201,7 @@
                 </div>
                 {% if can_edit %}
                 <div class="wf-edit-field" id="accession-form" style="display:none;">
-                    <input type="text" id="accession-input" value="{{ _idata.get('_accession_input') or submission.sra_accession or submission.bioproject_accession }}"
+                    <input type="text" id="accession-input" value="{{ _idata.get('_accession_input') or submission.bioproject_label }}"
                            placeholder="e.g., PRJNA123456 or SRR100-SRR120" class="inline-edit-input"
                            onkeydown="if(event.key==='Enter')saveAccession(); if(event.key==='Escape')cancelEditAccession();">
                     <button class="btn btn-primary btn-sm" onclick="saveAccession()" id="accession-save-btn">Save</button>
@@ -337,6 +337,23 @@
             <details class="wf-details" open>
                 <summary>Project metadata</summary>
                 <div class="wf-details-body">
+                    {% set _projects = submission.sample_metadata.get('projects') or [] %}
+                    {% if _projects | length > 1 %}
+                    <p class="wf-step-desc">This submission combines {{ _projects | length }} BioProjects; totals below are across all of them.</p>
+                    <table class="readonly-run-table" style="margin-bottom: 0.75rem;">
+                        <thead><tr><th>BioProject</th><th>Title</th><th>Organism</th><th class="num">SRA runs</th></tr></thead>
+                        <tbody>
+                        {% for pr in _projects %}
+                        <tr>
+                            <td><a href="https://www.ncbi.nlm.nih.gov/bioproject/{{ pr.accession }}" target="_blank" class="mono">{{ pr.accession }}</a></td>
+                            <td style="white-space: normal;">{{ pr.title }}</td>
+                            <td>{{ pr.organism }}</td>
+                            <td class="num">{{ pr.num_sra_runs }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% endif %}
                     <dl class="wf-meta-grid">
                         {% if submission.sample_metadata.get('title') %}
                         <dt>Project Title</dt>
@@ -386,8 +403,10 @@
                     <div style="overflow-x: auto; max-height: 300px; overflow-y: auto;">
                     <table class="readonly-run-table">
                         <thead>
+                            {% set _multi = (submission.bioprojects | length) > 1 %}
                             <tr>
                                 <th>Run</th>
+                                {% if _multi %}<th>BioProject</th>{% endif %}
                                 <th>Sample</th>
                                 <th>Platform</th>
                                 <th>Date</th>
@@ -401,6 +420,7 @@
                             {% if rec.run_accession in sel_accessions %}
                             <tr>
                                 <td class="mono">{{ rec.run_accession }}</td>
+                                {% if _multi %}<td class="mono">{{ rec.get('study_accession', '') }}</td>{% endif %}
                                 <td>{{ rec.get('sample_alias') or rec.get('sample_title') or rec.get('experiment_title') or rec.get('library_name') or '' }}</td>
                                 <td>{{ rec.get('instrument_platform', '') }}</td>
                                 <td>{{ rec.get('collection_date', '') }}</td>

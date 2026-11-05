@@ -39,6 +39,9 @@ def render_manuscript_template(
         "date": datetime.utcnow().strftime("%Y-%m-%d"),
         "abstract": sections.get("abstract", "*Abstract pending.*"),
         "sra_accession": submission.bioproject_label,
+        "sra_accession_links": ", ".join(
+            f"[{a}](https://www.ncbi.nlm.nih.gov/bioproject/{a})" for a in submission.bioprojects),
+        "sra_accession_noun": "accessions" if len(submission.bioprojects) > 1 else "accession",
         "pipeline": submission.pipeline.value,
         "paper_id": f"micro-{submission.slug}",
         "introduction": sections.get("introduction", "*Introduction pending.*"),

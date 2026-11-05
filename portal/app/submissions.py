@@ -139,7 +139,18 @@ def _apply_projects(submission: Submission, groups: list[dict], raw_input: str |
     accessions = [g["bioproject"] for g in groups]
     metadata = merge_project_metadata([g["metadata"] for g in groups])
     entered = [a for g in groups for a in g["entered"] if a not in accessions]
-    runs = [r for g in groups for r in g["runs"]]
+    # Named runs pre-select. A project entered alongside named runs from another
+    # project keeps every run it has; otherwise "PRJNA1 SRR_from_PRJEB2" would
+    # silently drop all of PRJNA1 from the selection and the download.
+    runs: list[str] = []
+    if any(g["runs"] for g in groups):
+        for g in groups:
+            group_runs = g["runs"] or [
+                r for row in (g["metadata"].get("breakdown") or [])
+                for r in (row.get("run_accessions") or [])]
+            for r in group_runs:
+                if r not in runs:
+                    runs.append(r)
 
     submission.bioproject_accession = accessions[0]
     submission.bioproject_accessions = accessions
