@@ -27,6 +27,7 @@ STATUS_LABELS = {
     "running": "Running", "processing": "Processing",
     "results_ready": "Ready", "drafting": "Drafting",
     "review": "In review", "published": "Published", "failed": "Failed",
+    "cancelled": "Cancelled",
 }
 
 

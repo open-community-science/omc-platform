@@ -24,7 +24,8 @@
                 {% if user %}
                 {% block header_actions %}{% endblock %}
                 <a href="/dashboard">My Submissions</a>
-                <a href="/ena">Submit Sequences</a>
+                {# "Submit Sequences" (/ena) is hidden from the nav until the ENA
+                   submission flow actually works; the page itself still exists. #}
                 <form action="/submissions/create" method="POST" style="display:inline;">
                     <button type="submit" class="nav-new-btn">Analyze Sequences</button>
                 </form>

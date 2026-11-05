@@ -129,7 +129,9 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
     # Get user's submissions
     stmt = select(Submission).where(Submission.user_id == user.id, Submission.deleted_at.is_(None)).order_by(Submission.created_at.desc())
     result = await db.execute(stmt)
-    submissions = result.scalars().all()
+    # Cancelled runs stay listed, but sink below everything else.
+    submissions = sorted(result.scalars().all(),
+                         key=lambda x: x.status == SubmissionStatus.CANCELLED)
 
     # Find active ENA sessions for this user
     from .sessions import _sessions
@@ -157,7 +159,7 @@ _STAGE_ORDER = [
     SubmissionStatus.DRAFT, SubmissionStatus.SUBMITTED, SubmissionStatus.QUEUED,
     SubmissionStatus.RUNNING, SubmissionStatus.PROCESSING, SubmissionStatus.RESULTS_READY,
     SubmissionStatus.DRAFTING, SubmissionStatus.REVIEW, SubmissionStatus.PUBLISHED,
-    SubmissionStatus.FAILED,
+    SubmissionStatus.FAILED, SubmissionStatus.CANCELLED,
 ]
 _ACTIVE_STATES = {
     SubmissionStatus.SUBMITTED, SubmissionStatus.QUEUED, SubmissionStatus.RUNNING,
@@ -303,7 +305,7 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
                 bucket["active"] += 1
             elif status == SubmissionStatus.PUBLISHED:
                 bucket["published"] += 1
-            elif status == SubmissionStatus.FAILED:
+            elif status in (SubmissionStatus.FAILED, SubmissionStatus.CANCELLED):
                 bucket["failed"] += 1
 
         matrix.setdefault(pipe, _blank_stage_counts())

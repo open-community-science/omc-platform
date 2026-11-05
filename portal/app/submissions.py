@@ -456,6 +456,8 @@ async def get_status(
     elif s == "failed":
         msg = submission.error_message or "Unknown error"
         html = f'<p class="status-polling" style="color:var(--color-error)"><strong>Failed:</strong> {msg}</p>'
+    elif s == "cancelled":
+        html = f'<p class="status-polling"><strong>Cancelled.</strong> {submission.error_message or ""}</p>'
     elif s == "processing":
         html = '<p class="status-polling">Pipeline complete. Ready for manuscript generation.</p>'
     else:
@@ -630,6 +632,45 @@ async def update_submission(
     return JSONResponse({"ok": True, "title": submission.title, "pipeline": submission.pipeline.value})
 
 
+IN_FLIGHT = (
+    SubmissionStatus.QUEUED, SubmissionStatus.SUBMITTED,
+    SubmissionStatus.RUNNING, SubmissionStatus.PROCESSING,
+)
+
+
+async def _cancel(submission: Submission, db: AsyncSession, reason: str) -> None:
+    """Stop an in-flight submission: status CANCELLED in the DB, the arbutus
+    download killed and its staged files freed, and the slug announced to the
+    clusters (staging.cancelled_slugs) so the pickup loop scancels the job and
+    drops its copies."""
+    from .staging import cancel_staging
+
+    submission.status = SubmissionStatus.CANCELLED
+    submission.completed_at = datetime.utcnow()
+    submission.error_message = f"Cancelled: {reason}"
+    await db.commit()
+    try:
+        cancel_staging(submission.slug)
+    except Exception as exc:  # the DB state is what the clusters follow
+        import logging
+        logging.getLogger(__name__).warning("cancel_staging(%s) failed: %s", submission.slug, exc)
+
+
+@router.post("/{slug}/cancel")
+async def cancel_submission(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Cancel a queued or running submission without deleting it. It stays on
+    the dashboard, marked Cancelled, at the bottom of the list."""
+    submission = await _get_submission(slug, user, db)
+    if submission.status not in IN_FLIGHT:
+        raise HTTPException(status_code=400, detail=f"Nothing to cancel: submission is {submission.status.value}")
+    await _cancel(submission, db, reason="stopped by the user")
+    return RedirectResponse(url=f"/submissions/{slug}", status_code=302)
+
+
 @router.post("/{slug}/delete")
 async def delete_submission(
     slug: str,
@@ -638,28 +679,14 @@ async def delete_submission(
 ):
     """Soft-delete a submission. Cleanup cron removes files later.
 
-    An in-flight submission is also cancelled: the arbutus download is killed
-    and its staged files freed now, and the cluster learns from the heartbeat
-    reply to scancel the pipeline job and drop its copies.
+    An in-flight submission is cancelled first (see _cancel), so the arbutus
+    download stops and the cluster drops the job.
     """
-    from .staging import cancel_staging
-
     submission = await _get_submission(slug, user, db)
-
-    in_flight = submission.status in (
-        SubmissionStatus.QUEUED, SubmissionStatus.SUBMITTED,
-        SubmissionStatus.RUNNING, SubmissionStatus.PROCESSING,
-    )
+    if submission.status in IN_FLIGHT:
+        await _cancel(submission, db, reason="deleted by the user while in progress")
     submission.deleted_at = datetime.utcnow()
-    if in_flight:
-        submission.error_message = "Cancelled: deleted by the user while in progress"
     await db.commit()
-    if in_flight:
-        try:
-            cancel_staging(slug)
-        except Exception as exc:  # the delete itself has already happened
-            import logging
-            logging.getLogger(__name__).warning("cancel_staging(%s) failed: %s", slug, exc)
 
     return RedirectResponse(url="/dashboard", status_code=302)
 

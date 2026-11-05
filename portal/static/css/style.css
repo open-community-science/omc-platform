@@ -326,6 +326,14 @@ body {
 .status-review { background: #dcfce7; color: #166534; }
 .status-published { background: #22c55e; color: white; }
 .status-failed { background: #fee2e2; color: #991b1b; }
+.status-cancelled { background: #e2e8f0; color: #475569; }
+.submission-card[data-status="cancelled"], .submission-row[data-status="cancelled"] { opacity: 0.6; }
+.submission-header-status { display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem; }
+.btn-cancel-run {
+    background: none; border: 1px solid var(--color-border); color: var(--color-text-muted);
+    font-size: 0.75rem; padding: 0.25rem 0.6rem; border-radius: 6px; cursor: pointer;
+}
+.btn-cancel-run:hover { color: var(--color-error); border-color: var(--color-error); }
 
 /* Forms */
 .form-group {

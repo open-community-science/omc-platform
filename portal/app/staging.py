@@ -417,13 +417,18 @@ async def cancelled_slugs() -> list[str]:
         from sqlalchemy import select
         from .database import async_session, Submission, SubmissionStatus
         since = datetime.utcnow() - timedelta(days=_CANCEL_WINDOW_DAYS)
+        from sqlalchemy import or_, and_
         async with async_session() as db:
-            rows = await db.execute(select(Submission.slug).where(
-                Submission.deleted_at.is_not(None),
-                Submission.deleted_at >= since,
-                Submission.status.in_([SubmissionStatus.QUEUED, SubmissionStatus.SUBMITTED,
-                                       SubmissionStatus.RUNNING, SubmissionStatus.PROCESSING]),
-            ))
+            rows = await db.execute(select(Submission.slug).where(or_(
+                # cancelled via the button (stays listed); completed_at is when
+                and_(Submission.status == SubmissionStatus.CANCELLED,
+                     Submission.completed_at >= since),
+                # deleted while in flight by an older portal (no CANCELLED yet)
+                and_(Submission.deleted_at.is_not(None),
+                     Submission.deleted_at >= since,
+                     Submission.status.in_([SubmissionStatus.QUEUED, SubmissionStatus.SUBMITTED,
+                                            SubmissionStatus.RUNNING, SubmissionStatus.PROCESSING])),
+            )))
             for (slug,) in rows:
                 if slug not in found:
                     found.append(slug)

@@ -25,6 +25,7 @@ class SubmissionStatus(str, enum.Enum):
     REVIEW = "review"
     PUBLISHED = "published"
     FAILED = "failed"
+    CANCELLED = "cancelled"         # stopped by the user while in flight
 
 
 class PipelineType(str, enum.Enum):

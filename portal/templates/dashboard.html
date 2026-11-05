@@ -271,7 +271,10 @@
         rows.forEach(r => { r.style.display = matches(r, q, st, pl) ? '' : 'none'; });
 
         const mode = sort.value;
+        // Cancelled runs always sink to the bottom, whatever the sort.
+        const sunk = (a, b) => (a.dataset.status === 'cancelled') - (b.dataset.status === 'cancelled');
         cards.slice().sort((a, b) => {
+            const z = sunk(a, b); if (z) return z;
             switch (mode) {
                 case 'created-asc':  return a.dataset.created.localeCompare(b.dataset.created);
                 case 'status':       return a.dataset.status.localeCompare(b.dataset.status);
@@ -292,6 +295,8 @@
     function sortTable() {
         if (!tbody) return;
         rows.slice().sort((a, b) => {
+            const z = (a.dataset.status === 'cancelled') - (b.dataset.status === 'cancelled');
+            if (z) return z;
             const x = a.dataset[tableKey] ?? '', y = b.dataset[tableKey] ?? '';
             if (NUMERIC.has(tableKey)) {
                 return (parseFloat(x) - parseFloat(y)) * tableDir;

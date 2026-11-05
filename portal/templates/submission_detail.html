@@ -88,7 +88,15 @@
                 Created {{ submission.created_at.strftime('%Y-%m-%d') }}
             </p>
         </div>
-        <span class="status-badge status-{{ s }}">{{ s|status_label }}</span>
+        <div class="submission-header-status">
+            <span class="status-badge status-{{ s }}">{{ s|status_label }}</span>
+            {% if can_edit and s in ['submitted', 'queued', 'running', 'processing'] %}
+            <form action="/submissions/{{ submission.slug }}/cancel" method="POST" class="cancel-form"
+                  onsubmit="return confirm('Cancel this run? The download and the HPC job will be stopped. The submission stays on your dashboard as Cancelled.')">
+                <button type="submit" class="btn btn-cancel-run" title="Stop the download and the HPC job">Cancel run</button>
+            </form>
+            {% endif %}
+        </div>
     </div>
 
     <div class="chip-row">
@@ -101,6 +109,8 @@
       {# Pipeline #}
       {% if s == 'failed' %}
       <span class="dchip failed">Pipeline failed</span>
+      {% elif s == 'cancelled' %}
+      <span class="dchip failed">Pipeline cancelled</span>
       {% elif pipeline_done %}
       <span class="dchip done">✓ Pipeline</span>
       {% elif pipeline_running %}
@@ -454,7 +464,7 @@
         </div>
 
         {# ── Step 2: Pipeline Analysis ── #}
-        {% set step2_failed = s == 'failed' %}
+        {% set step2_failed = s in ['failed', 'cancelled'] %}
         {% set step2_current = s in ['submitted', 'queued', 'running'] or (s == 'draft' and has_accession) %}
         {% set step2_done = s in ['processing', 'results_ready', 'drafting', 'review', 'published'] %}
         {% set step2_state = 'failed' if step2_failed else ('completed' if step2_done else ('current' if step2_current else 'locked')) %}
@@ -462,7 +472,9 @@
             <div class="wf-step-header">
                 <span class="wf-step-number">2</span>
                 <h2 class="wf-step-title">Pipeline Analysis</h2>
-                {% if step2_failed %}
+                {% if s == 'cancelled' %}
+                <span class="wf-step-badge failed">Cancelled</span>
+                {% elif step2_failed %}
                 <span class="wf-step-badge failed">Failed</span>
                 {% elif step2_done %}
                 <span class="wf-step-badge done">Done</span>
