@@ -150,6 +150,29 @@ if [ -n "$HB_RESP" ]; then
 fi
 echo "$(now) heartbeat ${OMC_CLUSTER}: active=${IS_ACTIVE} routing=${CLUSTER_ROUTING} (running=$HB_RUN pending=$HB_PEND)"
 
+# ── Cancellations ────────────────────────────────────────────────────────
+# A submission deleted in the web app arrives here as `cancelled` in the
+# heartbeat reply (for a week). Cancel its pipeline job, drop the fetched runs,
+# work dir and unfinalized results, and remember it so each cycle doesn't
+# repeat the cleanup. Finalized results are left alone.
+_cdir="$HOME/.cache/omc/cancelled"; mkdir -p "$_cdir"
+for CSLUG in $(echo "$HB_RESP" | jq -r '.cancelled[]? // empty' 2>/dev/null); do
+    [[ "$CSLUG" =~ ^[A-Za-z0-9_-]+$ ]] || continue
+    [ -f "$_cdir/$CSLUG" ] && continue
+    _cout="${OMC_RESULTS}/${CSLUG}"; _cin="${OMC_SCRATCH}/sra_downloads/${CSLUG}"
+    _cjid=$(sed -n 's/^pipeline=//p' "$_cout/job_ids.txt" 2>/dev/null | head -1)
+    if [[ "$_cjid" =~ ^[0-9]+$ ]] && command -v scancel >/dev/null 2>&1; then
+        scancel "$_cjid" 2>/dev/null && echo "$(now) cancelled $CSLUG: scancel $_cjid"
+    fi
+    rm -rf "$_cin" "${OMC_SCRATCH}/omc_work/${CSLUG}" 2>/dev/null
+    if [ -d "$_cout" ] && [ ! -f "$_cout/.finalized" ]; then
+        rm -rf "$_cout" 2>/dev/null
+    fi
+    push_status "$CSLUG" '{"phase":"cancelled"}'
+    echo "$(now) cancelled $CSLUG: removed fetched runs and work dir"
+    now > "$_cdir/$CSLUG"
+done
+
 # ── Keep the checkouts current ───────────────────────────────────────────
 # The pipelines run inside the images refreshed below, but the launcher that
 # starts each one — danaSeq's run-*.sh, which picks the SIF, builds the bind

@@ -650,6 +650,8 @@ check_disk() {{
 
 download_run() {{
     local acc="$1"
+    # Deleted in the web app while this was running: stop, don't start another.
+    [ -f "${{LOCAL_DIR}}/.cancelled" ] && return 1
     local STALL_TIMEOUT=600  # kill if no new bytes for 10 min
     local STALL_CHECK=30     # check every 30s
     local MAX_RETRIES=3
@@ -819,6 +821,13 @@ echo "Download finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Clean up temp dir
 rm -rf "${{LOCAL_DIR}}/tmp"
+
+# Cancelled meanwhile: never offer it for pickup.
+if [ -f "${{LOCAL_DIR}}/.cancelled" ]; then
+    echo "Cancelled — not marking ready."
+    trap - EXIT
+    exit 0
+fi
 
 # Mark as ready for pickup by fir cron
 date -u +%Y-%m-%dT%H:%M:%SZ > ${{LOCAL_DIR}}/.ready

@@ -636,11 +636,30 @@ async def delete_submission(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_user),
 ):
-    """Soft-delete a submission. Cleanup cron removes files later."""
+    """Soft-delete a submission. Cleanup cron removes files later.
+
+    An in-flight submission is also cancelled: the arbutus download is killed
+    and its staged files freed now, and the cluster learns from the heartbeat
+    reply to scancel the pipeline job and drop its copies.
+    """
+    from .staging import cancel_staging
+
     submission = await _get_submission(slug, user, db)
 
+    in_flight = submission.status in (
+        SubmissionStatus.QUEUED, SubmissionStatus.SUBMITTED,
+        SubmissionStatus.RUNNING, SubmissionStatus.PROCESSING,
+    )
     submission.deleted_at = datetime.utcnow()
+    if in_flight:
+        submission.error_message = "Cancelled: deleted by the user while in progress"
     await db.commit()
+    if in_flight:
+        try:
+            cancel_staging(slug)
+        except Exception as exc:  # the delete itself has already happened
+            import logging
+            logging.getLogger(__name__).warning("cancel_staging(%s) failed: %s", slug, exc)
 
     return RedirectResponse(url="/dashboard", status_code=302)
 

@@ -12,7 +12,11 @@ Endpoints are authenticated with the staging API key.
 import json
 import os
 import logging
-from datetime import datetime, timezone
+import shutil
+import signal
+import subprocess
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Header, Request
@@ -82,7 +86,7 @@ async def list_ready(cluster: str = "", authorization: str = Header(default=""))
         if not slug_dir.is_dir():
             continue
         ready_marker = slug_dir / ".ready"
-        if not ready_marker.exists():
+        if not ready_marker.exists() or _is_cancelled(slug_dir):
             continue
         if not _claimable_by(slug_dir, cluster, active):
             continue
@@ -191,7 +195,7 @@ async def list_ready_runs(cluster: str = "", authorization: str = Header(default
             continue
 
         run_ready_dir = slug_dir / ".run-ready"
-        if not run_ready_dir.exists():
+        if not run_ready_dir.exists() or _is_cancelled(slug_dir):
             continue
         if not _claimable_by(slug_dir, cluster, active):
             continue
@@ -284,6 +288,148 @@ async def push_status(slug: str, request: Request, authorization: str = Header(d
     logger.info(f"HPC status update for {slug}: {body.get('phase', '?')}")
 
     return {"ok": True}
+
+
+# ── Cancellation ─────────────────────────────────────────────────────────
+#
+# Deleting a submission in the web app only set deleted_at; the arbutus download
+# kept running and the cluster kept fetching runs (3b3ae30a, 3,904 runs, ran for
+# 2.5 h after its delete). Cancellation is now a marker in the staging dir plus a
+# list in the heartbeat reply, so both halves stop:
+#   arbutus: cancel_staging() kills the download tree, drops the queue/ready
+#            markers (so /ready and /ready-runs stop offering it) and frees the
+#            fastq files; the cleanup cron removes the directory later.
+#   cluster: the pickup loop reads `cancelled` from the heartbeat reply, scancels
+#            the pipeline job and deletes its copies.
+
+CANCELLED_MARKER = ".cancelled"
+_CANCEL_WINDOW_DAYS = 7   # how long a cancelled slug keeps being announced
+
+
+def _is_cancelled(slug_dir: Path) -> bool:
+    return (slug_dir / CANCELLED_MARKER).exists()
+
+
+def _descendants(pid: int) -> list[int]:
+    """pid plus every process below it, leaves first (so children die before
+    the parent respawns them)."""
+    try:
+        out = subprocess.run(["ps", "-eo", "pid=,ppid="], capture_output=True,
+                             text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return [pid]
+    kids: dict[int, list[int]] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            kids.setdefault(int(parts[1]), []).append(int(parts[0]))
+    order: list[int] = []
+
+    def walk(p: int) -> None:
+        for c in kids.get(p, []):
+            walk(c)
+        order.append(p)
+    walk(pid)
+    return order
+
+
+def _kill_download(slug_dir: Path) -> int:
+    """Kill the download.sh the worker launched for this slug, with its
+    xargs/prefetch/fasterq-dump children. Returns the number of PIDs signalled."""
+    script = str(slug_dir / "download.sh")
+    try:
+        out = subprocess.run(["pgrep", "-f", f"bash {script}"], capture_output=True, text=True).stdout
+    except OSError:
+        return 0
+    pids: list[int] = []
+    for root in (int(x) for x in out.split() if x.isdigit()):
+        pids.extend(_descendants(root))
+    # prefetch/fasterq-dump name the staging dir on their command line too.
+    try:
+        out = subprocess.run(["pgrep", "-f", str(slug_dir) + "/"], capture_output=True, text=True).stdout
+        pids.extend(int(x) for x in out.split() if x.isdigit() and int(x) != os.getpid())
+    except OSError:
+        pass
+    seen: list[int] = []
+    for pid in pids:
+        if pid in seen or pid == os.getpid():
+            continue
+        seen.append(pid)
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            logger.warning("cancel %s: no permission to kill pid %s", slug_dir.name, pid)
+    if seen:
+        time.sleep(2)
+        for pid in seen:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+    return len(seen)
+
+
+def cancel_staging(slug: str) -> dict:
+    """Stop the arbutus side of a submission and mark it cancelled.
+
+    Safe to call for a slug with no staging directory (nothing was ever
+    queued): the marker directory is still created so the cluster hears about
+    it through the heartbeat.
+    """
+    slug_dir = Path(settings.local_download_path) / slug
+    slug_dir.mkdir(parents=True, exist_ok=True)
+    killed = _kill_download(slug_dir)
+    for name in (".queued", ".ready"):
+        try:
+            (slug_dir / name).unlink()
+        except FileNotFoundError:
+            pass
+    shutil.rmtree(slug_dir / ".run-ready", ignore_errors=True)
+    freed = 0
+    fastq_dir = slug_dir / "fastq"
+    if fastq_dir.exists():
+        for f in fastq_dir.iterdir():
+            if f.is_file():
+                freed += f.stat().st_size
+                f.unlink(missing_ok=True)
+    for sub in slug_dir.iterdir():
+        # prefetch's per-accession download folders and the fasterq temp dir
+        if sub.is_dir() and (sub.name == "tmp" or sub.name[:3] in ("SRR", "ERR", "DRR")):
+            shutil.rmtree(sub, ignore_errors=True)
+    (slug_dir / CANCELLED_MARKER).write_text(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    logger.info("cancelled staging for %s: killed %d processes, freed %.1f GB", slug, killed, freed / 1e9)
+    return {"killed": killed, "freed_bytes": freed}
+
+
+async def cancelled_slugs() -> list[str]:
+    """Slugs the clusters should abandon: every staging dir carrying the
+    marker, plus submissions deleted in-flight within the last week (covers a
+    staging dir the cleanup cron has already removed)."""
+    found: list[str] = []
+    root = Path(settings.local_download_path)
+    if root.exists():
+        for d in root.iterdir():
+            if d.is_dir() and not d.name.startswith(".") and _is_cancelled(d):
+                found.append(d.name)
+    try:
+        from sqlalchemy import select
+        from .database import async_session, Submission, SubmissionStatus
+        since = datetime.utcnow() - timedelta(days=_CANCEL_WINDOW_DAYS)
+        async with async_session() as db:
+            rows = await db.execute(select(Submission.slug).where(
+                Submission.deleted_at.is_not(None),
+                Submission.deleted_at >= since,
+                Submission.status.in_([SubmissionStatus.QUEUED, SubmissionStatus.SUBMITTED,
+                                       SubmissionStatus.RUNNING, SubmissionStatus.PROCESSING]),
+            ))
+            for (slug,) in rows:
+                if slug not in found:
+                    found.append(slug)
+    except Exception as exc:  # the heartbeat must not fail because the DB hiccuped
+        logger.warning("cancelled_slugs: DB lookup failed: %s", exc)
+    return found
 
 
 # ── Cluster heartbeat + active-cluster switch ───────────────────────────
@@ -412,7 +558,7 @@ async def cluster_heartbeat(request: Request, authorization: str = Header(defaul
 
     active = get_active_cluster()
     return {"ok": True, "active_cluster": active, "is_active": name == active,
-            "cluster_routing": True}
+            "cluster_routing": True, "cancelled": await cancelled_slugs()}
 
 
 @router.get("/cluster/status")
