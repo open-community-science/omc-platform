@@ -701,7 +701,7 @@ async def submission_offline_bundle(
     stays ignorant of where the published copy is kept.
     """
     import shutil
-    from .microscape_deploy import _extract_site, bioproject_dates
+    from .microscape_deploy import _extract_site, bioprojects_dates
     from .offline_bundle import build_zip
 
     user = await get_current_user(request, db)
@@ -722,11 +722,12 @@ async def submission_offline_bundle(
 
     dates = (submission.sample_metadata or {}).get("bioproject_dates")
     if dates is None:
-        dates = await bioproject_dates(submission.bioproject_accession or "")
+        dates = await bioprojects_dates(submission.bioprojects)
     run_info = {
         "slug": submission.slug,
         "title": submission.title or "",
-        "bioproject": submission.bioproject_accession or "",
+        "bioproject": submission.bioproject_label,
+        "bioprojects": submission.bioprojects,
         "registered": (dates or {}).get("first_public", ""),
         "updated": (dates or {}).get("last_updated", ""),
         "pipeline": submission.pipeline.value if submission.pipeline else "",

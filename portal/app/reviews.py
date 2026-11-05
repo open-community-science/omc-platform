@@ -249,7 +249,7 @@ async def run_reviews_stream(
     sub_slug = submission.slug
     sub_id = submission.id
     sub_pipeline = submission.pipeline.value
-    sub_accession = submission.bioproject_accession
+    sub_accession = submission.bioproject_label
     sub_github_repo = submission.github_repo
     sub_sample_meta = dict(submission.sample_metadata or {})
     has_github_repo = bool(sub_github_repo)
@@ -435,7 +435,7 @@ async def generate_manuscript(
         pipeline_outputs=pipeline_outputs,
         interview_data=interview_data,
         pipeline_type=submission.pipeline.value,
-        bioproject_accession=submission.bioproject_accession,
+        bioproject_accession=submission.bioproject_label,
         study_metadata=build_study_facts(submission),
         base_url=llm["base_url"],
         api_key=llm["api_key"],
@@ -489,7 +489,7 @@ async def generate_manuscript_stream(
     # Capture submission data before we leave the db session scope
     sub_slug = submission.slug
     sub_pipeline = submission.pipeline.value
-    sub_accession = submission.bioproject_accession
+    sub_accession = submission.bioproject_label
     sub_interview = dict(submission.interview_data or {})
     # Grounds the paper's subject matter — without it the model invents a study system.
     # Snapshotted inside the db session; the drafting task runs after it closes.
@@ -743,7 +743,7 @@ def _manuscript_to_files(sections: dict, submission, figures: dict | None = None
     import json as _json
     from datetime import date
 
-    accession = getattr(submission, "bioproject_accession", "")
+    accession = getattr(submission, "bioproject_label", "") or getattr(submission, "bioproject_accession", "")
     pipeline = getattr(submission, "pipeline", None)
     pipeline_name = pipeline.value if pipeline else "unknown"
     title = submission.title or "Untitled"

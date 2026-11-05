@@ -164,7 +164,7 @@ async def ai_interview_chat(
 
     # Build project metadata from submission
     project_meta = {
-        "accession": submission.bioproject_accession,
+        "accession": submission.bioproject_label,
         "pipeline": submission.pipeline.value,
         "title": submission.title or "",
         "metadata": submission.sample_metadata or {},

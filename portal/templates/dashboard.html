@@ -48,12 +48,12 @@
              data-status="{{ sub.status.value }}"
              data-pipeline="{{ sub.pipeline.value if sub.pipeline else '' }}"
              data-title="{{ (sub.title or 'Untitled')|lower }}"
-             data-accession="{{ (sub.bioproject_accession or '')|lower }}"
+             data-accession="{{ sub.bioproject_label|lower }}"
              data-slug="{{ sub.slug|lower }}"
              data-created="{{ sub.created_at.isoformat() }}">
             <div class="submission-info">
                 <h3><a href="/submissions/{{ sub.slug }}">{{ sub.title or 'Untitled' }}</a></h3>
-                <p class="accession">{{ sub.slug }}{% if sub.bioproject_accession %} &middot; {{ sub.bioproject_accession }}{% endif %}{% if sub.pipeline %} &middot; {{ sub.pipeline.value }}{% endif %}</p>
+                <p class="accession">{{ sub.slug }}{% if sub.bioproject_accession %} &middot; {{ sub.bioproject_label }}{% endif %}{% if sub.pipeline %} &middot; {{ sub.pipeline.value }}{% endif %}</p>
                 <p class="date">Created {{ sub.created_at.strftime('%Y-%m-%d') }}
                     <span class="muted">{{ sub.created_at.strftime('%H:%M') }}</span></p>
                 {# ── progress chips: what's been done, at a glance ── #}
@@ -115,7 +115,7 @@
                     data-status="{{ sub.status.value }}"
                     data-pipeline="{{ sub.pipeline.value if sub.pipeline else '' }}"
                     data-title="{{ (sub.title or 'Untitled')|lower }}"
-                    data-accession="{{ (sub.bioproject_accession or '')|lower }}"
+                    data-accession="{{ sub.bioproject_label|lower }}"
                     data-slug="{{ sub.slug|lower }}"
                     data-created="{{ sub.created_at.isoformat() }}"
                     data-runs="{{ x.get('runs') or 0 }}"
@@ -134,7 +134,7 @@
                     <td class="t-title">
                         <a href="/submissions/{{ sub.slug }}">{{ sub.title or 'Untitled' }}</a>
                         <span class="t-slug">
-                            {%- if sub.bioproject_accession %}{{ sub.bioproject_accession }} &middot; {% endif -%}
+                            {%- if sub.bioproject_accession %}{{ sub.bioproject_label }} &middot; {% endif -%}
                             {{ sub.slug }}
                         </span>
                     </td>

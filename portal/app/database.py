@@ -100,8 +100,11 @@ class Submission(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     # Project & data info
-    bioproject_accession = Column(String(50))  # nullable until accession is resolved
-    sra_accession = Column(String(50))  # original accession entered by user
+    bioproject_accession = Column(String(50))  # primary (first) BioProject; nullable until resolved
+    # Every BioProject in this submission, in input order. NULL on rows written
+    # before multi-project support: `bioprojects` falls back to the primary.
+    bioproject_accessions = Column(JSON)
+    sra_accession = Column(String(50))  # short label of what the user typed
     selected_runs = Column(JSON)  # list of SRA run accessions chosen during interview
     pipeline = Column(Enum(PipelineType), default=PipelineType.NANOPORE_MAG)
 
@@ -133,6 +136,19 @@ class Submission(Base):
     # Amplicon primers: {fwd, rev, fwd_name, rev_name, region,
     # source: metadata|manual|inferred-db|inferred-denovo, confidence}
     primers = Column(JSON)
+
+    @property
+    def bioprojects(self) -> list:
+        """All BioProject accessions, primary first; [] when nothing is linked."""
+        accs = self.bioproject_accessions
+        if isinstance(accs, list) and accs:
+            return [a for a in accs if a]
+        return [self.bioproject_accession] if self.bioproject_accession else []
+
+    @property
+    def bioproject_label(self) -> str:
+        """'PRJNA1' or 'PRJNA1, PRJEB2' for display and prompts."""
+        return ", ".join(self.bioprojects)
 
     # Submitter says the reads reach us with their primers already removed, so
     # the pipeline must not try to remove them again — cutadapt matches the front
@@ -215,6 +231,13 @@ async def init_db():
         except Exception:
             await conn.execute(text("ALTER TABLE submissions ADD COLUMN primers JSON"))
             logging.getLogger(__name__).info("Added primers column to submissions")
+
+        # Migration: add bioproject_accessions (multi-project submissions)
+        try:
+            await conn.execute(text("SELECT bioproject_accessions FROM submissions LIMIT 1"))
+        except Exception:
+            logging.getLogger(__name__).info("Adding bioproject_accessions column to submissions")
+            await conn.execute(text("ALTER TABLE submissions ADD COLUMN bioproject_accessions JSON"))
 
         # Migration: add pre_trimmed column to submissions
         try:

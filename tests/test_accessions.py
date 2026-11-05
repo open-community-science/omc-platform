@@ -65,3 +65,46 @@ def test_summarize():
     assert summarize(["SRR1"]) == "SRR1"
     s = summarize([f"SRR{n}" for n in range(1, 40)])
     assert s.endswith("more)") and len(s) <= 50
+
+
+# ── merge_project_metadata ──────────────────────────────────────────────────
+from app.sra_metadata import merge_project_metadata  # noqa: E402
+
+
+def _proj(acc, runs, strategy="AMPLICON", organism="soil metagenome"):
+    return {
+        "accession": acc, "title": f"Title {acc}", "description": f"Desc {acc}",
+        "organism": organism, "organization": "Org", "registration_date": "2020-01-01",
+        "num_sra_runs": len(runs), "num_samples": len(runs), "total_bases": 10 * len(runs),
+        "total_spots": len(runs),
+        "breakdown": [{"platform": "ILLUMINA", "instrument": "MiSeq", "strategy": strategy,
+                       "source": "METAGENOMIC", "layout": "PAIRED", "runs": len(runs),
+                       "samples": len(runs), "bases": 10 * len(runs), "spots": len(runs),
+                       "run_accessions": list(runs)}],
+        "sample_records": [{"run_accession": r, "study_accession": acc} for r in runs],
+    }
+
+
+def test_merge_single_passthrough():
+    m = merge_project_metadata([_proj("PRJNA1", ["SRR1", "SRR2"])])
+    assert m["accession"] == "PRJNA1" and m["accessions"] == ["PRJNA1"]
+    assert m["title"] == "Title PRJNA1" and len(m["projects"]) == 1
+
+
+def test_merge_two_projects_sums_breakdown_and_records():
+    m = merge_project_metadata([_proj("PRJNA1", ["SRR1", "SRR2"]),
+                                _proj("PRJEB2", ["ERR1"], organism="marine metagenome")])
+    assert m["accessions"] == ["PRJNA1", "PRJEB2"]
+    assert m["num_sra_runs"] == 3 and m["total_bases"] == 30
+    assert len(m["breakdown"]) == 1
+    assert m["breakdown"][0]["runs"] == 3
+    assert m["breakdown"][0]["run_accessions"] == ["SRR1", "SRR2", "ERR1"]
+    assert [r["run_accession"] for r in m["sample_records"]] == ["SRR1", "SRR2", "ERR1"]
+    assert m["organism"] == "soil metagenome, marine metagenome"
+    assert m["title"] == "Title PRJNA1; Title PRJEB2"
+    assert "[PRJEB2] Desc PRJEB2" in m["description"]
+
+
+def test_merge_keeps_distinct_breakdown_rows():
+    m = merge_project_metadata([_proj("PRJNA1", ["SRR1"]), _proj("PRJEB2", ["ERR1"], strategy="WGS")])
+    assert {b["strategy"] for b in m["breakdown"]} == {"AMPLICON", "WGS"}

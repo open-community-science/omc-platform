@@ -406,7 +406,7 @@ def _build_pipeline_script(submission: Submission, attempt: int = 0) -> str:
     # path; a cluster overriding OMC_SCRATCH shares the Alliance /home/<user>/scratch
     # layout, so this resolves there too.
     output_dir = f"{settings.results_path}/{submission.slug}"
-    accession = submission.bioproject_accession
+    accession = submission.bioproject_label
     mem_gb = _estimate_mem_gb(submission, attempt)
 
     # Pipeline-specific run command (assembly->mag chain, or amplicon SIF)
@@ -623,7 +623,9 @@ def _build_local_download_wrapper(submission: Submission) -> str:
     and submit the pipeline — no SSH required.
     """
     local_dir = f"{settings.local_download_path}/{submission.slug}"
-    accession = submission.bioproject_accession
+    accession = submission.bioproject_label
+    # Shell-quoted esearch queries, one per BioProject, for the no-selection fallback.
+    project_queries = " ".join(f'"{a}"' for a in submission.bioprojects)
 
     # Extract run accessions — prefer individual selections from run selector,
     # fall back to all runs from selected type groups
@@ -742,9 +744,13 @@ cat ${{LOCAL_DIR}}/run_list.txt | xargs -P $PARALLEL_JOBS -I {{}} bash -c 'downl
         logger.warning(f"No run_accessions in selected_runs for {submission.slug} — downloading all runs (local mode)")
         download_cmd = f"""{download_fn}
 echo "WARNING: No explicit run accessions — downloading ALL runs for {accession}"
-echo "Resolving runs for {accession}..."
-esearch -db sra -query "{accession}" | efetch -format runinfo | \\
-    awk -F',' 'NR>1 && $1 != "" {{print $1}}' > ${{LOCAL_DIR}}/run_list.txt
+: > ${{LOCAL_DIR}}/run_list.txt
+for PROJECT in {project_queries}; do
+    echo "Resolving runs for $PROJECT..."
+    esearch -db sra -query "$PROJECT" | efetch -format runinfo | \\
+        awk -F',' 'NR>1 && $1 != "" {{print $1}}' >> ${{LOCAL_DIR}}/run_list.txt
+done
+sort -u -o ${{LOCAL_DIR}}/run_list.txt ${{LOCAL_DIR}}/run_list.txt
 
 NUM_RUNS=$(wc -l < ${{LOCAL_DIR}}/run_list.txt)
 echo "Found $NUM_RUNS runs to download ($PARALLEL_JOBS in parallel)"
@@ -864,7 +870,8 @@ async def submit_local_download_job(submission: Submission) -> str:
     import json
     meta = {
         "slug": submission.slug,
-        "accession": submission.bioproject_accession,
+        "accession": submission.bioproject_label,
+        "accessions": submission.bioprojects,
         "pipeline": submission.pipeline.value,
         "title": submission.title or "",
         "sample_metadata": submission.sample_metadata or {},

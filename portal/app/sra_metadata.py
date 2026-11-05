@@ -760,3 +760,97 @@ def metadata_summary(metadata: dict) -> str:
             lines.append(f"  {k}: {v}")
 
     return "\n".join(lines)
+
+
+# ── Multi-project submissions ────────────────────────────────────────────────
+
+_BREAKDOWN_KEY = ("platform", "instrument", "strategy", "source", "layout")
+
+
+def merge_project_metadata(projects: list[dict]) -> dict:
+    """Combine per-BioProject metadata dicts (as returned by
+    resolve_to_bioproject, each with its own `sample_records`) into one
+    submission-level dict with the same shape the rest of the portal reads.
+
+    One project passes through unchanged (plus `accessions`/`projects`), so
+    single-project submissions look exactly as before. For several, the
+    breakdown rows are summed per (platform, instrument, strategy, source,
+    layout), sample records are concatenated (each carries its own
+    study_accession), counts are summed and text fields are joined.
+    """
+    from collections import OrderedDict
+
+    projects = [p for p in projects if p]
+    if not projects:
+        return {}
+    summaries = [{k: p.get(k, "") for k in (
+        "accession", "title", "description", "organism", "organization",
+        "registration_date", "project_scope", "num_sra_runs", "num_samples",
+        "total_bases", "total_spots")} for p in projects]
+    if len(projects) == 1:
+        merged = dict(projects[0])
+        merged["accessions"] = [projects[0].get("accession", "")]
+        merged["projects"] = summaries
+        return merged
+
+    accessions = [p.get("accession", "") for p in projects]
+    rows: "OrderedDict[tuple, dict]" = OrderedDict()
+    for p in projects:
+        for row in p.get("breakdown", []) or []:
+            key = tuple(row.get(k, "") for k in _BREAKDOWN_KEY)
+            cur = rows.get(key)
+            if cur is None:
+                cur = rows[key] = {**{k: row.get(k, "") for k in _BREAKDOWN_KEY},
+                                   "runs": 0, "samples": 0, "bases": 0, "spots": 0,
+                                   "run_accessions": []}
+            cur["runs"] += int(row.get("runs") or 0)
+            cur["samples"] += int(row.get("samples") or 0)
+            cur["bases"] += int(row.get("bases") or 0)
+            cur["spots"] += int(row.get("spots") or 0)
+            cur["run_accessions"].extend(row.get("run_accessions") or [])
+    breakdown = sorted(rows.values(), key=lambda r: r["runs"], reverse=True)
+
+    def _union(field: str) -> str:
+        seen: list[str] = []
+        for p in projects:
+            for part in str(p.get(field, "") or "").split(", "):
+                part = part.strip()
+                if part and part not in seen:
+                    seen.append(part)
+        return ", ".join(seen)
+
+    def _sum(field: str) -> int:
+        return sum(int(p.get(field) or 0) for p in projects)
+
+    titles = [p.get("title") or p.get("study_title") or p.get("accession", "") for p in projects]
+    descriptions = [f"[{p.get('accession', '')}] {p.get('description', '')}".strip()
+                    for p in projects if p.get("description")]
+    records: list[dict] = []
+    for p in projects:
+        records.extend(p.get("sample_records") or [])
+
+    merged = {
+        "accession": accessions[0],
+        "accessions": accessions,
+        "projects": summaries,
+        "type": "BioProject",
+        "title": "; ".join(t for t in titles if t),
+        "description": "\n\n".join(descriptions),
+        "organism": _union("organism"),
+        "organization": _union("organization"),
+        "registration_date": min((p.get("registration_date") for p in projects
+                                  if p.get("registration_date")), default=""),
+        "project_scope": _union("project_scope"),
+        "num_sra_runs": _sum("num_sra_runs"),
+        "num_samples": _sum("num_samples"),
+        "total_bases": _sum("total_bases"),
+        "total_spots": _sum("total_spots"),
+        "breakdown": breakdown,
+        "library_strategy": ", ".join(sorted({b["strategy"] for b in breakdown if b["strategy"]})),
+        "platform": ", ".join(sorted({b["platform"] for b in breakdown if b["platform"]})),
+        "library_source": ", ".join(sorted({b["source"] for b in breakdown if b["source"]})),
+        "library_layout": ", ".join(sorted({b["layout"] for b in breakdown if b["layout"]})),
+    }
+    if records:
+        merged["sample_records"] = records
+    return merged

@@ -33,12 +33,12 @@ def render_manuscript_template(
 
     # Build substitution dict
     subs = {
-        "title": submission.title or f"Analysis of {submission.bioproject_accession}",
+        "title": submission.title or f"Analysis of {submission.bioproject_label}",
         "author_name": author_name or "OMC Contributors",
         "affiliation": affiliation or "",
         "date": datetime.utcnow().strftime("%Y-%m-%d"),
         "abstract": sections.get("abstract", "*Abstract pending.*"),
-        "sra_accession": submission.bioproject_accession,
+        "sra_accession": submission.bioproject_label,
         "pipeline": submission.pipeline.value,
         "paper_id": f"micro-{submission.slug}",
         "introduction": sections.get("introduction", "*Introduction pending.*"),
@@ -94,6 +94,7 @@ def build_paper_repo_files(
     import yaml
     accession_data = {
         "bioproject_accession": submission.bioproject_accession,
+        "bioproject_accessions": submission.bioprojects,
         "sra_accession": submission.sra_accession,
         "pipeline": submission.pipeline.value,
         "submitted_at": submission.submitted_at.isoformat() if submission.submitted_at else None,
@@ -192,7 +193,7 @@ async def process_completed_submission(submission: Submission, db_session) -> st
                 pipeline_outputs=pipeline_outputs,
                 interview_data=submission.interview_data or {},
                 pipeline_type=submission.pipeline.value,
-                bioproject_accession=submission.bioproject_accession,
+                bioproject_accession=submission.bioproject_label,
                 base_url=settings.llm_base_url,
                 api_key=settings.llm_api_key,
                 model=settings.role_model("draft", settings.llm_model),
