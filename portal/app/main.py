@@ -629,13 +629,14 @@ async def submission_detail(
     result = await db.execute(stmt)
     submission = result.scalar_one_or_none()
 
-    # Readable if you own it, or if it belongs to the public account. Anything
-    # else is 404 rather than 403: a stranger learning that a slug exists but is
-    # not theirs is more than they need to know.
+    # Readable if you own it, if it belongs to the public account, or if you are
+    # an admin (read-only: every route that changes a run stays owner-scoped).
+    # Anything else is 404 rather than 403: a stranger learning that a slug
+    # exists but is not theirs is more than they need to know.
     if submission is not None and submission.user_id != public_uid:
         if not user:
             return templates.TemplateResponse("login_required.html", {"request": request})
-        if submission.user_id != user.id:
+        if submission.user_id != user.id and not is_admin(user):
             submission = None
 
     if not submission:
