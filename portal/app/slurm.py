@@ -291,7 +291,7 @@ OMC_DENOISE_MEM=$(( ${{OMC_MEM_GB:-16}} * 3 / 4 ))
     --bind "${{OUTPUT_DIR}}:${{OUTPUT_DIR}}","${{WORK_DIR}}:${{WORK_DIR}}","${{INPUT_DIR}}/fastq:${{INPUT_DIR}}/fastq:ro"{ref_binds} \\
     "{amplicon_sif}" \\
     run /pipeline/main.nf \\
-    --input "${{INPUT_DIR}}/fastq"{primer_args}{ref_arg} \\
+    --input "${{INPUT_DIR}}/fastq"{primer_args}{ref_arg} "${{OMC_EARTHDNA_ARGS[@]}}" \\
     --build_viz_site \\
     --run_phylogeny{meta_args} \\
     --threads "${{OMC_CPUS}}" \\
@@ -345,6 +345,17 @@ if [ -z "${OMC_REF_DBS}" ]; then
     OMC_REF_DBS="%(default)s"
 fi
 echo "Reference databases: ${OMC_REF_DBS}"
+# EarthDNA globe placement (PLACE_GLOBE): on when this cluster has the reference
+# at ${OMC_DB_DIR}/earthdna_db/<release>/ (download-databases.sh --earthdna);
+# the newest release wins. Without it the pipeline runs as before, minus the globe.
+OMC_EARTHDNA_ARGS=()
+_omc_edna=$(ls -d "${OMC_DB_DIR}"/earthdna_db/*/manifest.json 2>/dev/null | sort -V | tail -1)
+if [ -n "${_omc_edna}" ]; then
+    OMC_EARTHDNA_ARGS=(--earthdna_db "$(dirname "${_omc_edna}")")
+    echo "EarthDNA reference: $(dirname "${_omc_edna}")"
+else
+    echo "NOTE: no ${OMC_DB_DIR}/earthdna_db/*/manifest.json - skipping EarthDNA globe placement"
+fi
 '''
 
 
