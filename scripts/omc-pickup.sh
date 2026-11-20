@@ -279,6 +279,9 @@ OMC_SIF_PULL_MODE="${OMC_SIF_PULL_MODE:-inline}"
 OMC_SIF_PULL_MEM="${OMC_SIF_PULL_MEM:-64G}"
 OMC_SIF_PULL_CPUS="${OMC_SIF_PULL_CPUS:-4}"
 OMC_SIF_PULL_TIME="${OMC_SIF_PULL_TIME:-02:00:00}"
+# Lets a pull start in the gap before a maintenance reservation (a pull takes
+# ~15 min) instead of blocking the loop, which waits on it, until the outage ends.
+OMC_SIF_PULL_TIME_MIN="${OMC_SIF_PULL_TIME_MIN:-00:30:00}"
 OMC_SIF_PULL_PARTITION="${OMC_SIF_PULL_PARTITION:-}"
 
 _sif_pull() {  # $1=destination .sif  $2=docker:// ref  $3=file for the pull's own output
@@ -290,6 +293,7 @@ _sif_pull() {  # $1=destination .sif  $2=docker:// ref  $3=file for the pull's o
         sbatch "${SBATCH_ACCT[@]}" "${part[@]}" --wait --quiet --export=ALL \
             --job-name=omc-sif-pull --mem="$OMC_SIF_PULL_MEM" \
             --cpus-per-task="$OMC_SIF_PULL_CPUS" --time="$OMC_SIF_PULL_TIME" \
+            --time-min="$OMC_SIF_PULL_TIME_MIN" \
             --output="$3" \
             --wrap="$(printf '%q ' "$OMC_APPTAINER" pull --force "$1" "$2")"
     else
