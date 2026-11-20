@@ -2,6 +2,11 @@
 #SBATCH --job-name=omc-pickup
 #SBATCH --account=def-rec3141_cpu
 #SBATCH --time=7-00:00:00
+# A maintenance reservation that starts within 7 days would hold a fixed 7-day
+# job pending until the outage is over. With --time-min the backfill scheduler
+# starts it now with its limit cut to end before the reservation; the successor
+# queued below then waits out the outage and starts when the nodes return.
+#SBATCH --time-min=01:00:00
 #SBATCH --cpus-per-task=1
 # 1G is right for a polling loop and wrong for one that occasionally builds a
 # SIF: `singularity pull` converts the OCI layers with mksquashfs, whose peak
